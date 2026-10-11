@@ -1,0 +1,21 @@
+[project]
+name = "investment-homelab"
+version = "0.1.0"
+description = "Semi-Automated Trading & SBL Lifecycle Homelab"
+authors = [{ name = "Investment Homelab" }]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy>=2.0.30",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "httpx>=0.27.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

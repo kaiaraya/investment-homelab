@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "playwright-homelab": {
+      "command": "/home/araya-sawasdichai/Documents/antigravity/InvestmentHomelab/scripts/mcp_launch.sh",
+      "args": ["-m", "app.mcp.mcp_server"],
+      "cwd": "/home/araya-sawasdichai/Documents/antigravity/InvestmentHomelab",
+      "timeout": 180,
+      "disabled": false,
+      "autoApprove": []
+    },
+    "sequential-thinking": {
+      "command": "/home/araya-sawasdichai/.nvm/versions/node/v24.21.0/bin/npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "env": {
+        "PATH": "/home/araya-sawasdichai/.nvm/versions/node/v24.21.0/bin:/usr/local/bin:/usr/bin:/bin"
+      },
+      "disabled": false,
+      "autoApprove": ["sequentialthinking"]
+    },
+    "context7": {
+      "type": "streamableHttp",
+      "url": "https://mcp.context7.com/mcp",
+      "disabled": false,
+      "autoApprove": ["resolve-library-id", "get-library-docs", "query-docs"]
+    }
+  }
+}

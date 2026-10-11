@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Homelab - Automation Roadmap Table Viewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0d14;
+            --bg-card: rgba(18, 24, 38, 0.95);
+            --bg-card-header: rgba(30, 41, 59, 0.8);
+            --border: rgba(255, 255, 255, 0.1);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #38bdf8;
+            --accent-green: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-purple: #a78bfa;
+            --table-hover: rgba(56, 189, 248, 0.05);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', 'Noto Sans Thai', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 24px;
+            line-height: 1.6;
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(167, 139, 250, 0.08) 0%, transparent 40%);
+        }
+
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .header-title h1 {
+            font-size: 26px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #38bdf8, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-title p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            position: relative;
+        }
+
+        .search-box input {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 280px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .search-box input:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+
+        .btn {
+            background: rgba(30, 41, 59, 0.8);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn:hover {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        #content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Typography & Markdown Rendering Styles */
+        #content h1, #content h2, #content h3 {
+            color: #ffffff;
+            margin-top: 32px;
+            margin-bottom: 16px;
+            font-weight: 700;
+        }
+
+        #content h1 { font-size: 24px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        #content h2 { font-size: 20px; color: var(--accent-blue); }
+        #content h3 { font-size: 17px; color: var(--accent-purple); }
+
+        #content p, #content ul, #content ol {
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+
+        #content hr {
+            border: 0;
+            border-top: 1px solid var(--border);
+            margin: 28px 0;
+        }
+
+        /* Beautiful Responsive Table */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 20px 0 32px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.6);
+        }
+
+        thead {
+            background: var(--bg-card-header);
+        }
+
+        th {
+            color: #ffffff;
+            font-weight: 600;
+            text-align: left;
+            padding: 14px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px 16px;
+            font-size: 14px;
+            color: var(--text-primary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr {
+            transition: background-color 0.15s ease;
+        }
+
+        tbody tr:hover {
+            background-color: var(--table-hover);
+        }
+
+        /* Code snippets and badges */
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(255, 255, 255, 0.08);
+            color: #38bdf8;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        pre {
+            background: #07090e;
+            border: 1px solid var(--border);
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 16px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        /* Status highlights */
+        td:nth-child(1) { font-weight: 700; text-align: center; color: var(--accent-blue); width: 60px; } /* ลำดับ */
+        td:nth-child(2) { font-weight: 600; min-width: 140px; } /* Feature / โมดูล */
+        td:nth-child(4) { font-weight: 600; min-width: 90px; } /* Dev Status */
+        td:nth-child(5) { font-weight: 600; min-width: 150px; } /* แนวทางทดสอบ & ความเสี่ยง */
+        td:nth-child(6), td:nth-child(7) { text-align: center; font-size: 15px; width: 80px; } /* Self & HITL */
+        td:nth-child(8) { font-weight: 600; min-width: 120px; } /* Live Approved */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-title">
+                <h1>📊 Automation Roadmap & Status Matrix</h1>
+                <p>ตารางติดตามสถานะระบบอัตโนมัติ (Phase 1 ถึง Phase 5)</p>
+            </div>
+            <div class="controls">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="🔍 ค้นหาโมดูล, ฟีเจอร์, สถานะ..." onkeyup="filterTable()">
+                </div>
+                <button class="btn" onclick="window.print()">🖨️ พิมพ์ / PDF</button>
+            </div>
+        </header>
+
+        <div id="content">กำลังโหลดและจัดรูปแบบตาราง...</div>
+    </div>
+
+    <script>
+        // Fetch and render the markdown file
+        async function loadMarkdown() {
+            try {
+                const response = await fetch('automation_roadmap_status.md');
+                if (!response.ok) throw new Error("Fetch failed");
+                const mdText = await response.text();
+                document.getElementById('content').innerHTML = marked.parse(mdText);
+            } catch (err) {
+                // If fetch is restricted by browser local file policy, render embedded markdown
+                document.getElementById('content').innerHTML = marked.parse(EMBEDDED_MD);
+            }
+        }
+
+        // Live filter for tables
+        function filterTable() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const rows = document.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(query) ? '' : 'none';
+            });
+        }
+    </script>
+    <script src="automation_roadmap_status_embedded.js"></script>
+    <script>
+        // Fallback loader if direct fetch fails
+        window.addEventListener('DOMContentLoaded', () => {
+            if (window.EMBEDDED_MD) {
+                document.getElementById('content').innerHTML = marked.parse(window.EMBEDDED_MD);
+            } else {
+                loadMarkdown();
+            }
+        });
+    </script>
+</body>
+</html>

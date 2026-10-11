@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investment Homelab - Diagrams Preview</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #182234;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --accent-green: #4ade80;
+            --accent-amber: #fbbf24;
+            --border: #334155;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 24px;
+            line-height: 1.6;
+        }
+        header {
+            max-width: 1400px;
+            margin: 0 auto 30px auto;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+        h1 {
+            font-size: 28px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 15px;
+            margin-top: 6px;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            max-width: 1400px;
+            margin: 0 auto 24px auto;
+            flex-wrap: wrap;
+        }
+        .tab-btn {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        .tab-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--accent);
+        }
+        .tab-btn.active {
+            background: var(--accent);
+            color: #0f172a;
+            border-color: var(--accent);
+            font-weight: 600;
+        }
+        .content-card {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            display: none;
+        }
+        .content-card.active {
+            display: block;
+        }
+        .diagram-title {
+            font-size: 20px;
+            color: var(--accent);
+            margin-bottom: 10px;
+        }
+        .diagram-desc {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .mermaid-container {
+            background: var(--bg-card);
+            padding: 24px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+        }
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent);
+        }
+        .instructions {
+            background: rgba(56, 189, 248, 0.08);
+            border-left: 4px solid var(--accent);
+            padding: 14px 18px;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>📊 Investment Homelab Diagram Viewer <span class="badge">Antigravity</span></h1>
+        <p class="subtitle">ระบบช่วยเทรดกึ่งอัตโนมัติ (LINE Webhook / KDE Connect + Headless Playwright TradeMan Krungsri)</p>
+    </header>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('system-comp')">1. System Component Diagram (สถาปัตยกรรม)</button>
+        <button class="tab-btn" onclick="switchTab('session-life')">2. Session & Daily Lifecycle (วงจรประจำวัน/OTP)</button>
+        <button class="tab-btn" onclick="switchTab('long-life')">3. Long Position Lifecycle (ฝั่งซื้อ)</button>
+        <button class="tab-btn" onclick="switchTab('short-life')">4. Short & SBL Lifecycle (ฝั่งยืม-ชอร์ต-คืน)</button>
+    </div>
+
+    <!-- Tab 1: System Component -->
+    <div id="system-comp" class="content-card active">
+        <h2 class="diagram-title">System Component Architecture Diagram</h2>
+        <p class="diagram-desc">แสดงโครงสร้าง 7 เลเยอร์: Mobile Interaction (LINE / KDE Connect), Gateway (FastAPI), Core Engine (Odd-lot / Risk / SBL Manager), Browser Automation (Playwright), SQLite DB และ External Broker (TradeMan)</p>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+graph TB
+    subgraph Mobile_Client_Tier["1. Mobile & User Interaction Tier (บนมือถือของผู้ใช้)"]
+        SignalApp["External Signal App / Screener<br/>(แอปวิเคราะห์สัญญาณหุ้นภายนอก)"]
+        SignalSource["External Signal Source (LINE / Signal Webhook)<br/>- รับสัญญาณเทรดจากแอปภายนอก / Screener<br/>- แยกข้อมูล: Ticker, Action, Price<br/>- ส่ง HTTP POST Webhook"]
+        LineApp["LINE Messaging App<br/>- รับ OTP Reference & ตอบ OTP<br/>- รับข้อความแจ้งเตือนคำสั่งสำเร็จ/ล้มเหลว<br/>- ปุ่มกด Interactive สั่ง Close Position<br/>- ปุ่มกดตัดสินใจกรณี Short ไม่สำเร็จ"]
+        MobileBrowser["Mobile Web Browser<br/>(เข้า Web Dashboard ผ่าน Tailscale / LAN)"]
+    end
+
+    subgraph Homelab_Gateway_Tier["2. Homelab Gateway & Ingestion Tier (FastAPI Engine)"]
+        ReverseProxy["Caddy / Nginx Reverse Proxy<br/>(SSL/TLS + Local Endpoint)"]
+        
+        subgraph APIServer["FastAPI Application"]
+            SignalWebhookHandler["/api/v1/webhook/signal-text<br/>(รับสัญญาณ Open Long / Open Short)"]
+            LineBotWebhookHandler["/api/v1/webhook/line<br/>(รับ OTP, สั่ง Close, ตอบ Inquiry)"]
+            DashboardAPI["/api/v1/dashboard/*<br/>(REST API + SSE สำหรับ Dashboard)"]
+        end
+    end
+
+    subgraph Homelab_Core_Engine["3. Core Orchestration & Business Logic Tier"]
+        OrderValidator["Order & Risk Validator<br/>- Board Lot Check (Volume % 100 == 0)<br/>- ป้องกัน Odd-lot Error<br/>- Cash & Purchasing Power Check"]
+        
+        SBLManager["SBL Lifecycle Manager<br/>- ตรวจสอบคลังหุ้นยืม (Inventory)<br/>- จัดการยืมหุ้น (Borrow)<br/>- จัดการ Lot ID และระยะเวลาถือครอง<br/>- จัดการคืนหุ้น (Return) หลัง Cover<br/>- Logic พักหุ้นยืมเมื่อ Short ไม่สำเร็จ"]
+        
+        ExecutionOrchestrator["Execution Orchestrator<br/>- คิวส่งคำสั่งซื้อขาย (asyncio Queue)<br/>- ประสานงานระหว่าง Signal, Validator, Browser Worker"]
+        
+        SessionSentinel["Session & Heartbeat Sentinel<br/>- ดูแล Morning Login Flow (OTP Relay)<br/>- ตรวจเช็ค Session DOM ทุก 5 นาที<br/>- Reconnect อัตโนมัติเมื่อ Session หลุด<br/>- สั่ง Logout & ปิด Browser ตอนตลาดปิด"]
+        
+        PnLEngine["Portfolio & PnL Engine<br/>- คำนวณ Realized / Unrealized PnL<br/>- คำนวณต้นทุนดอกเบี้ยหุ้นยืม SBL"]
+    end
+
+    subgraph Automation_Worker_Tier["4. Browser Automation Worker Tier (Playwright Engine)"]
+        PlaywrightManager["Playwright Context Manager<br/>(รัน Chromium Headless พร้อม Persistent Profile)"]
+        
+        subgraph PageDrivers["Modular Web Drivers"]
+            AuthDriver["Auth Driver<br/>- krungsrisecurities.com Login<br/>- กรอก OTP SMS<br/>- จัดการ efin SSO Redirect"]
+            
+            TradeManLongDriver["TradeMan Long Driver<br/>- แท็บ BUY / SELL<br/>- กรอก Volume / Price / PIN<br/>- ตรวจจับ Popup และ Error Message"]
+            
+            TradeManSBLDriver["TradeMan SBL Driver<br/>- แท็บ 'หุ้นยืม SBL'<br/>- ตรวจเช็คจำนวนหุ้นคงเหลือ<br/>- กดยืนยันการยืมหุ้น<br/>- เมนู 'คืนหุ้น' ตาม Lot รายการ"]
+            
+            TradeManShortDriver["TradeMan Short Driver<br/>- แท็บ SHORT / COVER<br/>- กรอก Volume / Price / PIN<br/>- ตรวจสอบสถานะการจับคู่คำสั่ง"]
+        end
+    end
+
+    subgraph Persistence_Tier["5. Data Persistence Tier (SQLite DB)"]
+        SQLiteDB[("SQLite Database: tradelab.db")]
+        TableOrders["TABLE: orders<br/>(order_id, symbol, side, volume, price, status, pin_used)"]
+        TableSBLLots["TABLE: sbl_borrow_lots<br/>(lot_id, broker_tx_id, symbol, borrow_qty, borrow_date, return_date, status)"]
+        TablePositions["TABLE: positions<br/>(symbol, position_type, volume, avg_cost, unrealized_pnl)"]
+        TableSessionLogs["TABLE: session_logs<br/>(timestamp, event, status, latency)"]
+    end
+
+    subgraph Dashboard_Tier["6. Local Web Dashboard Tier"]
+        WebDashboard["Lightweight Responsive Web Dashboard<br/>- ตาราง Real-time Portfolio (Long & Short)<br/>- ตารางสถานะหุ้นยืม SBL Lots<br/>- ปุ่มควบคุมฉุกเฉิน (Emergency Close All)<br/>- บันทึกสถานะระบบ & Log การยิงคำสั่ง"]
+    end
+
+    subgraph External_Broker_Tier["7. External Broker Tier (Krungsri & TradeMan)"]
+        KrungsriPortal["Krungsri Securities Portal<br/>(krungsrisecurities.com)"]
+        EfinSSO["efin.finance SSO Gateway"]
+        TradeManWeb["TradeMan Platform<br/>(trademan.in.th)"]
+    end
+
+    SignalApp -.-> SignalSource
+    SignalSource --> ReverseProxy
+    LineApp <--> ReverseProxy
+    MobileBrowser <--> ReverseProxy
+    
+    ReverseProxy --> SignalWebhookHandler
+    ReverseProxy --> LineBotWebhookHandler
+    ReverseProxy --> DashboardAPI
+    
+    SignalWebhookHandler --> ExecutionOrchestrator
+    LineBotWebhookHandler --> ExecutionOrchestrator
+    LineBotWebhookHandler --> SessionSentinel
+    DashboardAPI --> PnLEngine
+    
+    ExecutionOrchestrator --> OrderValidator
+    ExecutionOrchestrator --> SBLManager
+    ExecutionOrchestrator --> PlaywrightManager
+    
+    SessionSentinel --> PlaywrightManager
+    
+    PlaywrightManager --> AuthDriver
+    PlaywrightManager --> TradeManLongDriver
+    PlaywrightManager --> TradeManSBLDriver
+    PlaywrightManager --> TradeManShortDriver
+    
+    AuthDriver --> KrungsriPortal
+    AuthDriver --> EfinSSO
+    AuthDriver --> TradeManWeb
+    
+    TradeManLongDriver --> TradeManWeb
+    TradeManSBLDriver --> TradeManWeb
+    TradeManShortDriver --> TradeManWeb
+    
+    OrderValidator --> SQLiteDB
+    SBLManager --> SQLiteDB
+    ExecutionOrchestrator --> SQLiteDB
+    PnLEngine --> SQLiteDB
+    SessionSentinel --> SQLiteDB
+    
+    SQLiteDB --- TableOrders
+    SQLiteDB --- TableSBLLots
+    SQLiteDB --- TablePositions
+    SQLiteDB --- TableSessionLogs
+    
+    DashboardAPI --> WebDashboard
+    PnLEngine -.-> LineApp
+    SessionSentinel -.-> LineApp
+            </pre>
+        </div>
+    </div>
+
+    <!-- Tab 2: Session Lifecycle -->
+    <div id="session-life" class="content-card">
+        <h2 class="diagram-title">System & Daily Session Lifecycle State Machine</h2>
+        <p class="diagram-desc">วงจรประจำวัน ตั้งแต่เตรียม Login 09:30 น. ขอ OTP ผ่าน LINE, เฝ้า Heartbeat ตรวจ DOM ทุก 5 นาที และ Logout ปิดเครื่อง 16:35 น.</p>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> IDLE_NIGHT : ตลาดปิดทำการ (นอกเวลา)
+    
+    IDLE_NIGHT --> PREPARING_MORNING_LOGIN : เวลา 09:30 น. (Cron Trigger)
+    
+    state PREPARING_MORNING_LOGIN {
+        [*] --> LAUNCH_BROWSER : เปิด Headless Chromium (Playwright)
+        LAUNCH_BROWSER --> NAVIGATE_KRUNGSRI : เข้าหน้า krungsrisecurities.com
+        NAVIGATE_KRUNGSRI --> SUBMIT_CREDENTIALS : กรอก Username & Password
+        SUBMIT_CREDENTIALS --> EXTRACT_OTP_REF : อ่าน OTP Reference Code จากหน้าเว็บ
+    }
+    
+    PREPARING_MORNING_LOGIN --> WAITING_OTP_SMS : ส่ง Ref Code ไปยัง LINE ของผู้ใช้
+    
+    WAITING_OTP_SMS --> SUBMITTING_OTP : ผู้ใช้พิมพ์ส่ง OTP กลับมาทาง LINE
+    WAITING_OTP_SMS --> LOGIN_FAILED_TIMEOUT : ผู้ใช้ไม่ตอบกลับภายใน 5 นาที
+    
+    LOGIN_FAILED_TIMEOUT --> IDLE_NIGHT : ปิด Browser และแจ้งเตือน Error ทาง LINE
+    
+    state SUBMITTING_OTP {
+        [*] --> ENTER_OTP : กรอก OTP 6 หลักลงหน้าเว็บ
+        ENTER_OTP --> WAIT_SSO_REDIRECT : รอ efin SSO -> trademan.in.th
+        WAIT_SSO_REDIRECT --> VERIFY_TRADEMAN_LOADED : ตรวจสอบ DOM TradeMan สำเร็จ
+    }
+    
+    SUBMITTING_OTP --> ACTIVE_TRADING_SESSION : ล็อกอินสำเร็จ เข้าสู่โหมดพร้อมเทรด
+    
+    state ACTIVE_TRADING_SESSION {
+        [*] --> MONITORING_HEARTBEAT : ส่ง Heartbeat ping ทุก 5 นาที
+        MONITORING_HEARTBEAT --> CHECK_DOM_ALIVE : ตรวจสอบ Widget / Market Status
+        CHECK_DOM_ALIVE --> READY_FOR_ORDERS : Session สมบูรณ์ พร้อมรับคำสั่ง
+        READY_FOR_ORDERS --> MONITORING_HEARTBEAT : วนรอบตรวจสอบ
+    }
+    
+    ACTIVE_TRADING_SESSION --> SESSION_LOST : ตรวจพบการ Disconnect หรือ Logout
+    SESSION_LOST --> AUTO_RECONNECT_ATTEMPT : พยายามต่อ Session ใหม่
+    AUTO_RECONNECT_ATTEMPT --> ACTIVE_TRADING_SESSION : กู้คืน Session สำเร็จ
+    AUTO_RECONNECT_ATTEMPT --> WAITING_OTP_SMS : Session ขาด จำเป็นต้องขอ OTP ใหม่
+    
+    ACTIVE_TRADING_SESSION --> MARKET_CLOSE_PROCEDURE : เวลา 16:35 น. (ตลาดปิด)
+    
+    state MARKET_CLOSE_PROCEDURE {
+        [*] --> GENERATE_DAILY_REPORT : รวบรวมสรุปสถานะพอร์ตและ PnL ประจำวัน
+        GENERATE_DAILY_REPORT --> SEND_LINE_SUMMARY : ส่งรายงานสรุปเข้า LINE
+        SEND_LINE_SUMMARY --> SAFE_LOGOUT : กด Logout จาก TradeMan & Krungsri
+        SAFE_LOGOUT --> TERMINATE_BROWSER : ปิด Chromium Context ให้สมบูรณ์
+    }
+    
+    MARKET_CLOSE_PROCEDURE --> IDLE_NIGHT : กลับสู่สถานะพักเครื่องข้ามคืน
+            </pre>
+        </div>
+    </div>
+
+    <!-- Tab 3: Long Position Lifecycle -->
+    <div id="long-life" class="content-card">
+        <h2 class="diagram-title">Long Position Lifecycle State Machine</h2>
+        <p class="diagram-desc">วงจรชีวิตคำสั่งซื้อฝั่ง Long: รับสัญญาณจาก Signal Webhook -> ป้องกัน Odd-lot -> ส่ง Buy -> เฝ้าพอร์ต -> ปิดสถานะด้วยตนเอง -> ส่ง Sell -> บันทึก PnL</p>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> WAITING_SIGNAL : ระบบพร้อมรับคำสั่ง
+    
+    WAITING_SIGNAL --> INGESTING_OPEN_SIGNAL : ได้รับ Signal จาก LINE / Signal Webhook
+    
+    state INGESTING_OPEN_SIGNAL {
+        [*] --> PARSE_PAYLOAD : แกะข้อมูล (Symbol, Volume, Price)
+        PARSE_PAYLOAD --> VALIDATE_BOARD_LOT : ตรวจสอบ Volume % 100 == 0 (กัน Odd-lot)
+        VALIDATE_BOARD_LOT --> CHECK_CASH_BALANCE : ตรวจสอบ Line Available / Cash Balance
+    }
+    
+    INGESTING_OPEN_SIGNAL --> VALIDATION_FAILED : ไม่ผ่านเกณฑ์ (เช่น เป็น Odd-lot หรือเงินไม่พอ)
+    VALIDATION_FAILED --> WAITING_SIGNAL : ส่ง Alert แจ้งเตือนข้อผิดพลาดทาง LINE
+    
+    INGESTING_OPEN_SIGNAL --> SUBMITTING_BUY_ORDER : ข้อมูลถูกต้อง
+    
+    state SUBMITTING_BUY_ORDER {
+        [*] --> SELECT_BUY_TAB : เลือกแท็บ BUY บนหน้าจอ TradeMan
+        SELECT_BUY_TAB --> FILL_BUY_FORM : กรอก Symbol, Volume, Price
+        FILL_BUY_FORM --> ENTER_PIN_AND_SUBMIT : กรอก Trading PIN และกดยืนยัน
+        ENTER_PIN_AND_SUBMIT --> CAPTURE_ORDER_RESULT : ดึง Order No. และสถานะ
+    }
+    
+    SUBMITTING_BUY_ORDER --> BUY_ORDER_REJECTED : โบรกเกอร์ปฏิเสธคำสั่ง
+    BUY_ORDER_REJECTED --> WAITING_SIGNAL : แจ้ง Error ทาง LINE และบันทึก Log
+    
+    SUBMITTING_BUY_ORDER --> POSITION_OPEN_LONG : คำสั่ง Buy ถูกส่งและจับคู่สำเร็จ
+    
+    state POSITION_OPEN_LONG {
+        [*] --> TRACK_UNREALIZED_PNL : ติดตามราคาตลาดและคำนวณกำไร/ขาดทุน
+        TRACK_UNREALIZED_PNL --> SYNC_DASHBOARD : อัปเดตข้อมูลบน Web Dashboard
+    }
+    
+    POSITION_OPEN_LONG --> USER_CLOSE_INITIATED : ผู้ใช้สั่ง Close Position จากมือถือ (LINE / Dashboard)
+    
+    state CLOSING_LONG_POSITION {
+        [*] --> SELECT_SELL_TAB : เลือกแท็บ SELL
+        SELECT_SELL_TAB --> FILL_SELL_FORM : ระบุ Symbol, Volume เต็มจำนวน, Price
+        FILL_SELL_FORM --> SUBMIT_SELL_PIN : กรอก Trading PIN และกดยืนยัน
+        SUBMIT_SELL_PIN --> VERIFY_SELL_MATCHED : ยืนยัน Order แมตช์เรียบร้อย
+    }
+    
+    USER_CLOSE_INITIATED --> CLOSING_LONG_POSITION
+    CLOSING_LONG_POSITION --> POSITION_CLOSED_SETTLED : ขายสำเร็จ
+    
+    state POSITION_CLOSED_SETTLED {
+        [*] --> CALC_REALIZED_PNL : คำนวณกำไร/ขาดทุนสุทธิ (หักคอมมิชชั่น + VAT)
+        CALC_REALIZED_PNL --> ARCHIVE_TRADE_DB : บันทึกลงฐานข้อมูลประวัติการเทรด
+        ARCHIVE_TRADE_DB --> NOTIFY_LINE_RESULT : ส่งสรุปผลการปิดออเดอร์เข้า LINE
+    }
+    
+    POSITION_CLOSED_SETTLED --> WAITING_SIGNAL
+            </pre>
+        </div>
+    </div>
+
+    <!-- Tab 4: Short & SBL Lifecycle -->
+    <div id="short-life" class="content-card">
+        <h2 class="diagram-title">Short Position & SBL Lifecycle State Machine</h2>
+        <p class="diagram-desc">วงจรชีวิต Short Selling ผ่าน SBL ครบวงจร พร้อมกลไกสำคัญ: หาก Short ไม่สำเร็จ จะพักหุ้นยืมไว้และส่งข้อความถามผู้ใช้ทาง LINE ก่อนตัดสินใจคืนหุ้น</p>
+        <div class="mermaid-container">
+            <pre class="mermaid">
+stateDiagram-v2
+    [*] --> READY_WAITING_SIGNAL : สแตนด์บายรอรับคำสั่ง Short
+    
+    READY_WAITING_SIGNAL --> INGEST_SHORT_SIGNAL : ได้รับ Signal Open Short จาก LINE / Signal Webhook
+    
+    state INGEST_SHORT_SIGNAL {
+        [*] --> VALIDATE_SHORT_LOT : ตรวจสอบว่า Volume เป็น Board Lot (Modulo 100 == 0)
+        VALIDATE_SHORT_LOT --> CHECK_SBL_ELIGIBILITY : ตรวจสอบว่าเป็นหุ้นในลิสต์ SBL
+    }
+    
+    INGEST_SHORT_SIGNAL --> SHORT_INPUT_INVALID : พบข้อผิดพลาด (เช่น ส่ง 96 หุ้น)
+    SHORT_INPUT_INVALID --> READY_WAITING_SIGNAL : แจ้งเตือนสาเหตุทาง LINE และยกเลิก
+    
+    INGEST_SHORT_SIGNAL --> QUERYING_SBL_POOL : ข้อมูลผ่านเกณฑ์
+    
+    state QUERYING_SBL_POOL {
+        [*] --> OPEN_SBL_TAB : เปิดแท็บ "หุ้นยืม SBL" ใน TradeMan
+        OPEN_SBL_TAB --> SEARCH_STOCK_SBL : ค้นหาชื่อหุ้น (เช่น AP, HMPRO, DELTA)
+        SEARCH_STOCK_SBL --> READ_AVAILABLE_QTY : อ่านจำนวนหุ้นคงเหลือที่ให้ยืมได้
+    }
+    
+    QUERYING_SBL_POOL --> SBL_INSUFFICIENT_STOCK : จำนวนหุ้นในคลังไม่พอให้ยืม
+    SBL_INSUFFICIENT_STOCK --> READY_WAITING_SIGNAL : แจ้งเตือนผู้ใช้ว่า "หุ้น SBL ไม่พอ"
+    
+    QUERYING_SBL_POOL --> EXECUTING_SBL_BORROW : มีหุ้นเพียงพอในคลัง
+    
+    state EXECUTING_SBL_BORROW {
+        [*] --> FILL_BORROW_QTY : ระบุจำนวนหุ้นที่ต้องการยืม
+        FILL_BORROW_QTY --> CONFIRM_BORROW_DIALOG : กดยืนยันการยืมหุ้น
+        CONFIRM_BORROW_DIALOG --> RECORD_BORROW_LOT : บันทึก Borrow Lot ID, วันที่ยืม, จำนวนหุ้น
+    }
+    
+    EXECUTING_SBL_BORROW --> SBL_BORROW_SUCCESS : ยืมหุ้นสำเร็จ ได้หุ้นเข้าพอร์ต SBL
+    
+    state EXECUTING_SHORT_ORDER {
+        [*] --> SELECT_SHORT_TAB : สลับไปแท็บ Trading A/C -> SHORT
+        SELECT_SHORT_TAB --> FILL_SHORT_FORM : ระบุ Symbol, Volume, Price
+        FILL_SHORT_FORM --> ENTER_PIN_CONFIRM_SHORT : กรอก Trading PIN และกดยืนยัน
+        ENTER_PIN_CONFIRM_SHORT --> MONITOR_SHORT_MATCH : ตรวจสอบผลการจับคู่คำสั่ง
+    }
+    
+    SBL_BORROW_SUCCESS --> EXECUTING_SHORT_ORDER
+    
+    EXECUTING_SHORT_ORDER --> SHORT_MATCHED_SUCCESS : คำสั่ง Short ถูกจับคู่สำเร็จ (Filled)
+    EXECUTING_SHORT_ORDER --> SHORT_ORDER_FAILED_OR_CANCELLED : คำสั่ง Short โดน Reject หรือหลุดราคา
+
+    state SHORT_ORDER_FAILED_OR_CANCELLED {
+        [*] --> HOLD_BORROWED_SHARES : พักหุ้นยืมไว้ในพอร์ต (ไม่คืนทันที)
+        HOLD_BORROWED_SHARES --> SEND_LINE_INQUIRY : ส่ง Interactive Message ถามผู้ใช้ทาง LINE
+    }
+    
+    SHORT_ORDER_FAILED_OR_CANCELLED --> PROMPT_USER_DECISION : รอการตัดสินใจจากผู้ใช้
+    
+    state PROMPT_USER_DECISION {
+        [*] --> USER_CHOICE_MENU : ตัวเลือก: [1] สั่ง Short ใหม่ (Retry) หรือ [2] ส่งคืน SBL ทันที
+    }
+    
+    PROMPT_USER_DECISION --> EXECUTING_SHORT_ORDER : ผู้ใช้เลือก [1] ปรับราคาแล้วกด Retry Short
+    PROMPT_USER_DECISION --> SBL_RETURN_EXECUTION : ผู้ใช้เลือก [2] ยกเลิกแผนและส่งคืนหุ้น SBL
+    
+    SHORT_MATCHED_SUCCESS --> POSITION_OPEN_SHORT : เปิดสถานะ Short สำเร็จ
+    
+    state POSITION_OPEN_SHORT {
+        [*] --> MONITOR_SHORT_POSITION : ติดตามราคาตลาดและประเมิน Unrealized PnL
+        MONITOR_SHORT_POSITION --> TRACK_BORROW_FEES : คำนวณดอกเบี้ยหุ้นยืมสะสมตามวัน
+    }
+    
+    POSITION_OPEN_SHORT --> USER_CLOSE_SHORT_TRIGGERED : ผู้ใช้ส่งคำสั่ง Close Short (จาก LINE / Web Dashboard)
+    
+    state EXECUTING_COVER_ORDER {
+        [*] --> SELECT_COVER_TAB : เลือกแท็บ COVER ใน TradeMan
+        SELECT_COVER_TAB --> FILL_COVER_FORM : ระบุ Symbol, Volume, Price ที่ต้องการซื้อคืน
+        FILL_COVER_FORM --> SUBMIT_COVER_PIN : กรอก Trading PIN และกดยืนยัน
+        SUBMIT_COVER_PIN --> WAIT_COVER_FILLED : รอจนกระทั่งคำสั่ง Cover จับคู่สมบูรณ์
+    }
+    
+    USER_CLOSE_SHORT_TRIGGERED --> EXECUTING_COVER_ORDER
+    EXECUTING_COVER_ORDER --> SBL_RETURN_EXECUTION : หุ้นถูกซื้อคืนครบถ้วน พร้อมคืน SBL
+    
+    state SBL_RETURN_EXECUTION {
+        [*] --> OPEN_SBL_RETURN_MENU : เข้าแท็บ SBL -> เมนู "คืนหุ้น"
+        OPEN_SBL_RETURN_MENU --> MATCH_BORROW_LOTS : จับคู่ Lot รายการยืมเดิม (วันที่, เลขที่ทำรายการ)
+        MATCH_BORROW_LOTS --> SUBMIT_RETURN_QTY : ระบุจำนวนหุ้นคืนแต่ละ Lot
+        SUBMIT_RETURN_QTY --> CONFIRM_RETURN_POPUP : กดยืนยันการคืนหุ้น
+        CONFIRM_RETURN_POPUP --> VERIFY_RETURN_SUCCESS : ตรวจสอบข้อความ "คืนหุ้นสำเร็จ!"
+    }
+    
+    SBL_RETURN_EXECUTION --> SHORT_POSITION_FULLY_CLOSED : คืนหุ้นเรียบร้อย
+    
+    state SHORT_POSITION_FULLY_CLOSED {
+        [*] --> CALC_NET_SHORT_PNL : คำนวณกำไร/ขาดทุนสุทธิ (หักค่าธรรมเนียมยืมหุ้น SBL)
+        CALC_NET_SHORT_PNL --> UPDATE_DB_STATE : บันทึกลงฐานข้อมูลและเคลียร์ Lot SBL
+        UPDATE_DB_STATE --> NOTIFY_LINE_SUMMARY : ส่งสรุปกำไรและผลการคืนหุ้นเข้า LINE
+    }
+    
+    SHORT_POSITION_FULLY_CLOSED --> READY_WAITING_SIGNAL
+            </pre>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                darkMode: true,
+                background: '#182234',
+                primaryColor: '#1e3a8a',
+                primaryTextColor: '#f8fafc',
+                primaryBorderColor: '#38bdf8',
+                lineColor: '#38bdf8',
+                secondaryColor: '#065f46',
+                tertiaryColor: '#1e293b'
+            },
+            flowchart: {
+                curve: 'basis'
+            }
+        });
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.content-card').forEach(c => c.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            const targetCard = document.getElementById(tabId);
+            if (targetCard) {
+                targetCard.classList.add('active');
+            }
+        }
+    </script>
+</body>
+</html>
