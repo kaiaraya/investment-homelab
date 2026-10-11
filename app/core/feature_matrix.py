@@ -48,15 +48,21 @@ BROKERS: List[Dict[str, Any]] = [
 ]
 
 # ─── Vertical axis: Pillars (rows) ──────────────────────────────────────────────
+# Promotion log: 2026-10-11 — LIBERATOR P1/P2/P5 sandbox → live.
+#   Evidence: docs/handoff/TASK-pillar2-portfolio-refactor.md (Gate D live 2026-10-06),
+#   docs/handoff/TASK-pillar2-order-ledger.md (U6 live 2026-10-07),
+#   docs/handoff/TASK-otp-channel-authoritative.md (D2 live 2026-10-08),
+#   docs/handoff/TASK-pillar1-acceptance.md (Stage 3 cached-session).
+#   P3_TRADE stays sandbox (Liberator place/cancel not live-verified; amend in-place live 2026-10-09).
 FEATURE_MATRIX: List[Dict[str, Any]] = [
     {
         "key": "P1_SESSION",
         "pillar": "P1",
         "name": "Session — Login + OTP",
-        "notes": "Krungsri login + LINE OTP relay (requirement #1: ทำงานจริง)",
+        "notes": "Krungsri login + LINE OTP relay · Liberator live-verified 2026-10-07 (2FA) + 2026-10-08 (LINE OTP)",
         "cells": {
             "KRUNGSRI": STATUS_LIVE,
-            "LIBERATOR": STATUS_SANDBOX,
+            "LIBERATOR": STATUS_LIVE,
             "CLICK2WIN": STATUS_NA,
             "SETTRADE_OPENAPI": STATUS_NA,
         },
@@ -65,10 +71,10 @@ FEATURE_MATRIX: List[Dict[str, Any]] = [
         "key": "P2_PORTFOLIO",
         "pillar": "P2",
         "name": "Portfolio — Holdings & Equity",
-        "notes": "Krungsri portfolio scrape + realtime account equity",
+        "notes": "Krungsri portfolio scrape + realtime account equity · Liberator live-verified 2026-10-06 (Gate D: 5 holdings + PnL)",
         "cells": {
             "KRUNGSRI": STATUS_LIVE,
-            "LIBERATOR": STATUS_SANDBOX,
+            "LIBERATOR": STATUS_LIVE,
             "CLICK2WIN": STATUS_NA,
             "SETTRADE_OPENAPI": STATUS_NA,
         },
@@ -77,7 +83,7 @@ FEATURE_MATRIX: List[Dict[str, Any]] = [
         "key": "P3_TRADE",
         "pillar": "P3",
         "name": "Trade — Place / Amend / Cancel",
-        "notes": "คำสั่งซื้อขาย + HITL gate (requirement #2: ต่อราคา + สั่งการผ่าน LINE)",
+        "notes": "คำสั่งซื้อขาย + HITL gate · Liberator: amend (native Change) live-verified 2026-10-09; place/cancel ยังไม่ live-verified",
         "cells": {
             "KRUNGSRI": STATUS_LIVE,
             "LIBERATOR": STATUS_SANDBOX,
@@ -89,10 +95,10 @@ FEATURE_MATRIX: List[Dict[str, Any]] = [
         "key": "P5_ORDERS",
         "pillar": "P5",
         "name": "Orders — Ledger & HITL Queue",
-        "notes": "SQLite order journal + pending HITL order queue",
+        "notes": "SQLite order journal + pending HITL order queue · Liberator ledger live-verified 2026-10-07 (matched order)",
         "cells": {
             "KRUNGSRI": STATUS_LIVE,
-            "LIBERATOR": STATUS_SANDBOX,
+            "LIBERATOR": STATUS_LIVE,
             "CLICK2WIN": STATUS_NA,
             "SETTRADE_OPENAPI": STATUS_NA,
         },
