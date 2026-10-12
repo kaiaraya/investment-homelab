@@ -7,6 +7,12 @@ from app.browser.session_sentinel import SessionSentinel
 from app.core.events import event_bus
 
 
+@pytest.fixture(autouse=True)
+def _isolate_session_path(monkeypatch, tmp_path):
+    """KSS-RCA-015: ห้ามเทสต์แตะ session file จริงของผู้ใช้ (isolate ไป tmp_path)."""
+    monkeypatch.setattr(settings, "SESSION_STATE_PATH", str(tmp_path / "session_state.json"))
+
+
 @pytest.mark.asyncio
 async def test_session_status_endpoint():
     """Tests GET /api/v1/session/status returns correct initial structure."""

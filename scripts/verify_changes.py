@@ -133,6 +133,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_start_homelab_transport.py",
         "tests/test_start_homelab_resolve_plan.py",
     ],
+    "scripts/dev_resume_session.py": ["tests/test_dev_resume_session.py"],
 }
 
 DOC_SUFFIXES = (".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".env")

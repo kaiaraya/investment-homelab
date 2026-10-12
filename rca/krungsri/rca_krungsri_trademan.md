@@ -33,7 +33,7 @@
 | 2026-10-07 | `KSS-RCA-012` | **`switch_account` Timeout จาก 'Connection Lost' Dialog**: คลิก `#dropDownAccountPort` ล้มเหลว (`ElementHandle.click: Timeout 30000ms`) เพราะป๊อปอัป "Connection Lost" บังจอ และ Gemini Vision fallback ใช้ไม่ได้ (HTTP 429/503) | `FAST_DISMISS_SELECTORS` มีแต่ปุ่ม ปิด/X/รับทราบ + scrim ไม่มี selector ปุ่ม "Reconnect" ของ Connection-Lost dialog → Tier 1 ไม่แมตช์, Escape ไม่ปิด, Gemini พัง → `dismiss_popups()` คืน False ปล่อย overlay ค้าง | 🟢 RESOLVED (2026-10-07) — Tier 0 Reconnect ใน `popup_manager`; ดู [Deep Dive](#-incident-kss-rca-012) |
 | 2026-10-07 | `KSS-RCA-013` | **Zero-OTP Session Wiped by a Transient Timeout**: หลัง login Krungsri สำเร็จสด (OTP `807258`, เขียน `data/session_state.json` แล้ว) การรัน diagnostic เจอ `Page.goto: Timeout 12000ms` ใน `verify_saved_session()` → ไฟล์เซสชันที่ยัง **ใช้ได้** ถูกลบทิ้งทันที → ต้อง login ใหม่ (เผา SMS OTP + เสี่ยง lock) | `KrungsriAuthDriver.verify_saved_session()` มี `os.remove(SESSION_STATE_PATH)` **2 จุด** (except=timeout ชั่วคราว + else=หา selector ไม่เจอ) โดยไม่มีหลักฐานว่าเซสชันหมดอายุจริง → ละเมิด Invariant 8 | 🟢 RESOLVED (2026-10-07) — non-destructive quarantine; ดู [Deep Dive](#-incident-kss-rca-013) |
 | 2026-10-07 | `KSS-RCA-014` | **Order Ledger อ่านคอลัมน์ผิด (symbol=UNKNOWN, status=<เวลา>)**: `scrape_all_orders()` คืน `symbol=UNKNOWN` ทุกแถว และ `status_raw` เป็นเวลา (เช่น `16:29:55`) บนแท็บ 'View Order' | ใช้ `page.query_selector_all("table tbody tr")` กว้างเกินไป (ปนตาราง Watchlist/กองทุน) + `switch_tab('order_status')` ใช้ `div:has-text('View Order')` กำกวม → อ่าน table/คอลัมน์ผิด | 🟢 RESOLVED (2026-10-07) — Deterministic Table Header Isolation; ดู [Deep Dive](#-incident-kss-rca-014) |
-| 2026-10-08 | `KSS-RCA-015` | **Full-suite ลบ Zero-OTP session สดทิ้ง (เป็นเส้นทางที่ 2 ที่ `KSS-RCA-013` ปิดไม่ถึง)**: หลัง D2 ทำให้ `data/session_state.json` สดใหม่ (60 cookies @ 21:01) การรัน `pytest tests/ -q` ทำให้ไฟล์ **หายไปตอน ~21:08** โดยไม่มี backup → ต้อง login ใหม่ (เผา SMS OTP) | `tests/test_browser_driver.py::test_session_logout_endpoint` ยิง `POST /api/v1/session/logout` เข้า **app จริง** โดย **ไม่ monkeypatch** `settings.SESSION_STATE_PATH` → `app/api/v1/endpoints/session.py:103` เรียก `os.remove(settings.SESSION_STATE_PATH)` ลบไฟล์จริง · guard test เดิม (`tests/test_auth_session_nondestructive.py`) คุมเฉพาะเส้นทาง `verify_saved_session()` **ไม่ครอบคลุม logout endpoint** | 🟡 **OPEN + พิสูจน์ซ้ำ 2026-10-09 (full suite ผ่านเต็มแต่ไฟล์ session หาย)** (นอก scope ของ handoff `TASK-otp-channel-authoritative.md`) — ต้อง monkeypatch `SESSION_STATE_PATH` → `tmp_path`; ดู [Deep Dive](#-incident-kss-rca-015) |
+| 2026-10-08 | `KSS-RCA-015` | **Full-suite ลบ Zero-OTP session สดทิ้ง (เป็นเส้นทางที่ 2 ที่ `KSS-RCA-013` ปิดไม่ถึง)**: หลัง D2 ทำให้ `data/session_state.json` สดใหม่ (60 cookies @ 21:01) การรัน `pytest tests/ -q` ทำให้ไฟล์ **หายไปตอน ~21:08** โดยไม่มี backup → ต้อง login ใหม่ (เผา SMS OTP) | `tests/test_browser_driver.py::test_session_logout_endpoint` ยิง `POST /api/v1/session/logout` เข้า **app จริง** โดย **ไม่ monkeypatch** `settings.SESSION_STATE_PATH` → `app/api/v1/endpoints/session.py:103` เรียก `os.remove(settings.SESSION_STATE_PATH)` ลบไฟล์จริง · guard test เดิม (`tests/test_auth_session_nondestructive.py`) คุมเฉพาะเส้นทาง `verify_saved_session()` **ไม่ครอบคลุม logout endpoint** | 🟢 RESOLVED (2026-10-12) — autouse fixture isolate `SESSION_STATE_PATH` → `tmp_path` ใน `tests/test_browser_driver.py`; ดู [Deep Dive](#-incident-kss-rca-015) |
 
 | 2026-10-09 | `KSS-RCA-016` | **Fabricated Order IDs + No Native "Change" Button**: `execute_order` คืน `order_id` ปลอมรูป `ORD-<epoch>` และสมมติว่ามีปุ่ม "Change" บนหน้า View Order (ความจริง **ไม่มี**) → amend/ต่อราคาทำจริงไม่ได้ | (1) TradeMan ไม่มีปุ่ม Change (พิสูจน์สด 2026-10-09: `data/krungsri_order_actions_dump.json`) → amend ต้อง = Cancel + Re-submit; (2) driver สังเคราะห์ order id เองแทนการอ่าน `Order No.` จริงจาก ledger | 🟢 RESOLVED (2026-10-09) — ดู [Deep Dive](#-incident-kss-rca-016) |
 | 2026-10-09 | `KSS-RCA-017` | **SHORT Uptick หลวม + `last` ปลอม**: `validate_short_uptick` ยอมให้ตั้งราคา `== last` (zero-plus tick) และ Price Negotiation ปั้น `last` จากราคาคำสั่งตัวเอง → เสนอราคา SHORT ที่ตลาด reject | SSOT ใช้ `>=` (ควรเป็น strict `>`); `price_negotiation_service` มี `last = quote.get("last") or bid_1 or offer_1 or current_order_price` (Anti-Mock violation); driver มีการตีความ uptick สองแบบขัดกัน | 🟢 RESOLVED (2026-10-09) — ดู [Deep Dive](#-incident-kss-rca-017) |
@@ -381,7 +381,7 @@
 ### 📌 Incident `KSS-RCA-015`: Full-suite ลบ Zero-OTP Session สดทิ้ง (Logout-Endpoint Vector)
 
 **Incident ID & Date**: KSS-RCA-015 (2026-10-08 ~21:08 +07 — ตรวจพบตอนปิดงาน D2 ของ handoff `TASK-otp-channel-authoritative.md`)
-**Status**: 🟡 **OPEN** — บันทึกตามจริง ยัง**ไม่แก้** (ไฟล์เทสต์นอก scope ของ handoff นั้น)
+**Status**: 🟢 **RESOLVED (2026-10-12)** — autouse fixture isolate session path (ดูหัวข้อ Resolution ด้านล่าง)
 **พิสูจน์ซ้ำ (Recurrence — 2026-10-09 ~15:39 +07)**: 🔴 ระหว่างปิดงาน handoff `TASK-krungsri-cancel-amend-uptick.md`
 รัน `scripts/verify_changes.py --full` → **`362 passed in 204.97s` (ผ่านเต็ม ไม่ถูก kill)** แต่หลังจบการรัน
 `data/session_state.json` **หายไปจริง** ⇒ ยืนยันว่า **ตัวเทสต์เองเป็นผู้ลบ** ไม่เกี่ยวกับการ kill ค้าง (ตัดสมมติฐานทิ้ง)
@@ -419,7 +419,7 @@
   แต่ไม่มีคำอธิบายว่า "ใครลบ" (ควรมี audit row สำหรับการลบไฟล์ session)
 - ลำดับการรันเทสต์มีผล: ถ้า logout test รัน **หลัง** เทสต์ที่ login/save session → จะลบไฟล์ที่เทสต์เพิ่งสร้าง
 
-**Proven Working Solution (ข้อเสนอ — ยังไม่นำไปใช้ เพราะนอก scope)**:
+**Proven Working Solution (นำไปใช้แล้ว 2026-10-12)**:
 ```python
 # tests/test_browser_driver.py — เพิ่ม isolation ให้เทสต์ที่แตะ session endpoint
 @pytest.fixture(autouse=True)
@@ -440,6 +440,17 @@ ls -l data/session_state.json                                       # ต้อ�
   แต่คลาส "มีโค้ดที่ลบ session file" ยังเหลืออีกจุด (`session.py`) ที่ต้องมี guard ระดับระบบ
 - ผลต่อแผนงาน: session ที่ได้จาก D2 (21:01) **ใช้ไม่ได้แล้ว** — การทดสอบ pillar ถัดไปต้องทำ login ใหม่
   (ผู้ใช้ต้องพิมพ์ OTP อีกครั้ง) จึงต้องแจ้งล่วงหน้า ไม่ใช่ให้เจอตอนรัน (Anti-Mock / truthful reporting)
+
+**Resolution (2026-10-12)**:
+- **ไฟล์ที่แก้**: `tests/test_browser_driver.py` — เพิ่ม autouse fixture `_isolate_session_path`
+  (monkeypatch `settings.SESSION_STATE_PATH` → `tmp_path`) ⇒ ทุกเทสต์ในไฟล์นี้แตะเฉพาะ tmp path
+  ไม่ใช่ `data/session_state.json` ของผู้ใช้จริง (ตรงกับข้อเสนอใน RCA นี้)
+- **ไฟล์รอง**: `scripts/dev_resume_session.py` (Zero-OTP resume helper, ไม่ยิง OTP) +
+  `tests/test_dev_resume_session.py` + เพิ่ม mapping ใน `scripts/verify_changes.py` (`MODULE_TEST_MAP`)
+- **หลักฐาน verify (รันจริง)**: `scripts/verify_changes.py tests/test_browser_driver.py` → **5 passed**;
+  หลังรัน `ls -l data/session_state.json` → **ยังอยู่** md5 `4c9e4a3549f33e5755f7f34a2536a740` คงเดิม
+  (regression guard ตามข้อเสนอด้านบน) ⇒ คลาสบั๊ก "เทสต์ลบ session file" ถูกปิดแล้วทั้ง 2 เส้นทาง
+  (`verify_saved_session` = KSS-RCA-013 · `logout endpoint` = KSS-RCA-015)
 
 ---
 
@@ -589,14 +600,15 @@ ls -l data/session_state.json                                       # ต้อ�
    - ปุ่ม 'View Order' ต้องคลิกด้วย `div#order_btn` (ไม่ใช่ `div:has-text('View Order')`)
    - Side codes: `B`=BUY `S`=SELL `H`=SHORT `C`=COVER (`TRADEMAN_SIDE_CODE_MAP`); status เป็นคำเต็ม ไม่ใช่ `M/O/C`
 
-12. **Test-Suite Session-Safety Rule (KSS-RCA-015 — 🟡 OPEN)**:
+12. **Test-Suite Session-Safety Rule (KSS-RCA-015 — 🟢 RESOLVED 2026-10-12)**:
    - **ห้ามมีเทสต์ใดยิง endpoint ที่ลบ/แตะ `settings.SESSION_STATE_PATH`** (เช่น `POST /api/v1/session/logout`)
      โดยไม่ monkeypatch path ไป `tmp_path` ก่อน — การรัน full suite จะ **ลบ session สดของผู้ใช้จริง**
-   - ก่อนรัน `pytest tests/` ให้ถือว่า session สดอาจถูกทำลาย → **สำรองก่อนเสมอ**
-     (`cp data/session_state.json data/session_state.json.manual.bak`) หรือใช้ targeted mode
+     (แก้แล้ว: `tests/test_browser_driver.py` มี autouse fixture `_isolate_session_path` isolate ไป `tmp_path`)
+   - ก่อนรัน `pytest tests/` ยังแนะนำให้ **สำรองก่อนเสมอ** (`cp data/session_state.json data/session_state.json.manual.bak`)
+     เป็น defense-in-depth (full suite ยังมี known SQLite hang ที่อาจถูก kill กลางทาง — KSS-RCA-015) หรือใช้ targeted mode
      (`scripts/verify_changes.py`) ระหว่างทำงาน
-   - Guard ระดับฟังก์ชัน (`test_auth_session_nondestructive.py` จาก `KSS-RCA-013`) **ไม่พอ** —
-     destructive session handling เป็น *คลาส* ของบั๊ก ต้องมี guard ระดับระบบที่กวาดทุก call-site ของ `os.remove(...SESSION...)`
+   - destructive session handling เป็น *คลาส* ของบั๊ก — ปิดแล้วทั้ง 2 เส้นทาง:
+     `verify_saved_session` (KSS-RCA-013, non-destructive quarantine) + `logout endpoint` (KSS-RCA-015, fixture isolate)
 
 13. **Strict SET Short Uptick & No-Fabricated-Last Rule (KSS-RCA-017)**:
    - `validator.validate_short_uptick` เป็น **SSOT เดียว** และเป็น **strict** — ราคา SHORT ต้อง **`> last`** เท่านั้น
