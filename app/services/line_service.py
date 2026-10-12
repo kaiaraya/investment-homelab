@@ -17,7 +17,8 @@ from app.schemas.auth import OTPPayload, OTPSource
 from app.ai.otp_agent import extract_otp_from_text
 from app.services import otp_relay_registry
 from datetime import date
-from app.db.models import SessionLog, WatchlistTrigger, Position, SBLBorrowLot
+from app.db.models import SessionLog, WatchlistTrigger, Position, SBLBorrowLot, Order
+from app.services.conversation_state import conversation_state
 from app.services.parser import signal_parser
 from app.services.portfolio_overview_service import portfolio_overview_service
 from app.services.price_negotiation_service import price_negotiation_service
@@ -154,6 +155,16 @@ class LineMessagingService:
                 "ref": ref_code,
                 "broker": broker_tag,
             }
+
+        # 2.5 Per-user conversation state machine (multi-step flows — 2026-10-12)
+        # Placement is deliberate: AFTER kill-switch / MODE / OTP so an emergency
+        # stop always wins and an OTP is never swallowed by a flow slot, and BEFORE
+        # every single-shot matcher so a flow answer is not re-interpreted as a new
+        # command. With no `source.userId` (unit tests / internal callers) it
+        # short-circuits to None and every matcher below behaves exactly as before.
+        conv_res = await self._handle_conversation_turn(db, text, raw_event)
+        if conv_res is not None:
+            return conv_res
 
         # 2.8 Check for Action Center command: "action", "Action", "รออนุมัติ", "pending", "action center", "รายการรออนุมัติ"
         action_match = re.match(r'^(?:action|action\s+center|รออนุมัติ|pending|รายการรออนุมัติ)$', text.strip(), re.IGNORECASE)
@@ -392,6 +403,269 @@ class LineMessagingService:
             return {"status": "COMMAND_DISPATCHED", "action": "CLOSE_POSITION", "symbol": symbol}
 
         return {"status": "IGNORED", "text": text}
+
+    # ------------------------------------------------------------------ #
+    # Per-user conversation state machine (multi-step flows — 2026-10-12)
+    # Engine + flow specs live in `app/services/conversation_state.py`
+    # (see `docs/handoff/TASK-line-conversation-state.md`).
+    # ------------------------------------------------------------------ #
+    async def _handle_conversation_turn(
+        self,
+        db: AsyncSession,
+        text: str,
+        raw_event: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Drive the per-user FSM for one inbound text message.
+
+        Returns a result dict when the machine consumed the message, or ``None`` so
+        the single-shot command chain can continue (idle behaviour is unchanged).
+
+        Rules
+        -----
+        * key = ``source.userId`` — without it (internal callers, legacy events,
+          LINE "verify" pings) the machine is skipped entirely;
+        * authorization gate = `conversation_state.is_authorized()` (Decision A):
+          simulation OR the 1:1 chat with the OA OR the configured private group.
+          An unauthorized sender never creates state;
+        * an active flow owns the message: an unparseable answer re-prompts without
+          advancing (and refreshes the TTL); ``CANCEL`` abandons; ``RESTART`` resets.
+        """
+        source = raw_event.get("source") or {}
+        user_id = source.get("userId")
+        if not user_id:
+            return None
+
+        reply_token = raw_event.get("replyToken")
+        source_type = source.get("type")
+        group_id = source.get("groupId")
+
+        if not conversation_state.is_authorized(user_id, source_type=source_type, group_id=group_id):
+            logger.warning("[Conversation] unauthorized sender denied (source_type=%s)", source_type)
+            await self._send_reply(reply_token, "⛔ คำสั่งนี้สำหรับผู้ดูแลระบบเท่านั้น")
+            return {"status": "CONVERSATION_UNAUTHORIZED", "user_id": user_id}
+
+        state = conversation_state.get(user_id)
+
+        # -- explicit cancel --------------------------------------------------
+        if conversation_state.is_cancel(text):
+            if state is None:
+                return None  # no flow in progress → let the other handlers see it
+            conversation_state.clear(user_id)
+            await self._send_reply(reply_token, "🚫 ยกเลิกการทำงานที่ค้างอยู่แล้ว")
+            return {"status": "CONVERSATION_CANCELLED", "flow": state.flow}
+
+        # -- explicit restart of an active flow -------------------------------
+        if state is not None and conversation_state.is_restart(text):
+            flow_spec = conversation_state.get_flow(state.flow)
+            conversation_state.clear(user_id)
+            if flow_spec is not None:
+                return await self._start_conversation_flow(reply_token, user_id, flow_spec, None, source)
+
+        # -- idle: only an explicit trigger opens a flow ----------------------
+        if state is None:
+            matched = conversation_state.match_flow(text)
+            if not matched:
+                return None
+            flow_spec, preselect = matched
+            return await self._start_conversation_flow(reply_token, user_id, flow_spec, preselect, source)
+
+        # -- active flow: parse the answer for the current step ---------------
+        flow_spec = conversation_state.get_flow(state.flow)
+        if flow_spec is None:
+            conversation_state.clear(user_id)
+            return None
+
+        step_spec = flow_spec.step_spec(state.step)
+        if step_spec is None:
+            # unknown / terminal step seen outside the terminal handler → reset,
+            # never guess what the user meant.
+            conversation_state.clear(user_id)
+            return None
+
+        is_valid, value, error = step_spec.parse(text)
+        if not is_valid:
+            conversation_state.touch(user_id)  # keep the flow alive, do not advance
+            await self._send_reply(reply_token, error or step_spec.prompt)
+            return {"status": "CONVERSATION_RETRY", "flow": flow_spec.name, "step": step_spec.key}
+
+        state = conversation_state.advance(user_id, **{step_spec.slot: value})
+
+        next_spec = flow_spec.step_spec(state.step)
+        if next_spec is not None:
+            await self._send_reply(reply_token, next_spec.prompt)
+            return {
+                "status": "CONVERSATION_STEP",
+                "flow": flow_spec.name,
+                "step": state.step,
+                "slots": dict(state.slots),
+            }
+
+        return await self._execute_conversation_terminal(db, state, reply_token)
+
+    async def _start_conversation_flow(
+        self,
+        reply_token: Optional[str],
+        user_id: str,
+        flow_spec: Any,
+        preselect: Optional[str],
+        source: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Open ``flow_spec`` for this user and prompt the opening step."""
+        state = conversation_state.start_flow(
+            user_id,
+            flow_spec.name,
+            preselect=preselect,
+            chat_id=source.get("groupId"),
+            chat_type=source.get("type") or "user",
+        )
+        step_spec = flow_spec.step_spec(state.step)
+        prompt = step_spec.prompt if step_spec else "✅ พร้อมดำเนินการ"
+        await self._send_reply(reply_token, prompt)
+        return {
+            "status": "CONVERSATION_STARTED",
+            "flow": flow_spec.name,
+            "step": state.step,
+            "slots": dict(state.slots),
+        }
+
+    async def _execute_conversation_terminal(
+        self,
+        db: AsyncSession,
+        state: Any,
+        reply_token: Optional[str],
+    ) -> Dict[str, Any]:
+        """
+        Run the terminal step of a completed flow, then clear the state.
+
+        Every flow terminal step must be **read-only or routed through the existing
+        validated services** — for orders that is `trade_center_service.prepare_order_approval()`
+        (=> `validator.validate_all`) + the HITL gate. See the module docstring of
+        `app/services/conversation_state.py`.
+        """
+        text_result: Optional[str] = None
+        evidence: Dict[str, Any] = {}
+
+        if state.flow == "symbol_query":
+            text_result, evidence = await self._execute_symbol_query(
+                db, state.slots.get("symbol", ""), state.slots.get("metric")
+            )
+
+        if not text_result:
+            text_result = "⚠️ ไม่สามารถประมวลผลได้ กรุณาเริ่มใหม่ด้วยคำสั่งเดิม"
+            evidence = {"error": "no_terminal_handler", "flow": state.flow}
+
+        conversation_state.clear(state.user_id)
+        await self._send_reply(reply_token, text_result)
+        return {"status": "CONVERSATION_COMPLETED", "flow": state.flow, "result": evidence}
+
+    async def _execute_symbol_query(
+        self,
+        db: AsyncSession,
+        symbol: str,
+        metric: Optional[str] = None,
+    ) -> tuple:
+        """
+        Build the on-demand per-symbol report — **DB ONLY** (Anti-Mock / Invariant 7).
+
+        Reads `positions`, `sbl_borrow_lots`, `watchlist_triggers` and the 5 most
+        recent `orders` rows for the symbol. It deliberately does NOT scrape the
+        broker: a chat lookup must never trigger a fresh login / SMS OTP. When the
+        symbol is unknown it says so honestly instead of inventing numbers.
+
+        Returns ``(reply_text, evidence_dict)``.
+        """
+        from sqlalchemy import desc
+
+        sym = (symbol or "").strip().upper()
+        if not sym:
+            return "⚠️ ไม่พบสัญลักษณ์หุ้น กรุณาเริ่มใหม่", {"symbol": None, "data_found": False}
+
+        pos = (await db.execute(select(Position).where(Position.symbol == sym))).scalar_one_or_none()
+        sbl_lots = (await db.execute(
+            select(SBLBorrowLot).where(
+                SBLBorrowLot.symbol == sym, SBLBorrowLot.status == "ACTIVE"
+            )
+        )).scalars().all()
+        triggers = (await db.execute(
+            select(WatchlistTrigger).where(
+                WatchlistTrigger.symbol == sym, WatchlistTrigger.status == "ACTIVE"
+            )
+        )).scalars().all()
+        orders = (await db.execute(
+            select(Order).where(Order.symbol == sym).order_by(desc(Order.created_at)).limit(5)
+        )).scalars().all()
+
+        want = metric or "position"
+        has_any = bool(pos or sbl_lots or triggers or orders)
+        evidence: Dict[str, Any] = {
+            "symbol": sym,
+            "metric": want,
+            "has_position": pos is not None,
+            "active_sbl_lots": len(sbl_lots),
+            "active_triggers": len(triggers),
+            "recent_orders": len(orders),
+            "data_found": has_any,
+        }
+
+        if not has_any:
+            return (
+                f"ℹ️ ไม่พบข้อมูลหุ้น {sym} ในระบบ Homelab\n"
+                "• ไม่มี position / SBL lot / trigger / order ที่บันทึกไว้\n"
+                "• ข้อมูลนี้อ่านจากฐานข้อมูลเท่านั้น (ไม่กระตุ้นการล็อกอินโบรกเกอร์) — "
+                "หากเพิ่งเทรด ให้รัน Portfolio Overview เพื่อซิงค์ก่อน",
+                evidence,
+            )
+
+        lines = [f"📊 ข้อมูลหุ้น {sym}"]
+
+        if pos:
+            side_label = "🔴 SHORT" if (pos.position_type or "").upper() == "SHORT" else "🟢 LONG"
+            price_txt = f" | ราคาล่าสุด ฿{pos.current_price:,.2f}" if pos.current_price else ""
+            pnl_txt = ""
+            if pos.unrealized_pnl is not None:
+                cost = (pos.avg_cost or 0.0) * (pos.volume or 0)
+                pct = (pos.unrealized_pnl / cost * 100.0) if cost else 0.0
+                pnl_txt = f" | PnL {pos.unrealized_pnl:+,.2f} ({pct:+.2f}%)"
+            lines.append(
+                f"{side_label} {pos.volume:,} หุ้น @ เฉลี่ย ฿{pos.avg_cost:,.2f}{price_txt}{pnl_txt}"
+            )
+            tp = f"฿{pos.take_profit_price:,.2f}" if pos.take_profit_price else "ไม่ได้ตั้ง"
+            sl = f"฿{pos.stop_loss_price:,.2f}" if pos.stop_loss_price else "ไม่ได้ตั้ง"
+            lines.append(f"🎯 TP: {tp} | SL: {sl}")
+        else:
+            lines.append("📦 ไม่มี position ของหุ้นนี้ในพอร์ต")
+
+        if want == "orders":
+            if orders:
+                lines.append("🧾 คำสั่งล่าสุด (5 รายการ):")
+                for o in orders:
+                    when = o.created_at.strftime("%Y-%m-%d %H:%M") if o.created_at else "N/A"
+                    lines.append(f"• {o.side} {o.volume:,} @ ฿{o.price:,.2f} → {o.status} ({when})")
+            else:
+                lines.append("🧾 ยังไม่มีคำสั่งซื้อขายของหุ้นนี้ในระบบ")
+        elif want == "tpsl":
+            if triggers:
+                lines.append("🛡️ Watchlist Trigger ที่เฝ้าอยู่:")
+                for t in triggers:
+                    lines.append(
+                        f"• {t.condition_type} ฿{t.trigger_price:,.2f} → {t.action} {t.volume:,} หุ้น"
+                    )
+            else:
+                lines.append("🛡️ ไม่มี Watchlist Trigger ที่ active สำหรับหุ้นนี้")
+            lines.append(f'💡 พิมพ์ เช่น "{sym} ตั้ง TP 14 SL 12.50" เพื่ออัปเดต')
+        else:  # position
+            for lot in sbl_lots:
+                lines.append(
+                    f"🔁 SBL ค้างยืม {lot.remaining_qty:,} หุ้น "
+                    f"(ดอกเบี้ย {lot.borrow_fee_rate:.2f}%/ปี, ยืม {lot.borrow_date})"
+                )
+            for t in triggers:
+                lines.append(
+                    f"🛡️ Trigger {t.action} {t.volume:,} เมื่อ {t.condition_type} ฿{t.trigger_price:,.2f}"
+                )
+
+        return "\n".join(lines), evidence
 
     async def _handle_postback(
         self,

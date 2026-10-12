@@ -60,6 +60,12 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_line_otp_group.py",
         "tests/test_webhook_line.py",
         "tests/test_line_flex_card.py",
+        "tests/test_line_conversation_flow.py",
+    ],
+    # LINE per-user conversation state machine (2026-10-12)
+    "app/services/conversation_state.py": [
+        "tests/test_conversation_state.py",
+        "tests/test_line_conversation_flow.py",
     ],
     "app/services/kdeconnect_service.py": ["tests/test_kdeconnect_service.py"],
     "app/services/action_exit_dispatcher.py": ["tests/test_krungsri_pdca_guardrails.py"],
