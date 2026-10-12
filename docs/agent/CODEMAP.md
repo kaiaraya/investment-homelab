@@ -1,0 +1,1249 @@
+# CODEMAP (generated — do not edit)
+
+Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here, then read only that line range.
+
+- **app/console.py** (2263 lines)
+- **app/main.py** (151 lines)
+  - `class _PollingAccessFilter` L26-33
+    - `filter` L27
+  - `lifespan()` L47-88
+  - `test_console()` L116-118
+  - `api_info()` L122-129
+  - `root_health()` L133-134
+- **app/ai/memory.py** (152 lines)
+  - `class DualStoreMemory` L12-147
+    - `__init__` L21
+    - `set_working_key` L36
+    - `get_working_key` L40
+    - `update_quote` L44
+    - `get_quote` L51
+    - `get_all_working_memory` L55
+    - `clear_working_memory` L62
+    - `log_decision` L74
+    - `get_recent_audit_trail` L111
+- **app/ai/orchestrator.py** (234 lines)
+  - `class MasterOrchestrator` L19-229
+    - `__init__` L29
+    - `execute_pt_mro_cycle` L44
+    - `_plan_regime_actions` L115
+    - `_dispatch_task` L163
+    - `_reflect_and_anneal` L183
+    - `start_background_loop` L197
+    - `stop_background_loop` L205
+    - `_run_loop` L216
+- **app/ai/otp_agent.py** (127 lines)
+  - `create_otp_agent()` L29-42
+  - `extract_otp_from_text()` L45-126
+- **app/ai/providers.py** (91 lines)
+  - `get_gemini_api_key()` L18-20
+  - `is_gemini_configured()` L23-26
+  - `get_google_provider()` L29-36
+  - `get_gemini_model()` L39-50
+  - `get_deepseek_api_key()` L59-61
+  - `is_deepseek_configured()` L64-67
+  - `get_deepseek_provider()` L70-76
+  - `get_deepseek_model()` L79-90
+- **app/ai/signal_agent.py** (111 lines)
+  - `create_signal_agent()` L46-59
+  - `class PydanticAISignalParser` L62-106
+    - `__init__` L66
+    - `get_agent` L69
+    - `parse_strategy` L74
+- **app/ai/agents/base.py** (108 lines)
+  - `class BaseSubAgent` L15-107
+    - `__init__` L22
+    - `_load_sop` L48
+    - `log_step` L61
+    - `run_prompt` L81
+- **app/ai/agents/market_agent.py** (135 lines)
+  - `class MarketAnalystAgent` L11-134
+    - `__init__` L16
+    - `_get_signal_extractor` L25
+    - `ingest_signal` L33
+    - `register_price_watch` L63
+    - `evaluate_tick` L98
+- **app/ai/agents/order_agent.py** (155 lines)
+  - `class OrderExecutionAgent` L12-154
+    - `__init__` L18
+    - `execute_order` L26
+    - `negotiate_prices` L125
+    - `purge_eod_orders` L140
+- **app/ai/agents/portfolio_agent.py** (88 lines)
+  - `class PortfolioRiskAgent` L10-87
+    - `__init__` L16
+    - `sync_portfolio` L24
+    - `audit_risk_and_tpsl` L43
+    - `generate_eod_summary` L74
+- **app/ai/agents/sbl_agent.py** (91 lines)
+  - `class SBLManagerAgent` L9-90
+    - `__init__` L15
+    - `check_inventory` L23
+    - `borrow_stock` L44
+    - `return_stock` L61
+    - `audit_corporate_actions` L77
+- **app/ai/agents/session_agent.py** (96 lines)
+  - `class SessionSentinelAgent` L11-95
+    - `__init__` L16
+    - `check_health` L24
+    - `login_broker` L39
+    - `submit_otp` L65
+    - `logout_all` L81
+- **app/api/v1/api.py** (30 lines)
+- **app/api/v1/live_probe.py** (302 lines)
+  - `class ClockSpeedRequest` L32-34
+  - `class AdvanceTimeRequest` L37-38
+  - `class ScenarioRunRequest` L41-43
+  - `get_clock_status()` L51-53
+  - `set_clock_speed()` L57-60
+  - `advance_clock()` L64-67
+  - `reset_to_realtime()` L71-74
+  - `pause_clock()` L78-81
+  - `resume_clock()` L85-88
+  - `run_scenario()` L96-112
+  - `probe_live_portfolio()` L120-132
+  - `probe_live_account()` L136-140
+  - `probe_live_sbl_stock()` L144-151
+  - `probe_live_sbl_all_tabs()` L155-162
+  - `probe_live_sbl_intelligence()` L166-181
+  - `probe_krungsri_sbl_sync()` L185-189
+  - `probe_krungsri_sbl_cached()` L193-197
+  - `probe_krungsri_sbl_check_risk()` L201-205
+  - `probe_live_unmatched()` L209-216
+  - `probe_live_bid_offer()` L220-224
+  - `trigger_overview_now()` L232-235
+  - `apply_live_tpsl()` L239-258
+  - `trigger_negotiation_now()` L263-266
+  - `trigger_eod_now()` L270-273
+  - `take_live_snapshot()` L277-280
+  - `get_daily_schedule()` L284-286
+  - `probe_set_summary()` L290-294
+  - `trigger_random_point_now()` L298-301
+- **app/api/v1/endpoints/admin.py** (283 lines)
+  - `class ComponentToggleRequest` L129-130
+  - `get_feature_matrix()` L135-137
+  - `_component_payload()` L141-150
+  - `list_components()` L154-165
+  - `toggle_component()` L169-211
+  - `_detect_gateway_port()` L215-223
+  - `_uvicorn_argv()` L226-244
+  - `_exec_reload()` L247-253
+  - `reload_gateway()` L257-282
+- **app/api/v1/endpoints/agentic.py** (70 lines)
+  - `class KillSwitchRequest` L14-16
+  - `class ResetRequest` L19-20
+  - `class CycleRequest` L23-25
+  - `activate_kill_switch()` L29-31
+  - `reset_kill_switch()` L35-37
+  - `get_kill_switch_status()` L41-43
+  - `trigger_agentic_cycle()` L47-52
+  - `get_audit_trail()` L56-63
+  - `get_working_memory()` L67-69
+- **app/api/v1/endpoints/cockpit.py** (62 lines)
+  - `cockpit_stream()` L34-61
+- **app/api/v1/endpoints/health.py** (59 lines)
+  - `health_check()` L13-15
+  - `system_status()` L19-51
+  - `list_triggers()` L55-58
+- **app/api/v1/endpoints/orders.py** (417 lines)
+  - `class RolloverRequest` L15-16
+  - `list_orders()` L20-26
+  - `get_queue_status()` L30-32
+  - `get_order()` L36-47
+  - `expire_eod_orders()` L51-54
+  - `rollover_orders()` L58-64
+  - `clear_test_data()` L68-78
+  - `class QuickOrderRequest` L81-88
+  - `quick_execute_order()` L92-192
+  - `list_pending_hitl_orders()` L196-231
+  - `class ActionExitNLRequest` L234-237
+  - `execute_action_exit_from_text()` L241-253
+  - `dispatch_action_exit_now()` L257-263
+  - `confirm_hitl_order()` L267-357
+  - `reject_hitl_order()` L361-374
+  - `cancel_broker_order()` L378-415
+- **app/api/v1/endpoints/phase3.py** (262 lines)
+  - `class NaturalLanguageTPSLRequest` L19-20
+  - `trigger_portfolio_overview()` L24-26
+  - `trigger_price_negotiation()` L30-32
+  - `get_positions()` L36-56
+  - `set_tpsl_natural_language()` L60-79
+  - `class MarkdownLoadRequest` L89-91
+  - `class RunStepRequest` L94-95
+  - `class ToggleLineRequest` L98-99
+  - `list_strategy_files()` L103-117
+  - `load_scenario_markdown()` L121-137
+  - `run_scenario_step()` L141-147
+  - `run_scenario_full()` L151-157
+  - `toggle_scenario_line()` L161-164
+  - `get_scenario_status()` L168-170
+  - `class NegotiationLineRequest` L177-184
+  - `class NegotiationDirectModifyRequest` L187-193
+  - `get_live_negotiation_orders()` L197-212
+  - `dispatch_negotiation_card_to_line()` L216-232
+  - `execute_direct_price_modification()` L236-261
+- **app/api/v1/endpoints/session.py** (211 lines)
+  - `class LoginRequest` L14-18
+  - `class SessionStatusResponse` L21-28
+  - `class SubmitOtpRequest` L31-33
+  - `get_session_status()` L37-48
+  - `trigger_login()` L52-71
+  - `submit_otp_directly()` L75-94
+  - `logout_session()` L98-110
+  - `configure_headless()` L114-121
+  - `get_unified_health()` L129-132
+  - `trigger_connect_all()` L136-139
+  - `class BrokerLoginRequest` L142-144
+  - `trigger_broker_login()` L148-151
+  - `ping_kdeconnect_device()` L155-164
+  - `list_registered_brokers()` L168-174
+  - `get_broker_summary()` L178-189
+  - `get_broker_portfolio()` L193-207
+- **app/api/v1/endpoints/webhook_line.py** (259 lines)
+  - `_env_path()` L18-24
+  - `_write_env_key()` L31-56
+  - `_persist_group_id()` L59-81
+  - `_persist_user_id()` L84-118
+  - `_release_group_id()` L129-149
+  - `_release_user_id()` L152-163
+  - `receive_line_webhook()` L167-257
+- **app/api/v1/endpoints/webhook_signal.py** (56 lines)
+  - `parse_and_process_signal_text()` L15-55
+- **app/brokers/base.py** (201 lines)
+  - `class TransportType` L17-19
+  - `class BrokerStatus` L22-27
+  - `class BrokerCapability` L30-39
+  - `class BrokerMetadata` L42-51
+  - `class AccountSummary` L54-64
+  - `class PositionItem` L67-75
+  - `class PortfolioSnapshot` L78-83
+  - `class OrderRequest` L86-94
+  - `class OrderResult` L97-103
+  - `class BaseBrokerPlugin` L106-199
+    - `capabilities` L115
+    - `has_capability` L119
+    - `is_configured` L125
+    - `get_health` L130
+    - `authenticate` L135
+    - `get_account_summary` L140
+    - `get_portfolio` L145
+    - `place_order` L150
+    - `cancel_order` L155
+    - `close` L160
+    - `get_open_orders` L165
+    - `modify_order_price` L169
+    - `switch_account_type` L177
+    - `get_sbl_inventory` L181
+    - `borrow_sbl` L185
+    - `return_sbl` L193
+- **app/brokers/registry.py** (79 lines)
+  - `class BrokerRegistry` L16-74
+    - `__init__` L17
+    - `register` L20
+    - `get` L27
+    - `list_all` L31
+    - `get_all_health` L49
+    - `get_active` L62
+- **app/brokers/click2win/cli.py** (142 lines)
+  - `cmd_status()` L37-43
+  - `cmd_test_auth()` L46-52
+  - `cmd_test_portfolio()` L55-64
+  - `cmd_order()` L67-95
+  - `cmd_switch_account()` L98-105
+  - `main()` L108-137
+- **app/brokers/click2win/plugin.py** (161 lines)
+  - `class Click2WinBrokerPlugin` L25-156
+    - `is_configured` L44
+    - `get_health` L47
+    - `authenticate` L70
+    - `get_account_summary` L74
+    - `get_portfolio` L101
+    - `place_order` L124
+    - `cancel_order` L148
+    - `switch_account_type` L152
+    - `close` L155
+- **app/brokers/krungsri/cli.py** (292 lines)
+  - `_terminal_otp_listener()` L56-75
+  - `cmd_login()` L78-178
+  - `_show_account_summary()` L181-193
+  - `_hold_browser_open()` L196-208
+  - `cmd_status()` L211-229
+  - `cmd_submit_otp()` L232-244
+  - `main()` L247-287
+- **app/brokers/krungsri/plugin.py** (194 lines)
+  - `class KrungsriBrokerPlugin` L22-189
+    - `is_configured` L42
+    - `get_health` L45
+    - `authenticate` L55
+    - `get_account_summary` L59
+    - `get_portfolio` L72
+    - `place_order` L94
+    - `cancel_order` L111
+    - `modify_order_price` L138
+    - `get_sbl_inventory` L175
+    - `borrow_sbl` L178
+    - `return_sbl` L181
+    - `switch_account_type` L184
+    - `close` L188
+- **app/brokers/krungsri/sbl_realtime_driver.py** (380 lines)
+  - `class KrungsriSBLRealtimeDriver` L37-376
+    - `__init__` L40
+    - `_load_cache_from_disk` L45
+    - `_save_cache_to_disk` L53
+    - `get_cached_data` L62
+    - `scrape_full_pool` L67
+    - `_extract_inventory_table` L178
+    - `_extract_xd_xr_table` L224
+    - `_extract_transactions_table` L267
+    - `check_symbol_risk` L307
+- **app/brokers/krungsri/session_health.py** (115 lines)
+  - `session_file_info()` L42-106
+  - `session_needs_fresh_login()` L109-114
+- **app/brokers/liberator/cli.py** (213 lines)
+  - `cmd_status()` L41-53
+  - `cmd_login()` L56-62
+  - `cmd_portfolio()` L65-85
+  - `cmd_action_exit()` L88-114
+  - `cmd_negotiate()` L117-135
+  - `cmd_change()` L138-163
+  - `main()` L166-208
+- **app/brokers/liberator/driver.py** (1412 lines)
+  - `_safe_otp_source()` L44-57
+  - `class LiberatorDriver` L60-1407
+    - `__init__` L61
+    - `is_authenticated` L73
+    - `current_url` L77
+    - `launch_browser` L80
+    - `_session_token_expiry` L129
+    - `_saved_session_expired` L142
+    - `verify_saved_session` L164
+    - `_log_event` L202
+    - `login` L218
+    - `save_session_state` L621
+    - `_extract_portfolio_from_page` L638
+    - `scrape_portfolio` L749
+    - `execute_order` L832
+    - `execute_action_exit` L948
+    - `_parse_order_row_cells` L1002
+    - `_amend_guard` L1025
+    - `_order_action_locator` L1036
+    - `cancel_order` L1058
+    - `change_order` L1101
+    - `_amend_order_in_place` L1163
+    - `negotiate_price` L1281
+    - `close` L1391
+- **app/brokers/liberator/plugin.py** (300 lines)
+  - `class LiberatorBrokerPlugin` L21-295
+    - `is_configured` L38
+    - `get_health` L41
+    - `authenticate` L63
+    - `get_account_summary` L78
+    - `get_portfolio` L93
+    - `get_orders` L116
+    - `get_open_orders` L121
+    - `get_all_orders` L152
+    - `switch_account_type` L178
+    - `place_order` L188
+    - `cancel_order` L244
+    - `execute_action_exit` L248
+    - `change_order` L263
+    - `negotiate_price` L277
+    - `close` L291
+- **app/brokers/liberator/session_health.py** (112 lines)
+  - `read_session_token_expiry()` L23-59
+  - `session_expired()` L62-77
+  - `session_health()` L80-111
+- **app/brokers/settrade_openapi/cli.py** (152 lines)
+  - `cmd_status()` L36-47
+  - `cmd_quote()` L50-77
+  - `cmd_account()` L80-89
+  - `cmd_order()` L92-118
+  - `main()` L121-147
+- **app/brokers/settrade_openapi/plugin.py** (100 lines)
+  - `class SettradeOpenApiBrokerPlugin` L18-95
+    - `is_configured` L38
+    - `get_health` L41
+    - `authenticate` L54
+    - `get_account_summary` L60
+    - `get_portfolio` L72
+    - `place_order` L81
+    - `cancel_order` L91
+    - `close` L94
+- **app/browser/auth_driver.py** (1092 lines)
+  - `_safe_otp_source()` L38-51
+  - `class KrungsriAuthDriver` L55-1087
+    - `__init__` L61
+    - `is_authenticated` L75
+    - `current_url` L79
+    - `_log_event` L82
+    - `_handle_dialog` L92
+    - `launch_browser` L99
+    - `validate_preflight_session` L150
+    - `verify_saved_session` L166
+    - `_quarantine_session_file` L242
+    - `login` L262
+    - `_detect_otp_prompt` L532
+    - `_wait_for_otp_multi_channel` L588
+    - `_click_otp_submit` L750
+    - `_verify_post_login` L777
+    - `smart_keepalive` L1027
+    - `take_diagnostic_snapshot` L1050
+    - `close` L1069
+- **app/browser/broker_factory.py** (36 lines)
+  - `get_broker_driver()` L14-23
+  - `get_auth_driver()` L26-35
+- **app/browser/click2win_auth_driver.py** (464 lines)
+  - `class Click2WinAuthDriver` L25-460
+    - `__init__` L32
+    - `is_authenticated` L45
+    - `current_url` L49
+    - `_log_event` L52
+    - `_handle_dialog` L62
+    - `launch_browser` L69
+    - `validate_preflight_session` L120
+    - `verify_saved_session` L136
+    - `login` L244
+    - `take_diagnostic_snapshot` L427
+    - `close` L446
+- **app/browser/click2win_driver.py** (1068 lines)
+  - `class Click2WinDriver` L24-1063
+    - `__init__` L39
+    - `page` L47
+    - `_log_event` L54
+    - `detect_account_type_for_symbol` L68
+    - `_ensure_streaming_page` L81
+    - `switch_account_type` L133
+    - `switch_tab` L210
+    - `scrape_accounts_summary` L244
+    - `scrape_account_summary` L314
+    - `execute_order` L328
+    - `_scrape_portfolio_unlocked` L623
+    - `scrape_portfolio` L697
+    - `scrape_unmatched_orders` L705
+    - `cancel_order` L761
+    - `modify_order_price` L814
+    - `get_market_bid_offer` L863
+    - `_switch_favorite_unlocked` L908
+    - `switch_favorite` L935
+    - `scrape_favorite_quotes` L942
+    - `add_symbol_to_favorite` L989
+    - `remove_symbol_from_favorite` L1017
+    - `scrape_sbl_lots` L1060
+- **app/browser/grill_harness.py** (291 lines)
+  - `class GrillController` L11-290
+    - `__init__` L23
+    - `highlight_element` L32
+    - `clear_highlights` L53
+    - `probe_locator` L67
+    - `take_snapshot` L101
+    - `grill_menu` L121
+    - `execute_step` L225
+- **app/browser/popup_manager.py** (275 lines)
+  - `class PopupManager` L26-272
+    - `_log_event` L99
+    - `_is_page_open` L108
+    - `is_overlay_present` L121
+    - `_check_dont_show_again` L139
+    - `_reconnect_if_connection_lost` L163
+    - `dismiss_popups` L187
+    - `_dismiss_via_fast_rules` L250
+- **app/browser/session_sentinel.py** (464 lines)
+  - `bkk_now()` L22-24
+  - `is_premarket_window()` L27-39
+  - `seconds_until_premarket_window()` L42-58
+  - `class SessionSentinel` L61-459
+    - `__init__` L72
+    - `start` L85
+    - `stop` L93
+    - `_log_event` L105
+    - `_monitor_loop` L114
+    - `is_trading_hours` L140
+    - `check_session_file_state` L154
+    - `_alert_session_drop` L165
+    - `_check_session_file_transition` L188
+    - `_next_wait_seconds` L238
+    - `check_premarket_readiness` L256
+    - `_check_premarket_warning` L271
+    - `_perform_health_check` L299
+    - `trigger_auto_reconnect` L345
+    - `_check_eod_schedule` L451
+- **app/browser/tab_manager.py** (214 lines)
+  - `class BrowserTabManager` L25-209
+    - `__init__` L26
+    - `set_context` L30
+    - `_handle_new_page` L39
+    - `_classify_page` L45
+    - `register_tab` L73
+    - `get_tab` L78
+    - `list_active_tabs` L87
+    - `clean_closed_tabs` L103
+    - `scan_and_sync` L109
+    - `switch_to_tab` L120
+    - `get_or_open_trademan` L132
+    - `get_or_open_sbl` L171
+    - `ping_keepalive` L194
+- **app/browser/trademan_driver.py** (2152 lines)
+  - `class PriorityLock` L96-120
+    - `__init__` L102
+    - `acquire` L106
+    - `release` L111
+    - `__aenter__` L115
+    - `__aexit__` L119
+  - `class TradeManDriver` L123-2147
+    - `__init__` L136
+    - `page` L144
+    - `ensure_browser_ready` L153
+    - `_log_event` L177
+    - `switch_tab` L190
+    - `ensure_authenticated_trademan` L270
+    - `switch_account` L294
+    - `scrape_portfolio` L418
+    - `scrape_sbl_lots` L511
+    - `execute_order` L566
+    - `_clean_int` L877
+    - `_clean_float` L884
+    - `_scrape_view_order_rows` L890
+    - `scrape_unmatched_orders` L932
+    - `scrape_all_orders` L960
+    - `get_market_bid_offer` L987
+    - `_unknown_quote` L1015
+    - `_fetch_quote_unlocked` L1034
+    - `_find_ledger_row` L1129
+    - `_scrape_new_order_no` L1145
+    - `_dismiss_cancel_modal` L1187
+    - `cancel_order` L1202
+    - `modify_order_price` L1370
+    - `scrape_sbl_inventory` L1558
+    - `scrape_sbl_available_inventory` L1641
+    - `scrape_sbl_all_tabs` L1648
+    - `return_sbl_shares` L1775
+    - `execute_sbl_borrow` L1819
+    - `scrape_account_summary` L1957
+    - `scrape_set_index_summary` L2050
+- **app/browser/trademan_simulator.py** (500 lines)
+  - `class VirtualTradeManSimulator` L22-494
+    - `__init__` L28
+    - `reset` L49
+    - `seed_initial_state` L58
+    - `update_sbl_inventory` L140
+    - `get_account_summary` L144
+    - `execute_simulated_order` L165
+    - `modify_order_price` L380
+    - `execute_sbl_borrow` L437
+    - `execute_sbl_return` L459
+    - `get_portfolio_snapshot` L484
+    - `get_sbl_lots_snapshot` L488
+    - `get_open_orders` L492
+- **app/core/config.py** (128 lines)
+  - `class Settings` L5-124
+- **app/core/events.py** (93 lines)
+  - `class InternalEventBus` L9-88
+    - `__init__` L15
+    - `publish_order` L24
+    - `publish_otp` L33
+    - `publish_command` L51
+    - `publish_notification` L60
+    - `get_latest_otp` L69
+    - `get_latest_otp_payload` L72
+    - `_record_history` L75
+    - `get_queue_stats` L81
+- **app/core/feature_matrix.py** (153 lines)
+  - `build_matrix_payload()` L145-152
+- **app/core/security.py** (64 lines)
+  - `verify_homelab_secret()` L10-22
+  - `verify_payload_token_or_header()` L25-41
+  - `verify_line_signature()` L44-63
+- **app/core/sse_broadcaster.py** (63 lines)
+  - `class SSEBroadcaster` L21-58
+    - `__init__` L25
+    - `subscribe` L28
+    - `unsubscribe` L35
+    - `broadcast_event` L41
+    - `broadcast` L56
+- **app/core/virtual_clock.py** (149 lines)
+  - `class VirtualClock` L21-144
+    - `__init__` L22
+    - `mode` L32
+    - `speed_multiplier` L36
+    - `now` L39
+    - `set_real_time_mode` L59
+    - `set_accelerated_mode` L67
+    - `advance_to` L83
+    - `advance_minutes` L96
+    - `pause` L104
+    - `resume` L112
+    - `format_status` L120
+    - `_get_next_milestone` L132
+- **app/db/init_db.py** (40 lines)
+  - `init_db()` L9-37
+- **app/db/models.py** (173 lines)
+  - `class Base` L17-18
+  - `class Order` L21-42
+  - `class SBLBorrowLot` L45-64
+  - `class Position` L67-87
+  - `class SessionLog` L90-99
+  - `class WatchlistTrigger` L102-117
+  - `class MarketSnapshot` L120-137
+  - `class WorkflowAnomaly` L140-154
+  - `class AgentDecisionLog` L157-172
+- **app/db/session.py** (53 lines)
+  - `get_session_factory()` L37-42
+  - `get_db()` L45-52
+- **app/mcp/mcp_server.py** (697 lines)
+  - `handle_tool_call()` L274-559
+  - `main()` L566-689
+- **app/mcp/remote_server.py** (1029 lines)
+  - `resolve_platform()` L65-77
+  - `get_platform_drivers()` L80-85
+  - `browser_open()` L93-135
+  - `browser_screenshot()` L139-176
+  - `browser_snapshot()` L180-223
+  - `browser_click()` L227-247
+  - `browser_navigate()` L251-266
+  - `check_session()` L274-306
+  - `trademan_check_session()` L310-312
+  - `login_broker_session()` L316-436
+  - `submit_otp_code()` L440-504
+  - `trademan_submit_otp()` L508-510
+  - `get_portfolio_overview()` L514-551
+  - `get_account_balance()` L555-588
+  - `list_trading_accounts()` L592-594
+  - `get_portfolio()` L598-600
+  - `place_order()` L608-670
+  - `execute_order()` L674-692
+  - `get_open_orders()` L696-725
+  - `cancel_order()` L729-747
+  - `modify_order_price()` L751-779
+  - `cancel_or_modify_order()` L783-800
+  - `switch_default_platform()` L804-819
+  - `switch_trading_platform()` L823-825
+  - `switch_click2win_account()` L829-839
+  - `simulate_order_validation()` L847-903
+  - `inquire_sbl_pool()` L907-938
+  - `get_market_regime()` L942-960
+  - `workflow_list()` L964-975
+  - `report_feedback_and_correct()` L979-1011
+  - `get_sse_app()` L1018-1028
+- **app/mcp/server.py** (60 lines)
+  - `get_modular_sse_app()` L45-55
+- **app/mcp/pillars/overview.py** (147 lines)
+  - `mcp_get_6pillars_overview()` L13-146
+- **app/mcp/pillars/pillar1_session.py** (273 lines)
+  - `session_get_health()` L23-114
+  - `session_login_broker()` L117-174
+  - `session_submit_otp()` L177-197
+  - `session_logout_all()` L200-206
+  - `session_connect_all()` L209-262
+  - `register_session_pillar()` L265-271
+- **app/mcp/pillars/pillar2_portfolio.py** (692 lines)
+  - `_classify_order_category()` L40-82
+  - `portfolio_list_accounts()` L85-220
+  - `switch_account()` L223-347
+  - `portfolio_get_balances()` L350-461
+  - `portfolio_holdings()` L464-521
+  - `current_open_orders()` L524-562
+  - `current_orders()` L565-668
+  - `portfolio_sync_db()` L671-680
+  - `register_portfolio_pillar()` L683-691
+- **app/mcp/pillars/pillar3_trade.py** (258 lines)
+  - `_get_settrade_investor()` L32-45
+  - `trade_place_order()` L48-202
+  - `trade_cancel_order()` L205-226
+  - `trade_modify_price()` L229-250
+  - `register_trade_pillar()` L253-257
+- **app/mcp/pillars/pillar4_sbl.py** (212 lines)
+  - `sbl_get_inventory()` L29-53
+  - `sbl_borrow_stock()` L56-104
+  - `sbl_return_stock()` L107-151
+  - `sbl_check_corporate_actions()` L154-168
+  - `sbl_audit_short_candidates()` L171-202
+  - `register_sbl_pillar()` L205-211
+- **app/mcp/pillars/pillar6_strategy.py** (192 lines)
+  - `strategy_negotiate_unmatched_orders()` L33-101
+  - `strategy_eod_order_cleanup()` L104-139
+  - `strategy_action_exit_from_text()` L142-158
+  - `strategy_list_active()` L161-181
+  - `register_strategy_pillar()` L184-189
+- **app/mcp/pillars/pillar7_agentic.py** (86 lines)
+  - `register_agentic_pillar()` L17-85
+- **app/schemas/account.py** (220 lines)
+  - `class AccountType` L20-24
+  - `class AccountCapability` L27-33
+  - `class AccountEnvironment` L80-83
+  - `class AccountInfo` L86-98
+  - `class AccountContext` L101-131
+    - `get_active` L111
+    - `set_active` L121
+  - `class AccountCapabilityGuardrail` L138-216
+    - `normalize_account_type` L144
+    - `validate_capability` L164
+- **app/schemas/auth.py** (122 lines)
+  - `class HybridBaseModel` L10-27
+    - `__getitem__` L17
+    - `get` L23
+    - `__contains__` L26
+  - `class BrokerPlatform` L30-33
+  - `class AuthStatus` L36-45
+  - `class OTPSource` L48-54
+  - `class OTPPayload` L57-86
+    - `validate_otp_digits` L72
+    - `masked_otp` L79
+    - `otp_code` L85
+  - `class LoginCredentials` L89-94
+  - `class LoginResult` L97-114
+    - `__bool__` L113
+  - `class OTPExtractResult` L117-121
+- **app/schemas/intelligence.py** (109 lines)
+  - `class ExtractedOrder` L6-20
+  - `class ExtractedWatchlistTrigger` L23-31
+  - `class ExtractedHoldPosition` L34-45
+  - `class SignalParseResult` L48-58
+  - `class ExtractedTPSL` L61-66
+  - `class TPSLParseResult` L69-72
+  - `class EODOrderItem` L75-83
+  - `class SBLHoldingItem` L86-92
+  - `class EODReportSummary` L95-108
+- **app/schemas/mcp_response.py** (86 lines)
+  - `class MCPToolStatus` L12-18
+  - `class BaseMCPResponse` L21-33
+  - `create_maintenance_response()` L36-53
+  - `create_admin_attention_response()` L56-70
+  - `create_success_response()` L73-85
+- **app/schemas/order.py** (86 lines)
+  - `class OrderSide` L7-12
+  - `class OrderPosition` L15-18
+  - `class OrderStatus` L21-35
+  - `class OrderBase` L39-44
+  - `class OrderCreate` L47-49
+  - `class OrderResponse` L52-62
+  - `class PriceAdjustmentResult` L65-75
+  - `class CancelOrderResult` L78-84
+- **app/schemas/portfolio.py** (59 lines)
+  - `class PositionType` L10-13
+  - `class HoldingPosition` L16-38
+    - `clean_symbol` L35
+  - `class AccountSummary` L41-47
+  - `class PortfolioSnapshot` L50-58
+- **app/schemas/sbl.py** (49 lines)
+  - `class SBLCategory` L10-14
+  - `class SBLStockItem` L17-32
+    - `clean_symbol` L29
+  - `class SBLCategorySummary` L35-40
+  - `class SBLComprehensiveSnapshot` L43-48
+- **app/schemas/webhook.py** (16 lines)
+  - `class SignalTextPayload` L5-8
+  - `class WebhookResponse` L11-15
+- **app/services/action_center_service.py** (434 lines)
+  - `class ActionCenterService` L14-430
+    - `__init__` L23
+    - `get_pending_count` L27
+    - `get_pending_actions` L30
+    - `clear_all` L33
+    - `add_pending_action` L36
+    - `remove_pending_action` L59
+    - `reject_single` L62
+    - `reject_all` L70
+    - `approve_single` L77
+    - `approve_all` L103
+    - `build_action_center_card` L139
+    - `build_lunchtime_reminder_card` L330
+- **app/services/action_exit_dispatcher.py** (467 lines)
+  - `class ActionExitDispatcher` L33-462
+    - `__init__` L34
+    - `start` L44
+    - `stop` L54
+    - `_main_loop` L65
+    - `_check_preflight_session` L93
+    - `_check_price_negotiation_rounds` L147
+    - `_run_autonomous_negotiation` L171
+    - `_dispatch_scheduled_orders` L195
+    - `_execute_action_exit_order` L246
+    - `_poll_matched_orders` L381
+    - `dispatch_order_now` L443
+- **app/services/action_exit_service.py** (364 lines)
+  - `class ActionExitItem` L28-83
+    - `__init__` L29
+    - `to_dict` L65
+  - `class ActionExitService` L86-360
+    - `parse_action_exit_text` L105
+    - `evaluate_and_queue_action_exits` L209
+- **app/services/conversation_state.py** (428 lines)
+  - `_now()` L67-69
+  - `parse_symbol()` L75-85
+  - `parse_metric()` L96-106
+  - `class StepSpec` L113-119
+  - `class FlowSpec` L123-150
+    - `first_step` L132
+    - `step_keys` L135
+    - `step_spec` L138
+    - `next_step` L145
+  - `class ConversationState` L193-219
+    - `is_expired` L206
+    - `to_dict` L209
+  - `class ConversationStateStore` L222-423
+    - `__init__` L231
+    - `ttl_seconds` L237
+    - `set_ttl` L240
+    - `reset` L244
+    - `snapshot` L248
+    - `is_authorized` L257
+    - `get` L284
+    - `is_active` L297
+    - `start` L300
+    - `start_flow` L327
+    - `advance` L347
+    - `touch` L359
+    - `clear` L369
+    - `purge_expired` L378
+    - `purge` L385
+    - `is_cancel` L390
+    - `is_restart` L394
+    - `match_flow` L398
+    - `get_flow` L412
+    - `flow_names` L422
+- **app/services/daily_scenario_runner.py** (504 lines)
+  - `class DailyScenarioRunner` L37-500
+    - `__init__` L43
+    - `toggle_live_line` L61
+    - `_send_line_message` L66
+    - `reset_simulation_state` L80
+    - `load_markdown_strategy` L96
+    - `run_step` L224
+    - `run_full_day` L470
+    - `get_status` L491
+- **app/services/decision_engine.py** (181 lines)
+  - `class DecisionPolicyEngine` L10-177
+    - `handle_unanswered_timeout` L19
+    - `handle_price_negotiation_decision` L88
+    - `evaluate_via_ai_agent` L144
+- **app/services/eod_service.py** (309 lines)
+  - `class EndOfDayService` L19-305
+    - `run_eod_summary` L31
+    - `_process_eod` L41
+    - `_build_eod_flex_card` L166
+- **app/services/kdeconnect_cli.py** (91 lines)
+  - `main()` L26-86
+- **app/services/kdeconnect_service.py** (762 lines)
+  - `class KdeConnectService` L29-756
+    - `__init__` L36
+    - `_get_gsconnect_bin` L39
+    - `get_reachable_device_id` L47
+    - `refresh_devices` L88
+    - `_gsconnect_connected` L113
+    - `is_device_reachable` L142
+    - `send_critical_alert` L236
+    - `notify_admin_screen_help` L294
+    - `process_incoming_notification` L305
+    - `_extract_json_packets` L348
+    - `poll_active_notifications` L377
+    - `get_network_routes` L642
+- **app/services/kill_switch_service.py** (150 lines)
+  - `class KillSwitchService` L12-145
+    - `__init__` L19
+    - `is_active` L25
+    - `activate` L29
+    - `reset` L97
+    - `get_status` L138
+- **app/services/line_service.py** (1857 lines)
+  - `class LineMessagingService` L33-1848
+    - `process_webhook_events` L44
+    - `_handle_text_message` L69
+    - `_handle_conversation_turn` L412
+    - `_start_conversation_flow` L506
+    - `_execute_conversation_terminal` L532
+    - `_execute_symbol_query` L562
+    - `_handle_postback` L670
+    - `_reconcile_daily_orders_with_portfolio` L880
+    - `_build_batch_flex_message` L921
+    - `build_trade_approval_card` L1130
+    - `build_order_carousel_card` L1273
+    - `_send_reply` L1680
+    - `push_message` L1717
+    - `push_otp_request` L1768
+    - `push_progress_update` L1818
+    - `send_alert` L1826
+    - `send_system_notification` L1830
+  - `uuid_hex()` L1851-1853
+- **app/services/market_monitor_service.py** (105 lines)
+  - `class MarketMonitorService` L14-101
+    - `capture_and_report` L29
+    - `format_1line_summary` L70
+    - `get_latest_snapshot` L79
+- **app/services/order_service.py** (187 lines)
+  - `class OrderService` L14-183
+    - `create_order` L20
+    - `get_orders` L86
+    - `get_order_by_id` L100
+    - `update_order_status` L106
+    - `expire_eod_orders` L129
+    - `carry_over_orders` L146
+    - `save_watchlist_triggers` L162
+- **app/services/otp_relay_readiness.py** (312 lines)
+  - `channel_allows_kde()` L77-79
+  - `channel_db_event_types()` L82-89
+  - `channel_accepts_source()` L92-104
+  - `event_type_to_source()` L107-109
+  - `_port_open()` L113-119
+  - `_probe_target()` L122-158
+  - `class OtpRelayReadiness` L162-176
+    - `to_dict` L170
+  - `class OtpRelayReadinessService` L179-307
+    - `check` L182
+    - `is_ready` L305
+- **app/services/otp_relay_registry.py** (271 lines)
+  - `broker_label()` L68-75
+  - `format_request_details()` L78-87
+  - `format_otp_details()` L90-104
+  - `parse_request_broker()` L107-110
+  - `parse_request_ref()` L113-119
+  - `parse_otp_broker()` L122-130
+  - `broker_matches()` L143-154
+  - `class PendingOtpRequest` L160-166
+  - `_primary_session()` L169-173
+  - `record_request()` L176-197
+  - `resolve_pending_request()` L200-245
+  - `record_otp_received()` L248-269
+- **app/services/parser.py** (520 lines)
+  - `class SignalIntelligenceParser` L23-516
+    - `parse_strategy_with_ai` L31
+    - `_call_gemini_for_strategy` L58
+    - `_clean_symbol` L222
+    - `parse_text` L228
+    - `parse_multi_stock_tpsl` L415
+    - `_call_gemini_for_tpsl` L430
+    - `_parse_tpsl_regex_fallback` L462
+- **app/services/phase3_scheduler.py** (251 lines)
+  - `class Phase3Scheduler` L17-247
+    - `__init__` L46
+    - `generate_random_points` L56
+    - `_ensure_daily_random_points` L78
+    - `start` L89
+    - `stop` L96
+    - `_scheduler_loop` L107
+    - `trigger_portfolio_overview` L171
+    - `trigger_random_execution_point` L181
+    - `trigger_price_negotiation` L201
+    - `trigger_lunchtime_reminder` L210
+    - `trigger_eod_summary` L224
+    - `get_daily_schedule` L233
+- **app/services/portfolio_overview_service.py** (363 lines)
+  - `class PortfolioOverviewService` L19-359
+    - `run_overview` L31
+    - `_execute_overview` L44
+    - `reconcile_portfolio` L94
+    - `check_sbl_lots` L154
+    - `get_stocks_missing_tpsl` L202
+    - `apply_tpsl_items` L226
+    - `apply_percentage_tpsl_to_open_positions` L273
+    - `format_overview_report` L320
+- **app/services/price_negotiation_service.py** (321 lines)
+  - `class PriceNegotiationService` L20-317
+    - `run_negotiation_round` L36
+    - `_process_round` L49
+    - `evaluate_order_negotiation` L77
+    - `_dispatch_negotiation_card` L189
+    - `execute_price_adjustment` L223
+    - `scan_and_evaluate_live_orders` L284
+    - `dispatch_single_order_card` L315
+- **app/services/sbl_intelligence_service.py** (358 lines)
+  - `class SBLIntelligenceService` L17-354
+    - `analyze_sbl_decision` L22
+    - `_call_gemini_sbl_analyst` L69
+    - `_generate_deterministic_analysis` L154
+    - `audit_sbl_candidates` L202
+- **app/services/scenario_matrix.py** (383 lines)
+  - `class ScenarioMatrix` L30-379
+    - `run_scenario_1_normal` L36
+    - `run_scenario_2_tpsl_triggers` L109
+    - `run_scenario_3_volatility_rebound` L195
+    - `run_scenario_4_unmatched_negotiation_failed` L258
+    - `run_scenario_5_sbl_held_carrying_fee` L312
+    - `_clean_db` L375
+- **app/services/self_annealing_engine.py** (229 lines)
+  - `class SelfAnnealingEngine` L21-224
+    - `__init__` L29
+    - `handle_execution_failure` L32
+    - `_tier1_fallback` L94
+    - `_tier2_autonomous_patch` L106
+    - `_tier3_hitl_escalation` L173
+- **app/services/trade_center_service.py** (323 lines)
+  - `class TradeCenterService` L20-319
+    - `__init__` L29
+    - `prepare_batch_approval_card` L32
+    - `execute_batch_orders` L84
+    - `prepare_order_approval` L140
+    - `execute_confirmed_order` L205
+    - `_ensure_sbl_borrowed` L289
+- **app/services/trade_dispatcher.py** (230 lines)
+  - `class TradeExecutionDispatcher` L27-225
+    - `__init__` L33
+    - `current_mode` L39
+    - `is_live` L43
+    - `get_mode_badge` L46
+    - `get_mode_color` L51
+    - `switch_mode` L57
+    - `dispatch_order` L100
+    - `dispatch_price_modification` L167
+    - `dispatch_sbl_return` L203
+    - `_log_event` L218
+- **app/services/validator.py** (340 lines)
+  - `class PreTradeValidator` L7-335
+    - `__init__` L12
+    - `get_set_tick_size` L16
+    - `is_tfex_symbol` L46
+    - `validate_board_lot` L54
+    - `validate_tick_size` L68
+    - `validate_order_value` L87
+    - `check_idempotency` L99
+    - `clear_idempotency_cache` L131
+    - `get_next_tick` L135
+    - `validate_short_uptick` L158
+    - `validate_asset_action` L179
+    - `validate_all` L219
+    - `reconcile_orders_against_portfolio` L265
+- **app/services/workflow_engine.py** (474 lines)
+  - `class WorkflowEngine` L26-470
+    - `__init__` L36
+    - `list_workflows` L40
+    - `get_workflow_path` L51
+    - `save_workflow_spec` L83
+    - `parse_workflow_spec` L135
+    - `update_workflow_step` L168
+    - `execute_workflow` L216
+    - `record_anomaly` L420
+    - `get_active_anomalies` L440
+    - `resolve_anomaly` L459
+- **scripts/__init__.py** (50 lines)
+  - `class _ScriptsLegacyFinder` L16-36
+    - `find_spec` L17
+  - `__getattr__()` L40-49
+- **scripts/daily_readiness.py** (455 lines)
+  - `_now_iso()` L70-71
+  - `_port_open()` L74-79
+  - `_hr()` L82-83
+  - `check_backend()` L86-95
+  - `ensure_mobile_bridge()` L98-174
+  - `ensure_krungsri()` L177-234
+  - `ensure_liberator()` L237-295
+  - `inspect_click2win()` L298-325
+  - `_krungsri_ready()` L328-342
+  - `_liberator_ready()` L345-354
+  - `run()` L357-422
+  - `build_parser()` L425-438
+  - `parse_args()` L441-443
+  - `main()` L446-449
+- **scripts/dev_resume_session.py** (119 lines)
+  - `decide_action()` L39-45
+  - `format_report()` L48-60
+  - `_resume()` L63-99
+  - `main()` L102-114
+- **scripts/gen_codemap.py** (80 lines)
+  - `file_entries()` L22-40
+  - `build()` L43-63
+  - `main()` L66-75
+- **scripts/preflight_check.py** (280 lines)
+  - `check_port()` L54-59
+  - `check_backend_daemon()` L62-81
+  - `check_kdeconnect_phone()` L84-124
+  - `_path()` L127-136
+  - `liberator_session_status()` L139-146
+  - `click2win_session_status()` L149-169
+  - `krungsri_session_status()` L172-180
+  - `check_krungsri_session()` L183-197
+  - `check_click2win_session()` L200-209
+  - `check_liberator_session()` L212-224
+  - `check_market_regime()` L227-237
+  - `cleanup_stale_processes()` L240-255
+  - `main()` L258-275
+- **scripts/replay_kde_rca005.py** (53 lines)
+  - `main()` L25-48
+- **scripts/services_status.py** (310 lines)
+  - `_port_open()` L57-64
+  - `_pids_matching()` L67-73
+  - `_gateway_health()` L76-85
+  - `collect_gateway()` L90-116
+  - `collect_cloudflared()` L119-137
+  - `collect_mcp_server()` L140-158
+  - `collect_in_gateway_daemons()` L161-187
+  - `collect_otp_relay()` L190-203
+  - `collect_kdeconnect()` L206-235
+  - `_verdict()` L252-255
+  - `_render_human()` L258-271
+  - `_collect_all()` L274-282
+  - `main()` L285-305
+- **scripts/start_homelab.py** (856 lines)
+  - `check_tcp_port()` L81-87
+  - `check_kde_live_transport()` L90-131
+  - `send_desktop_notification()` L134-139
+  - `stage1_check_kdeconnect()` L145-279
+  - `_ping_device_confirmation()` L282-291
+  - `push_krungsri_login_alert()` L294-323
+  - `stage2_verify_krungsri_session()` L329-418
+  - `stage3_verify_liberator_session()` L424-459
+  - `ensure_gateway_running()` L465-500
+  - `move_window_to_workspace()` L503-524
+  - `stage1_check_otp_relay()` L527-585
+  - `stage4_launch_server_and_console()` L591-691
+  - `resolve_startup_plan()` L694-731
+  - `run_services_status()` L737-740
+  - `main()` L743-831
+  - `argparse_helper()` L834-851
+- **scripts/token_report.py** (196 lines)
+  - `est_tokens()` L34-36
+  - `load_session()` L39-44
+  - `usage_rows()` L47-55
+  - `session_meta()` L58-64
+  - `analyse()` L67-109
+  - `fmt()` L112-115
+  - `report_context()` L118-126
+  - `main()` L129-191
+- **scripts/verify_changes.py** (310 lines)
+  - `_rel()` L148-154
+  - `_pytest_already_running()` L157-176
+  - `_py_files()` L179-184
+  - `_guard_blocked()` L187-195
+  - `resolve_tests()` L199-226
+  - `compile_changed()` L229-240
+  - `run_pytest()` L243-252
+  - `main()` L255-305
+- **scripts/click2win/click2win_studio.py** (244 lines)
+  - `run_studio()` L48-231
+  - `main()` L234-239
+- **scripts/click2win/debug_click2win_typesafe.py** (466 lines)
+  - `run_click2win_typesafe_debug()` L62-435
+  - `main()` L438-461
+- **scripts/click2win/execute_c2w_tfex_order.py** (211 lines)
+  - `main()` L36-206
+- **scripts/click2win/run_click2win_live_test.py** (112 lines)
+  - `main()` L34-107
+- **scripts/click2win/test_c2w_account_switch.py** (113 lines)
+  - `main()` L24-108
+- **scripts/click2win/test_click2win_price_negotiation.py** (157 lines)
+  - `run_autonomous_test()` L37-152
+- **scripts/click2win/test_settrade_sandbox.py** (223 lines)
+  - `print_banner()` L40-43
+  - `print_credential_guide()` L46-66
+  - `test_settrade_connectivity()` L69-188
+  - `main()` L191-218
+- **scripts/click2win/watch_and_learn_c2w_derivatives.py** (431 lines)
+  - `highlight()` L41-54
+  - `run_copilot()` L57-426
+- **scripts/krungsri/debug_krungsri_portfolio_typesafe.py** (276 lines)
+  - `run_portfolio_typesafe_debug()` L55-254
+  - `main()` L257-271
+- **scripts/krungsri/debug_krungsri_sbl_multipage_typesafe.py** (311 lines)
+  - `run_multipage_sbl_debug()` L79-288
+  - `main()` L291-306
+- **scripts/krungsri/debug_krungsri_sbl_typesafe.py** (252 lines)
+  - `run_sbl_typesafe_debug()` L50-236
+  - `main()` L239-247
+- **scripts/krungsri/debug_scrape_portfolio.py** (133 lines)
+  - `run_debug_scrape()` L37-108
+- **scripts/krungsri/execute_live_action_exit.py** (222 lines)
+  - `execute_action_exit()` L13-213
+- **scripts/krungsri/execute_live_sawad_sell.py** (233 lines)
+  - `execute_live_sawad_sell()` L12-227
+- **scripts/krungsri/probe_order_actions_ui.py** (269 lines)
+  - `main()` L136-193
+  - `_maybe_click_cancel()` L196-264
+- **scripts/krungsri/probe_quote_api.py** (148 lines)
+  - `main()` L93-143
+- **scripts/krungsri/probe_quote_source.py** (197 lines)
+  - `main()` L80-192
+- **scripts/krungsri/probe_sbl_pagination.py** (102 lines)
+  - `main()` L7-98
+- **scripts/krungsri/run_phase2_login.py** (160 lines)
+  - `main()` L34-155
+- **scripts/krungsri/run_phase3_dryrun.py** (124 lines)
+  - `main()` L29-119
+- **scripts/krungsri/test_krungsri_full_session_flow.py** (278 lines)
+  - `_terminal_otp_listener()` L60-79
+  - `run_full_spectrum_flow()` L82-264
+  - `main()` L267-273
+- **scripts/krungsri/test_phase1_live.py** (190 lines)
+  - `run_live_verification()` L57-185
+- **scripts/krungsri/test_sbl_live_audit.py** (45 lines)
+  - `main()` L14-40
+- **scripts/krungsri/watch_and_learn_krungsri_sso.py** (434 lines)
+  - `highlight_element()` L49-66
+  - `capture_snapshot()` L69-75
+  - `scan_portal_programs()` L78-187
+  - `run_studio()` L190-386
+  - `_save_workflow()` L389-429
+- **scripts/krungsri/watch_and_learn_sbl.py** (290 lines)
+  - `highlight_element()` L32-49
+  - `run_sbl_watch_and_learn()` L52-285
+- **scripts/krungsri/watch_and_learn_trademan.py** (512 lines)
+  - `class TrademanWatchAndLearn` L48-506
+    - `__init__` L49
+    - `record_step` L59
+    - `prompt_user` L71
+    - `initialize_browser` L83
+    - `_on_new_page` L120
+    - `run` L124
+    - `save_session` L445
+    - `save_runbook` L463
+- **scripts/krungsri/watch_and_learn_trademan_reconnect.py** (393 lines)
+  - `highlight_element()` L49-66
+  - `capture_snapshot()` L69-75
+  - `scan_reconnect_modals()` L78-146
+  - `run_studio()` L149-339
+  - `_save_workflow()` L342-388
+- **scripts/liberator/diag_change_locator.py** (112 lines)
+  - `main()` L24-107
+- **scripts/liberator/inspect_liberator_post_login.py** (63 lines)
+  - `inspect_liberator_post_login()` L7-59
+- **scripts/liberator/probe_liberator_portfolio_dom.py** (126 lines)
+  - `probe_portfolio_and_order_form()` L6-122
+- **scripts/liberator/probe_liberator_session.py** (57 lines)
+  - `probe_liberator_session()` L6-53
+- **scripts/liberator/probe_order_change_button.py** (252 lines)
+  - `main()` L26-247
+- **scripts/liberator/probe_order_change_ui.py** (313 lines)
+  - `main()` L104-308
+- **scripts/liberator/run_change_order_live.py** (70 lines)
+  - `_read_order()` L27-31
+  - `main()` L34-65
+- **scripts/liberator/test_liberator_login_live.py** (86 lines)
+  - `main()` L36-81
+- **scripts/liberator/test_liberator_order_form_safe.py** (126 lines)
+  - `test_order_form_and_portfolio_safe()` L8-122
+- **scripts/liberator/test_liberator_portfolio_full.py** (149 lines)
+  - `test_full_extract()` L6-145
+- **scripts/liberator/watch_and_learn_liberator.py** (488 lines)
+  - `class LiberatorWatchAndLearn` L50-482
+    - `__init__` L51
+    - `record_step` L59
+    - `prompt_user` L71
+    - `initialize_browser` L83
+    - `run` L121
+    - `save_session` L426
+    - `save_runbook` L444
+- **scripts/shared/browser_test_console.py** (108 lines)
+  - `run_browser_automation()` L8-103
+- **scripts/shared/debug_login.py** (194 lines)
+  - `run_debug_login()` L37-165
+- **scripts/shared/demo_inspector_tutorial.py** (137 lines)
+  - `run_tutorial()` L22-132
+- **scripts/shared/playwright_grill_runner.py** (257 lines)
+  - `run_console_scenario()` L40-94
+  - `run_trademan_scenario()` L97-123
+  - `run_click2win_scenario()` L126-156
+  - `run_custom_inspect()` L159-172
+  - `main()` L175-252
+- **scripts/shared/run_autotrade_e2e_test.py** (287 lines)
+  - `run_suite()` L57-282
+- **scripts/shared/run_live_scraping_test.py** (134 lines)
+  - `main()` L33-129
+- **scripts/shared/run_time_warp_sim.py** (118 lines)
+  - `run_single_scenario()` L36-69
+  - `main()` L72-113
+- **scripts/shared/verify_modal_confirm.py** (23 lines)
+  - `main()` L4-20
+- **scripts/shared/watch_and_learn.py** (361 lines)
+  - `class WatchAndLearnSession` L40-320
+    - `__init__` L41
+    - `initialize` L55
+    - `_print_help` L123
+    - `execute_command` L141
+    - `save_runbook` L279
+  - `main()` L323-356

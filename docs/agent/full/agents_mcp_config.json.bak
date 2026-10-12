@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "playwright-homelab": {
+      "command": "/home/araya-sawasdichai/Documents/antigravity/InvestmentHomelab/scripts/mcp_launch.sh",
+      "args": ["-m", "app.mcp.mcp_server"]
+    }
+  }
+}

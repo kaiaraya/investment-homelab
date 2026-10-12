@@ -10,6 +10,14 @@
 ## Scope — ไฟล์ที่อนุญาตให้แก้
 - `app/...`
 
+## Context map (Antigravity เขียน — ลด token: Cline เริ่มจากตรงนี้ ไม่ต้อง search ทั้ง repo)
+| File | Symbol / Lines | Why (read / edit) |
+|------|----------------|-------------------|
+| `app/services/...py` | `func_name` L120-180 | edit |
+| `tests/test_...py` | `test_xxx` L10-60 | pattern to copy |
+- Verify command: `.venv/bin/python scripts/verify_changes.py <files>`
+- หา symbol เพิ่ม: `grep -n <symbol> docs/agent/CODEMAP.md` แล้วอ่านเฉพาะช่วงบรรทัด
+
 ## Steps / Task Decomposition (Loop Engineering — บังคับ)
 แตกงานเป็น atomic steps ก่อนเริ่มงาน (1 action / 1 ไฟล์ / 1 assertion ต่อ step)
 แต่ละ step ต้องมี Expected Outcome + วิธี Verify แล้วทำทีละ step ไม่ batch

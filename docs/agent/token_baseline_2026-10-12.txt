@@ -1,0 +1,28 @@
+session                          model           calls   input  output  ctx1st  ctxMed  ctxMax  title
+1791458303123_mjsy7              deepseek-v4-pr   2016  169.0M    904K     57K     74K    238K  my observation on 6 October 2026 I think cline work not so e  [BLOWUP x172]
+1791274943590_hzis1              ?                1333  114.8M    593K     57K     75K    238K    [BLOWUP x143]
+468c9-1791781449956-3914sc06     deepseek-v4-pr     59   49.5M    109K     21K    865K    960K  LINE command authorization gate (trust boundary)  [BLOWUP x57]
+0906f-1791792734520-2yomipyg     deepseek-flash    121   34.7M    170K     21K    292K    433K  LINE command registry + /help + Quick Reply  [BLOWUP x108]
+f7424-1791792941023-t4dc9hjw     deepseek-flash    114   19.6M    115K     21K    179K    294K  LINE 1:1 multi-step conversation flows (state machine) [opti  [BLOWUP x65]
+1791190614887_paqgy              deepseek-v4-pr    279   19.3M    137K     99K     64K    145K  My observation during  5 October 2026
+I've started my Invest
+74800-1791780829877-v5hzmzob     deepseek-v4-pr     72   18.9M     54K     21K    276K    309K  ผมส่งสัยว่า ตอนที่พัฒนา แต่อยากจะทดสอบไปพร้อมๆ กัน โดย ให้ u  [BLOWUP x71]
+1791598592899_t633q              deepseek-v4-pr    134    8.5M     56K     40K     68K    107K  Build Production!
+
+
+ช่วยจัดทำ pack สำหรับ Production ให้หน่อ
+85567-1791710294508-6ornfv8q     deepseek-v4-fl     41    5.5M     56K     21K    140K    217K  ต้องการปรับ UI ของ LINE (a14s homelab) ให้สามารถส่งคำสั่ง Ne  [BLOWUP x20]
+1791094205848_bqfqu              ?                  85    4.4M     32K     38K     48K     90K  
+30450-1791778827393-2st8hmu5     deepseek-v4-pr     27    4.0M     27K     21K    148K    224K  ขอแผนการพัฒนาทั้ง 6 Pillar หน่อยครับ แบ่งตาม Broker ด้วย  [BLOWUP x13]
+cb4c2-1791792919920-zqsg829e     deepseek-flash     17    1.6M     22K     21K    103K    127K  LINE Rich Menu for 1:1 OA chat
+5ad41-1791776846344-de1kop3n     deepseek-v4-pr      9    985K     15K     21K    126K    152K  ตอนนี้ user สามารถพิมพ์ สั่งอะไรได้บ้างทาง ไลน์ ช่วยอธิบายถึ  [BLOWUP x1]
+__home_agent___investmenthomelab deepseek-v4-pr      7    633K     13K     24K    101K    115K  ช่วยออกแบบแนวทางการสื่อสารของ LNE 1-1 นอกจากรับ OTP อยากให้ส
+__home_agent___investmenthomelab deepseek-v4-pr      7    633K     13K     24K    101K    115K  
+
+Sessions: 15 · total input 452.1M · total output 2.3M · median-of-median ctx 103K · sessions with blow-up (>150K/call) 9
+Always-loaded context (AGENTS.md + .agents/rules):
+  AGENTS.md                                     ~  3202 tokens
+  .agents/rules/broker_pdca_rca.md              ~  1120 tokens
+  .agents/rules/loop_engineering.md             ~  2946 tokens
+  .agents/rules/root_cause_and_escalation.md    ~  1709 tokens
+  TOTAL                                         ~  8977 tokens / call
