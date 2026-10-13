@@ -489,6 +489,30 @@ def _portfolio_amount(rows: List[Dict[str, Any]]) -> Optional[float]:
     return sum(parts) if parts else None
 
 
+def _split_borrowed(rows: List[Dict[str, Any]]
+                    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """(main holdings, borrowed lots) — RCA-013 final, decisions D2/D3.
+
+    ``(B)`` (``BORROWED``) rows leave the main table: ``main`` keeps only SHORT / LONG /
+    UNKNOWN, while ``borrowed`` is ``[{"symbol", "volume"}]`` for every ``BORROWED`` row
+    with ``volume > 0``, sorted by symbol. A zero-volume loan (e.g. ``BCPG (B)``) is
+    dropped (D3). Broker-agnostic and pure — LIB rows are never ``BORROWED``, so this is
+    a no-op there; the caller decides whether to render the section at all.
+    """
+    src = rows or []
+
+    def _is_borrowed(r: Dict[str, Any]) -> bool:
+        return str(r.get("position_type") or "LONG").upper() == "BORROWED"
+
+    main = [r for r in src if not _is_borrowed(r)]
+    borrowed = sorted(
+        ({"symbol": str(r.get("symbol", "")), "volume": int(r.get("volume", 0) or 0)}
+         for r in src if _is_borrowed(r) and int(r.get("volume", 0) or 0) > 0),
+        key=lambda b: b["symbol"],
+    )
+    return main, borrowed
+
+
 #: Display-only labels for raw account-type codes (LIBERATOR reports ``CASH_BALANCE``).
 #: Presentation only — never touches the per-broker balance-value mapping (RCA-011).
 _ACCOUNT_TYPE_LABEL = {
@@ -548,21 +572,24 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
             account_label = getattr(trademan_driver, "active_account_no", None) or "LIVE"
             summary = getattr(trademan_driver, "portfolio_totals", None) or {}
         rows = _normalise_holdings(res.get("holdings", []))
+        # D2/D3: (B) rows leave the main table and render as their own
+        # "หุ้นยืมคงเหลือ (B)" section. Market Value is no longer shown (D1) — the page's
+        # totals row still feeds Amount, and Unrealized/%P/L keep the P1 formula
+        # (BORROWED rows never contributed to it).
+        main_rows, borrowed = _split_borrowed(rows)
         total, pnl = _portfolio_totals(rows)
-        # Amount = cost basis, Market Value = Σ vol×last **including** (B) rows — both
-        # fall back to the computed figures, and only when the page exposed no cell.
         amount = _portfolio_amount(rows)
-        market_value: Optional[float] = total if rows else None
         if summary.get("amount") is not None:
             amount = summary["amount"]
-        if summary.get("market_value") is not None:
-            market_value = summary["market_value"]
         cost_base = total - pnl
         pnl_pct = (pnl / cost_base * 100.0) if cost_base else 0.0
         return cards.port_card(broker=BROKER_LABEL[broker], account=account_label,
-                               amount=amount, market_value=market_value, pnl_value=pnl,
-                               pnl_pct=pnl_pct, rows=rows, snapshot_label=now_label,
-                               stale=False, live=True, is_test=is_test)
+                               amount=amount, pnl_value=pnl, pnl_pct=pnl_pct,
+                               rows=main_rows,
+                               # Broker isolation: only KSS/TradeMan has (B) loans.
+                               borrowed=borrowed if plat in ("KRUNGSRI", "TRADEMAN") else [],
+                               snapshot_label=now_label, stale=False, live=True,
+                               is_test=is_test)
 
     if kind == "orders":
         from app.mcp.pillars.pillar2_portfolio import current_orders
@@ -613,11 +640,13 @@ async def _handle_read(
                 return {"status": "CLI_NO_DATA"}
             total, pnl = _portfolio_totals(rows)
             base = total - pnl
+            main_rows, borrowed = _split_borrowed(rows)
+            if _broker_platform(parsed.broker) not in ("KRUNGSRI", "TRADEMAN"):
+                borrowed = []          # broker isolation: LIB has no (B) section
             card = cards.port_card(broker=label, account="DB snapshot",
-                                   amount=_portfolio_amount(rows),
-                                   market_value=total if rows else None,
-                                   pnl_value=pnl,
-                                   pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=rows,
+                                   amount=_portfolio_amount(rows), pnl_value=pnl,
+                                   pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=main_rows,
+                                   borrowed=borrowed,
                                    snapshot_label=_fmt_hhmm(ts), stale=_is_stale(ts), live=False)
             await service._send_reply(reply_token, card)
             return {"status": "CLI_PORT", "count": len(rows)}

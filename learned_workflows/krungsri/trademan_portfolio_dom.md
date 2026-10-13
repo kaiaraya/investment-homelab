@@ -79,9 +79,14 @@ this DOM: 15 rows; the legacy scan returns 16).
 - P/L rendering (shared with LIBERATOR — `PositionItem` has no side field, so it defaults to `LONG`):
   LONG `(last−cost)/cost`, SHORT `(cost−last)/cost`, BORROWED / UNKNOWN / no cost base → `—`.
   The card label is `Unrealized P/L` (this is **not** today's realized P/L).
-- The `/port` card tags rows `(S)`/`(B)` and paginates `PORT_ROWS_PER_BUBBLE = 12` rows per bubble into a
-  LINE carousel so all 15 rows are reachable (the "…และอีก N ตัว" teaser is gone). The symbol cell is
-  `flex=4` + `wrap: true` and the qty cell `flex=2`, so `DOHOME (S)` is no longer clipped (CLI-RCA-012).
+- The `/port` card paginates `PORT_ROWS_PER_BUBBLE = 12` rows per bubble into a LINE carousel so all rows
+  are reachable (the "…และอีก N ตัว" teaser is gone). The symbol cell is `flex=4` + `wrap: true` and the
+  qty cell `flex=2`, so `DOHOME (S)` is no longer clipped (CLI-RCA-012).
+- **P1.6 (2026-10-14):** the main table now carries only `(S)` (SHORT) tags — `handlers._split_borrowed()`
+  moves every `BORROWED` row out, and the first bubble renders them in a `หุ้นยืมคงเหลือ (B)` section
+  (`MTC  1,700 หุ้น`, qty only, no money) directly under `Unrealized P/L`. A `volume = 0` loan (e.g.
+  `BCPG (B)`) is dropped; no loans → no heading. LIB never gets this section (broker isolation): its
+  `PositionItem` has no side field and is always `LONG`.
 
 ## Totals row → `portfolio_totals` (CLI-RCA-013 fix, 2026-10-14)
 
@@ -105,12 +110,13 @@ this DOM: 15 rows; the legacy scan returns 16).
 
   It is reset to `None` at the start of every scrape, so a failed/expired scrape can never leak a previous
   account's figures (Anti-Mock).
-- `handlers._live_card` (port) uses `portfolio_totals` **only for KSS/TRADEMAN** (broker isolation) and only
-  when the DOM cell is not `None`; otherwise it falls back to the computed values — Amount =
-  `_portfolio_amount()` = Σ(vol×avg) of non-BORROWED rows, Market Value = `_portfolio_totals()` = Σ(vol×last)
-  **including** `(B)` rows. Unreadable → `—` via `cards._money()`.
-- Card header (first bubble) is now `Amount` / `Market Value` / `Unrealized P/L` — the app's own labels; the
-  legacy `มูลค่ารวม` label is gone. The Unrealized P/L formula is unchanged (per side, P1).
+- `handlers._live_card` (port) uses `portfolio_totals["amount"]` **only for KSS/TRADEMAN** (broker isolation)
+  and only when the DOM cell is not `None`; otherwise it falls back to `_portfolio_amount()` = Σ(vol×avg) of
+  non-BORROWED rows. Unreadable → `—` via `cards._money()`.
+- **P1.6 (2026-10-14):** `portfolio_totals["market_value"]` is still scraped but **no longer rendered** — the
+  card header (first bubble) is `Amount` then `Unrealized P/L` only (legacy `มูลค่ารวม` gone). The
+  `_portfolio_totals()` Σ(vol×last) total survives only as the `cost_base` term inside `%P/L`. Unrealized
+  P/L formula unchanged (per side, P1).
 - Evidence: `tests/test_trademan_portfolio_scraper.py` (7 new: summary row parsed / blank → `None` /
   absent → `None` / stale cleared / class-vs-token selection) and `tests/test_line_cli_flow.py`
   (DOM-preferred totals, labels, `—`, `_money`, BORROWED excluded, unclipped symbol).

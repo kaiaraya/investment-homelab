@@ -84,4 +84,34 @@ owned by Antigravity.
 
 ## Live re-test P1.5 — 2026-10-14 06:10 (Antigravity)
 - RCA-012 ✅ live: `DOHOME (S)` rendered in full.
-- RCA-013 ⚠️ live: card Market Value excludes MTC (B). Computed fallback includes (B), so this shows the card read the **web DOM totals row**, and the web TradeMan summary row's Market Value counts (S) rows only. The mobile app's Market Value includes (B). Web ≠ mobile definition. Awaiting user decision: follow web, or add (B) market value to match mobile.
+- RCA-013 ⚠️ live: card Market Value excludes MTC (B). Computed fallback includes (B), so this shows the card read the **web DOM totals row**, and the web TradeMan summary row's Market Value counts (S) rows only. The mobile app's Market Value includes (B). Web ≠ mobile definition. Awaiting user decision: follow web, or add (B) market value to match mobile. → **resolved by P1.6 (below): the card stops showing Market Value entirely.**
+
+## Proven fix — 2026-10-14 (Cline, TASK-cli-p1_6-borrowed-row)
+
+Status: **code + unit verified** (53 tests in `tests/test_line_cli_flow.py`); live re-test owned by Antigravity.
+
+User decisions (locked 2026-10-14):
+- **D1** — the first bubble shows `Amount` + `Unrealized P/L` only. **`Market Value` is dropped**: the app
+  counts `(B)` in it while the web totals row does not (web ≠ mobile), and the loan is returned at its own
+  volume anyway, so the figure carried no action.
+- **D2** — `(B)` rows leave the main holdings table and render as a `หุ้นยืมคงเหลือ (B)` section directly
+  under the P/L line (first bubble only); the table keeps SHORT / LONG / UNKNOWN.
+- **D3** — each loan shows `symbol  qty หุ้น` (no money); a `volume == 0` row (e.g. `BCPG (B)`) is omitted;
+  no loans at all → no heading.
+
+| ID | Change (code) | Evidence |
+|---|---|---|
+| CLI-RCA-013 | `handlers`: new `_split_borrowed(rows) -> (main_rows, borrowed)` — `main` drops `BORROWED`; `borrowed` = `[{"symbol","volume"}]` for `volume > 0`, sorted by symbol. `_live_card`(port) + `_handle_read`(snapshot) pass `rows=main_rows, borrowed=…` and **no longer pass `market_value`**; the loans are gated to `KRUNGSRI`/`TRADEMAN` (broker isolation). `cards.port_card` drops the `market_value` param, gains `borrowed`, renders the section under the P/L line, and its altText is now `📊 {broker} พอร์ต Amount {_money(amount)} (N ตัว)` | `tests/test_line_cli_flow.py` (5 new: `test_split_borrowed_moves_borrowed_out_and_drops_zero_volume`, `test_split_borrowed_is_empty_without_borrowed_rows`, `test_live_port_card_lib_never_shows_a_borrowed_section`, `test_port_card_renders_borrowed_section_below_the_pl_line`, `test_port_card_omits_borrowed_section_when_there_are_no_loans`) |
+
+### Invariants preserved (P1.6)
+- Driver / scraper / `portfolio_totals` untouched — `market_value` is still scraped, just no longer rendered.
+- Unrealized P/L + `%P/L` formula unchanged (P1); `_portfolio_totals(rows)` still runs over **all** rows for
+  the `cost_base` that feeds `%P/L` — `(B)` rows always contributed `0.0`, so the figure is identical.
+- Anti-Mock: `Amount` `None` → `—`; a zero-volume loan is dropped, never rendered as `0 หุ้น`.
+- Broker isolation: LIB never renders the `(B)` section (its `PositionItem` has no side → always `LONG`), and
+  its rows are never split out of the table.
+
+## Live re-test P1.6 — 2026-10-14 06:43 (Antigravity)
+- ✅ First bubble = `Amount` (matches app Portfolio > Total) + `Unrealized P/L`; no Market Value.
+- ✅ `หุ้นยืมคงเหลือ (B)` shows only `MTC 1,700 หุ้น` (BCPG 0 hidden); table = 12 (S) rows in one bubble.
+- **CLI-RCA-013 CLOSED.**

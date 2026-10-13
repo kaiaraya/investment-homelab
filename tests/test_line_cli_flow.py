@@ -590,7 +590,7 @@ def test_port_card_paginates_into_carousel_and_drops_overflow_teaser():
 
     rows = [{"symbol": f"S{i}", "position_type": "LONG", "volume": 100, "cost": 10.0, "last": 11.0,
              "pnl_pct": 10.0} for i in range(15)]
-    card = cards.port_card(broker="KSS", account="3024959", amount=15000.0, market_value=16500.0,
+    card = cards.port_card(broker="KSS", account="3024959", amount=15000.0,
                            pnl_value=1500.0, pnl_pct=10.0, rows=rows, snapshot_label="10:00",
                            stale=False, live=True)
 
@@ -602,31 +602,31 @@ def test_port_card_paginates_into_carousel_and_drops_overflow_teaser():
     assert "P/L วันนี้" not in text
 
 
-def test_port_card_tags_side_and_shows_dash_for_unreadable_pnl():
+def test_port_card_tags_short_side_and_shows_dash_for_unreadable_pnl():
     from app.services.line_cli import cards
 
     rows = [{"symbol": "BCPG", "position_type": "SHORT", "volume": 100, "cost": 10.0, "last": 9.0,
              "pnl_pct": 10.0},
-            {"symbol": "MTC", "position_type": "BORROWED", "volume": 100, "cost": 0.0, "last": 9.0,
+            {"symbol": "MTC", "position_type": "UNKNOWN", "volume": 100, "cost": 0.0, "last": 9.0,
              "pnl_pct": None}]
-    card = cards.port_card(broker="KSS", account="3024959", amount=1000.0, market_value=1800.0,
+    card = cards.port_card(broker="KSS", account="3024959", amount=1000.0,
                            pnl_value=100.0, pnl_pct=5.0, rows=rows, snapshot_label="10:00",
                            stale=False, live=True)
 
     text = _flex_text(card)
     assert "BCPG (S)" in text
-    assert "MTC (B)" in text
+    assert "MTC (B)" not in text                       # (B) lives in its own section (D2)
     assert "—" in text
     assert card["contents"]["type"] == "bubble"        # a short book stays a single bubble
 
 
 # --------------------------------------------------------------------------- #
-# CLI-RCA-013 — the card header mirrors the app (Amount / Market Value)
+# CLI-RCA-013 — the card header mirrors the app (Amount + Unrealized P/L)
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
 async def test_live_port_card_prefers_dom_totals_row(monkeypatch):
-    """RCA-013: KSS shows the on-page summary row, not the locally computed figures."""
+    """RCA-013: KSS shows the on-page Amount; Market Value is not rendered (D1)."""
     from app.browser.trademan_driver import trademan_driver
     from app.mcp.pillars import pillar2_portfolio as pillar2
 
@@ -641,9 +641,25 @@ async def test_live_port_card_prefers_dom_totals_row(monkeypatch):
     card = await REAL_LIVE_CARD("port", "kss")
 
     text = _flex_text(card)
-    assert "33,750.00" in text and "35,100.00" in text     # the DOM row, not 34,000/35,000
-    assert "34,000.00" not in text and "35,000.00" not in text
+    assert "33,750.00" in text                              # the DOM row, not the computed 34,000
+    assert "34,000.00" not in text and "35,100.00" not in text
+    assert "Market Value" not in text
     assert "🟢 live" in text
+
+
+@pytest.mark.asyncio
+async def test_live_port_card_lib_never_shows_a_borrowed_section(monkeypatch):
+    """Broker isolation: LIB has no (B) loans — the section is KSS-only."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_holdings", AsyncMock(return_value={"holdings": [
+        {"symbol": "BCH", "volume": 4000, "avg_cost": 20.0, "current_price": 21.0}]}))
+
+    card = await REAL_LIVE_CARD("port", "lib")
+
+    text = _flex_text(card)
+    assert "หุ้นยืมคงเหลือ" not in text
+    assert "Unrealized P/L" in text
 
 
 def test_port_card_header_labels_match_the_app():
@@ -651,32 +667,66 @@ def test_port_card_header_labels_match_the_app():
 
     rows = [{"symbol": "DOHOME", "position_type": "SHORT", "volume": 100, "cost": 10.0,
              "last": 9.0, "pnl_pct": 10.0}]
-    card = cards.port_card(broker="KSS", account="3024959", amount=1000.0, market_value=900.0,
+    card = cards.port_card(broker="KSS", account="3024959", amount=1000.0,
                            pnl_value=100.0, pnl_pct=11.11, rows=rows, snapshot_label="10:00",
                            stale=False, live=True)
 
     body = card["contents"]["body"]["contents"]
     labels = [c["contents"][0]["text"] for c in body
-              if c.get("type") == "box" and c.get("layout") == "horizontal"][:3]
-    assert labels == ["Amount", "Market Value", "Unrealized P/L"]
+              if c.get("type") == "box" and c.get("layout") == "horizontal"][:2]
+    assert labels == ["Amount", "Unrealized P/L"]
     text = _flex_text(card)
-    assert "1,000.00" in text and "900.00" in text
-    assert "มูลค่ารวม" not in text
+    assert "1,000.00" in text
+    assert "Market Value" not in text and "มูลค่ารวม" not in text
 
 
 def test_port_card_totals_render_dash_when_the_page_exposed_nothing():
-    """Anti-Mock: an unknown Amount / Market Value renders — , never a fabricated 0.00."""
+    """Anti-Mock: an unknown Amount renders — , never a fabricated 0.00."""
     from app.services.line_cli import cards
 
-    card = cards.port_card(broker="KSS", account="3024959", amount=None, market_value=None,
+    card = cards.port_card(broker="KSS", account="3024959", amount=None,
                            pnl_value=-889.59, pnl_pct=-0.17, rows=[], snapshot_label="10:00",
                            stale=False, live=True)
 
     body = card["contents"]["body"]["contents"]
     shown = {c["contents"][0]["text"]: c["contents"][1]["text"] for c in body
              if c.get("type") == "box" and c.get("layout") == "horizontal"
-             and c["contents"][0]["text"] in ("Amount", "Market Value")}
-    assert shown == {"Amount": "—", "Market Value": "—"}
+             and c["contents"][0]["text"] == "Amount"}
+    assert shown == {"Amount": "—"}
+
+
+def test_port_card_renders_borrowed_section_below_the_pl_line():
+    """D2/D3: (B) rows leave the table and show as ``หุ้นยืมคงเหลือ (B)`` — qty only."""
+    from app.services.line_cli import cards
+
+    rows = [{"symbol": "DOHOME", "position_type": "SHORT", "volume": 2000, "cost": 8.0,
+             "last": 8.5, "pnl_pct": 6.25}]
+    card = cards.port_card(broker="KSS", account="3024959", amount=531_932.40,
+                           pnl_value=-889.59, pnl_pct=-0.17, rows=rows,
+                           borrowed=[{"symbol": "MTC", "volume": 1700}],
+                           snapshot_label="10:00", stale=False, live=True)
+
+    body = card["contents"]["body"]["contents"]
+    keys = [c["contents"][0]["text"] for c in body
+            if c.get("type") == "box" and c.get("layout") == "horizontal"]
+    assert keys[:3] == ["Amount", "Unrealized P/L", "MTC"]   # loans sit right under P/L
+    text = _flex_text(card)
+    assert "หุ้นยืมคงเหลือ (B)" in text and "1,700 หุ้น" in text
+    assert "DOHOME (S)" in text                             # main table keeps the (S) row
+    assert "Market Value" not in text
+
+
+def test_port_card_omits_borrowed_section_when_there_are_no_loans():
+    """D3: no (B) rows → no ``หุ้นยืมคงเหลือ (B)`` heading (long-only / LIB books)."""
+    from app.services.line_cli import cards
+
+    rows = [{"symbol": "PTT", "position_type": "LONG", "volume": 1000, "cost": 34.0,
+             "last": 35.0, "pnl_pct": 2.94}]
+    card = cards.port_card(broker="LIB", account="CASH", amount=34_000.0, pnl_value=1_000.0,
+                           pnl_pct=2.94, rows=rows, borrowed=[], snapshot_label="10:00",
+                           stale=False, live=True)
+
+    assert "หุ้นยืมคงเหลือ" not in _flex_text(card)
 
 
 def test_money_formats_thb_and_dash():
@@ -687,8 +737,8 @@ def test_money_formats_thb_and_dash():
     assert _money(531932.4) == "531,932.40"
 
 
-def test_portfolio_amount_excludes_borrowed_and_dom_totals_win():
-    """Fallback (no DOM row): Amount = Σ vol×avg of non-BORROWED; MV includes (B)."""
+def test_portfolio_amount_excludes_borrowed_but_totals_include_it():
+    """Amount = Σ vol×avg of non-BORROWED; the page-level total still counts (B)."""
     from app.services.line_cli.handlers import (
         _normalise_holdings,
         _portfolio_amount,
@@ -713,6 +763,34 @@ def test_portfolio_amount_is_none_without_any_cost_base():
     assert _portfolio_amount(rows) is None
 
 
+def test_split_borrowed_moves_borrowed_out_and_drops_zero_volume():
+    """D2/D3: ``(B)`` rows leave the main table; a zero-volume loan is dropped."""
+    from app.services.line_cli.handlers import _normalise_holdings, _split_borrowed
+
+    rows = _normalise_holdings([
+        {"symbol": "S1", "position_type": "SHORT", "volume": 10, "avg_cost": 10.0, "current_price": 9.0},
+        {"symbol": "S2", "position_type": "SHORT", "volume": 20, "avg_cost": 5.0, "current_price": 6.0},
+        {"symbol": "MTC", "position_type": "BORROWED", "volume": 1700, "avg_cost": 0.0, "current_price": 28.75},
+        {"symbol": "BCPG", "position_type": "BORROWED", "volume": 0, "avg_cost": 0.0, "current_price": 0.0},
+    ])
+    main, borrowed = _split_borrowed(rows)
+
+    assert [r["symbol"] for r in main] == ["S2", "S1"]      # (B) gone, vol×last order kept
+    assert borrowed == [{"symbol": "MTC", "volume": 1700}]  # BCPG (0) dropped
+
+
+def test_split_borrowed_is_empty_without_borrowed_rows():
+    """LIB / long-only books: nothing is moved out, no ``(B)`` section."""
+    from app.services.line_cli.handlers import _normalise_holdings, _split_borrowed
+
+    rows = _normalise_holdings([{"symbol": "PTT", "volume": 1000, "avg_cost": 34.0,
+                                 "current_price": 35.0}])
+    main, borrowed = _split_borrowed(rows)
+
+    assert [r["symbol"] for r in main] == ["PTT"]
+    assert borrowed == []
+
+
 def test_port_card_keeps_long_symbol_with_suffix_unclipped():
     """RCA-012: a long symbol + its side suffix stay in one wrapping text node."""
     from app.services.line_cli import cards
@@ -720,7 +798,7 @@ def test_port_card_keeps_long_symbol_with_suffix_unclipped():
     rows = [{"symbol": "DOHOME", "position_type": "SHORT", "volume": 2000, "cost": 8.0,
              "last": 8.5, "pnl_pct": 6.25}]
     card = cards.port_card(broker="KSS", account="3024959", amount=16_000.0,
-                           market_value=17_000.0, pnl_value=1_000.0, pnl_pct=6.25, rows=rows,
+                           pnl_value=1_000.0, pnl_pct=6.25, rows=rows,
                            snapshot_label="10:00", stale=False, live=True)
 
     body = card["contents"]["body"]["contents"]

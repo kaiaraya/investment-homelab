@@ -216,32 +216,38 @@ def port_card(
     broker: str,
     account: str,
     amount: Optional[float],
-    market_value: Optional[float],
     pnl_value: float,
     pnl_pct: float,
     rows: List[Dict[str, Any]],
     snapshot_label: str,
     stale: bool,
     live: bool,
+    borrowed: Optional[List[Dict[str, Any]]] = None,
     is_test: bool = False,
 ) -> Dict[str, Any]:
-    """``rows`` = normalised holdings (see ``handlers._normalise_holdings``).
+    """``rows`` = normalised holdings **minus the (B) loans** (``handlers._split_borrowed``).
 
-    RCA-013: the header mirrors the app's own labels — ``Amount`` (cost basis),
-    ``Market Value``, then ``Unrealized P/L``. A figure the page/data did not provide
-    renders ``—``, never a fabricated ``0.00``.
+    RCA-013 final: the header mirrors the app's own labels — ``Amount`` (cost basis) then
+    ``Unrealized P/L``. ``Market Value`` is gone (D1): the app counts (B) in it while the
+    page's totals row does not, and the loan is returned at its own volume anyway.
+    ``borrowed`` (``[{"symbol", "volume"}]``) renders as a ``หุ้นยืมคงเหลือ (B)`` section
+    under the P/L line — omitted entirely when empty (D2/D3). A figure the page/data did
+    not provide renders ``—``, never a fabricated ``0.00``.
 
     A long book is paginated ``PORT_ROWS_PER_BUBBLE`` rows per bubble into a LINE
     carousel (RCA-002 follow-up) — every row is shown, no "และอีก N ตัว" teaser.
     """
     pnl_color = UP if pnl_value >= 0 else DOWN
     rows = rows or []
+    loans = borrowed or []
     summary: List[Dict[str, Any]] = [
         _kv("Amount", _money(amount)),
-        _kv("Market Value", _money(market_value)),
         _kv("Unrealized P/L", f"{pnl_value:+,.2f} ({pnl_pct:+.2f}%)", pnl_color),
-        {"type": "separator", "margin": "md", "color": "#334155"},
     ]
+    if loans:
+        summary.append(_cell("หุ้นยืมคงเหลือ (B)", MUTED, weight="bold"))
+        summary.extend(_kv(b["symbol"], f"{int(b.get('volume', 0)):,} หุ้น") for b in loans)
+    summary.append({"type": "separator", "margin": "md", "color": "#334155"})
     header = _port_header_row()
     badge = "TEST" if is_test else None
     footer = [_msg_button(f"🔄 /port {broker} sync", f"/port {broker} sync", color="#0ea5e9"),
@@ -266,7 +272,7 @@ def port_card(
             body = [header] + [_port_row(r) for r in page]
             bubbles.append(_bubble(title=f"📊 {broker.upper()} · ต่อ {idx + 1}/{len(pages)}", body=body))
 
-    alt = f"📊 {broker} พอร์ต มูลค่า {_money(market_value)} ({len(rows)} ตัว)"
+    alt = f"📊 {broker} พอร์ต Amount {_money(amount)} ({len(rows)} ตัว)"
     if len(bubbles) == 1:
         return _flex(alt, bubbles[0])
     return carousel(bubbles, alt)
