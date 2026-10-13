@@ -67,6 +67,11 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_conversation_state.py",
         "tests/test_line_conversation_flow.py",
     ],
+    # LINE slash-command CLI (TASK-line-cli, 2026-10-13)
+    "app/services/line_cli/parser.py": ["tests/test_line_cli_parser.py"],
+    "app/services/line_cli/cards.py": ["tests/test_line_cli_flow.py"],
+    "app/services/line_cli/handlers.py": ["tests/test_line_cli_flow.py"],
+    "app/services/line_cli/__init__.py": ["tests/test_line_cli_parser.py"],
     "app/services/kdeconnect_service.py": ["tests/test_kdeconnect_service.py"],
     "app/services/action_exit_dispatcher.py": ["tests/test_krungsri_pdca_guardrails.py"],
     "app/api/v1/endpoints/webhook_line.py": [

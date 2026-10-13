@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     LINE_PUBLIC_WEBHOOK_URL: str = "https://line.a14s.dev/api/v1/webhook/line"
     # Master switch for the LINE-based OTP readiness gate (Invariant 9 — LINE variant).
     LINE_OTP_RELAY_ENABLED: bool = True
+
+    # --- LINE slash-command CLI /negotiate guardrails (TASK-line-cli) ---
+    # G5: a /nego amend may move an order at most this many SET ticks from its
+    # current price (design spec Q6 / approved 2026-10-13).
+    LINE_NEGO_MAX_TICKS: int = 3
+    # G2: allowed negotiation windows (Bangkok time), comma-separated "HH:MM-HH:MM".
+    LINE_NEGO_WINDOWS: str = "09:55-12:30,14:25-16:30"
     
     # Pre-trade Risk & Guard Configuration
     MAX_ORDER_VALUE_THB: float = 1_000_000.0

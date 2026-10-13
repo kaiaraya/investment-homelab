@@ -288,6 +288,15 @@ class LiberatorBrokerPlugin(BaseBrokerPlugin):
             target_price=target_price
         )
 
+    async def get_market_bid_offer(self, symbol: str) -> Dict[str, Any]:
+        """Live Bid1 / Offer1 (/ last) from the Liberator WebTrade board — used by the
+        LINE CLI ``/nego lib`` guardrails (G5 tick distance / G6 SHORT uptick).
+
+        Fails closed: returns ``source="unavailable"`` (all numeric fields None) when
+        the board cannot be read, so callers must skip rather than trade on a guess.
+        """
+        return await liberator_driver.get_market_bid_offer(symbol)
+
     async def close(self) -> None:
         await liberator_driver.close()
         tab = tab_manager.get_tab("liberator")

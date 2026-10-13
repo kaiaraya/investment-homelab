@@ -201,3 +201,34 @@ await current_orders(platform="LIBERATOR")
 
 **Live evidence (2026-10-07):** `current_orders(platform="LIBERATOR")` คืน order จริง 1 รายการ —
 `THAI SELL 3400 @ ฿5.75` → `matched_volume=3400, balance=0` → category `MATCHED` ✅
+
+---
+
+## 8. Market Quote — Bid1 / Offer1 (/ last) for the LINE CLI `/nego lib` (2026-10-13)
+
+**Change:** `LiberatorDriver.get_market_bid_offer(symbol)` (passthrough:
+`LiberatorBrokerPlugin.get_market_bid_offer`) — added for the LINE slash-command CLI so
+`/nego lib` can apply the same guardrails as KSS (G5 tick distance / G6 SHORT uptick).
+
+**Method**
+1. Reuse the active Portfolio page (never auto-logins — Invariant 7).
+2. Select the symbol on the footer buy/sell form: `#SearchSymbolList-setBuySellFooter` + `Enter`
+   (same proven selector used by `execute_order`).
+3. In-page JS isolates the depth table **by header** (thead contains both `bid` and `offer`) —
+   the same deterministic-table-isolation pattern as `_extract_portfolio_from_page`
+   (see LIB-RCA-005, "5-Bid/Offer Depth" = Table 1). `last` is read only from a column whose
+   header contains `last`; it is **not** substituted from the holdings market price.
+
+**Anti-Mock / fail-closed:** when the page is not open, the depth table cannot be found, or the
+parse yields nothing → returns `_unknown_quote()` (`bid_1/offer_1/last = None`,
+`source="unavailable"`). Callers MUST skip the order, never trade on a guess.
+
+> ⚠️ Selector-heuristic status: the header-isolation rule is evidence-anchored (LIB-RCA-005) but the
+> depth table's exact `<th>` wording has **not** yet been re-verified on a live headed session.
+> Pending live confirmation — see TASK-line-cli Open questions.
+
+```python
+# LINE CLI handler (Broker Isolation)
+quote = await liberator_plugin.get_market_bid_offer("PTT")
+# {"symbol": "PTT", "bid_1": ..., "offer_1": ..., "last": ..., "source": "liberator_board"|"unavailable"}
+```

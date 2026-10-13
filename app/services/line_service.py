@@ -156,6 +156,18 @@ class LineMessagingService:
                 "broker": broker_tag,
             }
 
+        # 2.4 LINE slash-command CLI (TASK-line-cli) — placed AFTER kill-switch /
+        # MODE / OTP relay (an emergency stop always wins; an OTP is never
+        # swallowed by a CLI token) and BEFORE the conversation state machine so
+        # a `/` command abandons any pending flow. Non-`/` text returns None and
+        # falls through to the legacy matchers unchanged.
+        from app.services.line_cli import parser as _cli_parser
+        if _cli_parser.is_command(text):
+            from app.services.line_cli import handlers as _cli_handlers
+            return await _cli_handlers.handle(
+                _cli_parser.parse(text), db=db, raw_event=raw_event, service=self
+            )
+
         # 2.5 Per-user conversation state machine (multi-step flows — 2026-10-12)
         # Placement is deliberate: AFTER kill-switch / MODE / OTP so an emergency
         # stop always wins and an OTP is never swallowed by a flow slot, and BEFORE

@@ -746,6 +746,118 @@ class LiberatorDriver:
             };
         }""")
 
+    @staticmethod
+    def _unknown_quote(symbol: str) -> Dict[str, Any]:
+        """
+        Anti-Mock sentinel for the Liberator board: every numeric field is None and
+        ``source`` is "unavailable". Callers MUST treat this as "do not trade" —
+        never substitute a guess and never fall back to the order's own price.
+        (Mirrors ``TradeManDriver._unknown_quote``.)
+        """
+        return {
+            "symbol": (symbol or "").strip().upper(),
+            "bid_1": None, "offer_1": None, "last": None,
+            "prior_close": None, "ceiling": None, "floor": None,
+            "board_lot": None, "flag": None,
+            "source": "unavailable",
+        }
+
+    async def get_market_bid_offer(self, symbol: str) -> Dict[str, Any]:
+        """
+        Fetch Bid1 / Offer1 (/ last) for ``symbol`` from the Liberator WebTrade board.
+
+        Evidence (LIB-RCA-005): the Portfolio page renders a **5-Bid/Offer Depth**
+        table (Table 1) alongside the Holdings/Orders tables; symbol selection uses
+        the proven footer input ``#SearchSymbolList-setBuySellFooter`` (see
+        ``execute_order``). We isolate the depth table by its header (contains both
+        "bid" and "offer") exactly like ``_extract_portfolio_from_page`` isolates
+        the Holdings/Orders tables — no hard-coded positional selector.
+
+        Anti-Mock / fail-closed: if the page is not open, login was not performed,
+        or the depth table cannot be found, return ``_unknown_quote`` (all None,
+        ``source="unavailable"``). This method NEVER auto-logs-in (Invariant 7) and
+        NEVER invents a price.
+        """
+        clean_sym = (symbol or "").strip().upper()
+        if not clean_sym:
+            return self._unknown_quote("")
+
+        if not self.page or self.page.is_closed():
+            logger.warning("get_market_bid_offer(%s): no active Liberator page — fail-closed", clean_sym)
+            return self._unknown_quote(clean_sym)
+
+        page = self.page
+        try:
+            if "portfolio" not in page.url.lower():
+                await page.goto(
+                    "https://webtrade.liberator.co.th/Portfolio",
+                    wait_until="domcontentloaded", timeout=20000,
+                )
+                await page.wait_for_timeout(1500)
+
+            # Select the symbol on the footer buy/sell form (proven selector).
+            sym_input = await page.query_selector("#SearchSymbolList-setBuySellFooter")
+            if sym_input:
+                await sym_input.fill("")
+                await sym_input.fill(clean_sym)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(1500)
+
+            quote = await page.evaluate("""() => {
+                function clean(v) {
+                    if (v === undefined || v === null) return null;
+                    const n = parseFloat(String(v).replace(/,/g, '').replace(/–/g, '-').trim());
+                    return isNaN(n) ? null : n;
+                }
+                function colIndex(head, needle) {
+                    if (!head) return -1;
+                    const ths = Array.from(head.querySelectorAll('th')).map(x => x.innerText.toLowerCase().trim());
+                    return ths.findIndex(h => h.includes(needle));
+                }
+                const tables = Array.from(document.querySelectorAll('table'));
+                let bid_1 = null, offer_1 = null, last = null;
+                for (const t of tables) {
+                    const head = t.querySelector('thead');
+                    const txt = head ? head.innerText.toLowerCase() : '';
+                    if (bid_1 === null && offer_1 === null && txt.includes('bid') && txt.includes('offer')) {
+                        const row = t.querySelector('tbody tr');
+                        if (row) {
+                            const tds = Array.from(row.querySelectorAll('td'));
+                            const bi = colIndex(head, 'bid');
+                            const oi = colIndex(head, 'offer');
+                            if (bi >= 0 && bi < tds.length) bid_1 = clean(tds[bi].innerText);
+                            if (oi >= 0 && oi < tds.length) offer_1 = clean(tds[oi].innerText);
+                        }
+                    }
+                    if (last === null && txt.includes('last')) {
+                        const row = t.querySelector('tbody tr');
+                        if (row) {
+                            const tds = Array.from(row.querySelectorAll('td'));
+                            const li = colIndex(head, 'last');
+                            if (li >= 0 && li < tds.length) last = clean(tds[li].innerText);
+                        }
+                    }
+                }
+                return { bid_1, offer_1, last };
+            }""")
+        except Exception as e:
+            logger.warning(f"get_market_bid_offer({clean_sym}) failed: {e} — fail-closed")
+            return self._unknown_quote(clean_sym)
+
+        if quote.get("bid_1") is None and quote.get("offer_1") is None and quote.get("last") is None:
+            logger.warning(f"get_market_bid_offer({clean_sym}): depth table unavailable — fail-closed")
+            return self._unknown_quote(clean_sym)
+
+        return {
+            "symbol": clean_sym,
+            "bid_1": quote.get("bid_1"),
+            "offer_1": quote.get("offer_1"),
+            "last": quote.get("last"),
+            "prior_close": None, "ceiling": None, "floor": None,
+            "board_lot": None, "flag": None,
+            "source": "liberator_board",
+        }
+
     async def scrape_portfolio(self, force_refresh: bool = False, headless: bool = True) -> Dict[str, Any]:
         """
         Scrapes Line Available, Cash Balance, Total Equity, Holdings, and Orders.
