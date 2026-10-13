@@ -19,9 +19,9 @@ Verified human-in-the-loop co-piloted workflow for trademan_account_switch_and_p
 | 6.1 | `DISMISS` | `input.disable_show`, `.v-overlay--active button`, `Escape` | `Loop 5x` | ติ๊ก "ไม่ต้องแสดงอีก" และปิดป๊อปอัป "มีอะไรใหม่ TRADEMAN" ที่เด้งซ้อนกัน 2 ชั้น (`z-index: 2400` & `2410`) |
 | 6.2 | `NAV_PORT` | `https://trademan.in.th/Portfolio` | `-` | ย้ายหน้าตรงจาก `/AssetsCenter` เข้าสู่ `/Portfolio` ซึ่งเป็นที่อยู่ของ `#dropDownAccountPort` |
 | 7 | `CLICK` | `#dropDownAccountPort` | `-` | คลิกเปิด Dropdown สลับบัญชี Trading A/C |
-| 8 | `CLICK` | `span:has-text("3024952"), .v-list-item:has-text("3024952")` | `-` | คลิกเลือกสลับไปยังบัญชี Cash Balance (3024952) |
+| 8 | `CLICK` | `#dropDownAccountPort div.absolute span:text-is("3024952")` | `-` | คลิกเลือกสลับไปยังบัญชี Cash Balance (3024952) — **แก้ selector 2026-10-14 (CLI-RCA-006a)**: `.v-list-item:has-text(...)` เป็นของ Vuetify เดิม (ใช้ไม่ได้แล้ว) ดู `trademan_portfolio_dom.md`; หลังคลิกต้องเช็ก `#dropDownAccountPort > div.flex.w-full.justify-between > div` ว่าตรงเป้า ไม่งั้น `ACCOUNT_SWITCH_FAILED` |
 | 9 | `CLICK` | `#dropDownAccountPort` | `-` | คลิกเปิด Dropdown สลับบัญชีอีกครั้ง |
-| 10 | `CLICK` | `span:has-text("3024959"), .v-list-item:has-text("3024959")` | `-` | คลิกเลือกสลับกลับมาบัญชี Margin Credit Balance (3024959) |
+| 10 | `CLICK` | `#dropDownAccountPort div.absolute span:text-is("3024959")` | `-` | คลิกเลือกสลับกลับมาบัญชี Margin Credit Balance (3024959) — selector เดียวกับข้อ 8 (`.v-list-item` เลิกใช้) |
 | 11 | `PERSIST` | `data/session_state.json` | `-` | บันทึก Storage State เพื่อเปิดเข้าตรงแบบ Zero-OTP ในรอบถัดไป |
 
 ## Health Verification Rules

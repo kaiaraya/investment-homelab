@@ -111,5 +111,14 @@
 ---
 
 ## Antigravity Review
-- Verdict: PASS / CHANGES_REQUESTED
-- Notes:
+- Verdict: CHANGES_REQUESTED (live test Round A, 2026-10-13 21:04–21:48, 1:1 chat, MODE TEST, market closed)
+- Full report (Thai, per-step evidence + RCA-1..6): `docs/handoff/TASK-line-cli-livetest-A.md`
+- PASS: router/parser, /help, /status, 1:1 auth, /login kss + OTP relay (1:1), sync never auto-logins, /nego G2 out-of-hours, /logout kss
+- P0 blockers (Round B `/nego` market-hours test is gated on these):
+  - RCA-6: `trademan_driver.scrape_portfolio` returns wrong holdings (generic `table tbody tr`, no account select, no refresh) — verify real DOM first; audit `scrape_unmatched_orders` too
+  - RCA-5: `pillar1_session.py` missing `import os` (pre-existing) → `/login lib` NameError; CLI long-op handlers lack try/except → silent failure
+  - RCA-3: KSS balances default to fabricated 500,000 / 0.0 (Anti-Mock)
+- P1: /cash show CASH+MARGIN with Excess Equity · (S)/(B) tags + inverted P/L for SHORT · 2-line card rows (symbol unreadable) · DB /orders filter by broker + today, hide /nego button off-hours
+- P2: remove kill-switch row from /status (user request) · 1:1-only auth (user decision D-1) · `_send_reply` retry/fallback · F-1/F-4/F-6 · concurrent lock test
+- Separate card: mask OTP digits in logs (`otp_relay_registry`, `auth_driver`)
+- Harness lesson: start gateway as daemon for live tests; LINE webhook = `https://line.a14s.dev` (Cloudflare), not Tailscale Funnel
