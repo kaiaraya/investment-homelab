@@ -189,6 +189,23 @@ async def test_login_all_is_sequential_kss_then_lib(service, db_session, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_login_pushes_error_when_broker_raises(service, db_session, monkeypatch):
+    monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
+
+    def boom(*a, **k):
+        raise NameError("name 'os' is not defined")
+
+    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", boom)
+    _patch_relay(monkeypatch, ready=True)
+
+    res = await _run(service, "/login lib", db=db_session)
+    assert res["status"] == "CLI_LOGIN"
+    assert res["results"][0]["status"] == "failed"
+    assert any("เข้าระบบไม่สำเร็จ" in _text_of(m) and "NameError" in _text_of(m)
+               for m, _ in service.pushes)
+
+
+@pytest.mark.asyncio
 async def test_logout_lib_closes_liberator(service, db_session, monkeypatch):
     from app.brokers import liberator_plugin
     close = AsyncMock()

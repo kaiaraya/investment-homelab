@@ -388,12 +388,14 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
 
     elif plat == "KRUNGSRI":
         balances = await trademan_driver.scrape_account_summary() if hasattr(trademan_driver, "scrape_account_summary") else {}
+        # Anti-Mock (CLI-RCA-003): do NOT fabricate a 500k balance when the scraper
+        # returned no value — leave it None so callers can say "อ่านไม่ได้" honestly.
         cash_acc = {
             "account_no": settings.TRADEMAN_ACCOUNT_NO_CASH or "3024952",
             "account_type": AccountType.CASH.value,
             "description": "Krungsri Cash Balance Account (Pre-funded Stocks)",
-            "line_available": balances.get("cash_balance", 500_000.0),
-            "cash_balance": balances.get("cash_balance", 500_000.0),
+            "line_available": balances.get("cash_balance"),
+            "cash_balance": balances.get("cash_balance"),
             "is_active": (account_context.krungsri_active == AccountType.CASH),
             "capabilities": [c.value for c in ACCOUNT_CAPABILITY_MATRIX.get(("KRUNGSRI", AccountType.CASH.value), [])]
         }
@@ -401,9 +403,9 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
             "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN or "3024959",
             "account_type": AccountType.MARGIN.value,
             "description": "Krungsri Credit Balance / Margin Account (SBL Exclusive)",
-            "excess_equity": balances.get("excess_equity", 500_000.0),
-            "line_available": balances.get("excess_equity", 500_000.0),
-            "cash_balance": balances.get("cash_balance", 500_000.0),
+            "excess_equity": balances.get("excess_equity"),
+            "line_available": balances.get("excess_equity"),
+            "cash_balance": balances.get("cash_balance"),
             "is_active": (account_context.krungsri_active == AccountType.MARGIN),
             "capabilities": [c.value for c in ACCOUNT_CAPABILITY_MATRIX.get(("KRUNGSRI", AccountType.MARGIN.value), [])]
         }

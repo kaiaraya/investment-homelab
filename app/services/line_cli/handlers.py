@@ -316,6 +316,13 @@ async def _handle_login(
                     await service.push_message(
                         _text(f"❌ {BROKER_LABEL[b]} เข้าระบบไม่สำเร็จ: {err}"), to_user_id=push_target)
                     results.append({"broker": b, "status": "failed", "detail": err})
+        except Exception as e:
+            logger.exception(f"LINE CLI /login {order_txt} failed")
+            await service.push_message(
+                _text(f"❌ {order_txt} เข้าระบบไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
+                to_user_id=push_target)
+            results.append({"broker": parsed.broker, "status": "failed",
+                            "detail": f"{type(e).__name__}: {str(e)[:120]}"})
         finally:
             _STARTED.pop(key, None)
     return {"status": "CLI_LOGIN", "results": results}
@@ -532,6 +539,11 @@ async def _handle_read(
             await service._send_reply(reply_token, _text(f"🔄 กำลังดึงข้อมูลสด {label}…"))
             for b in brokers:
                 await service.push_message(await _live_card(kind, b), to_user_id=push_target)
+        except Exception as e:
+            logger.exception(f"LINE CLI /{kind} {parsed.broker} sync failed")
+            await service.push_message(
+                _text(f"❌ {label} ดึงข้อมูลสดไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
+                to_user_id=push_target)
         finally:
             _STARTED.pop(key, None)
     return {"status": "CLI_SYNC", "brokers": brokers}
@@ -673,6 +685,11 @@ async def _handle_nego(
                                    failed=failed, ts=_now_bkk().strftime("%H:%M:%S"),
                                    is_test=not trade_dispatcher.is_live)
             await service.push_message(card, to_user_id=push_target)
+        except Exception as e:
+            logger.exception(f"LINE CLI /nego {broker} failed")
+            await service.push_message(
+                _text(f"❌ {BROKER_LABEL[broker]} ต่อราคาไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
+                to_user_id=push_target)
         finally:
             _STARTED.pop(key, None)
     return {"status": "CLI_NEGO", "broker": broker, "ok": ok, "skipped": skipped, "failed": failed}

@@ -72,6 +72,10 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "app/services/line_cli/cards.py": ["tests/test_line_cli_flow.py"],
     "app/services/line_cli/handlers.py": ["tests/test_line_cli_flow.py"],
     "app/services/line_cli/__init__.py": ["tests/test_line_cli_parser.py"],
+    # Pillar 1 session (CLI-RCA-005: /login lib NameError — missing `import os`)
+    "app/mcp/pillars/pillar1_session.py": ["tests/test_pillar1_session.py"],
+    # Pillar 2 portfolio (CLI-RCA-003 Anti-Mock balances; RCA-002/RCA-006 holdings)
+    "app/mcp/pillars/pillar2_portfolio.py": ["tests/test_remote_mcp.py", "tests/test_pillar2_order_ledger.py"],
     "app/services/kdeconnect_service.py": ["tests/test_kdeconnect_service.py"],
     "app/services/action_exit_dispatcher.py": ["tests/test_krungsri_pdca_guardrails.py"],
     "app/api/v1/endpoints/webhook_line.py": [
