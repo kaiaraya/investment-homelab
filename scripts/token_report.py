@@ -131,6 +131,7 @@ def main() -> int:
     ap.add_argument("--since", help="YYYY-MM-DD (filter by session start)")
     ap.add_argument("--session", help="session id (directory name) for tool breakdown")
     ap.add_argument("--context", action="store_true", help="report always-loaded rule size only")
+    ap.add_argument("--guard", action="store_true", help="also summarise token_guard hook denials")
     a = ap.parse_args()
 
     if a.context:
@@ -160,11 +161,13 @@ def main() -> int:
         r = analyse(sdir)
         if not r:
             continue
-        if since and r["started"]:
+        if since:
             try:
-                if dt.datetime.fromisoformat(r["started"].replace("Z", "+00:00")) < since:
+                started = (dt.datetime.fromisoformat(r["started"].replace("Z", "+00:00")) if r["started"]
+                           else dt.datetime.fromtimestamp(os.path.getmtime(sdir), tz=dt.timezone.utc))
+                if started < since:
                     continue
-            except ValueError:
+            except (ValueError, OSError):
                 pass
         rows.append(r)
     # Kanban re-runs/resumes of the same card write new session files that replay the previous
@@ -177,18 +180,54 @@ def main() -> int:
         best[key]["snapshots"] = (r_prev or {}).get("snapshots", 1) + (1 if r_prev else 0)
     rows = sorted(best.values(), key=lambda r: r["input"], reverse=True)
 
-    print(f"{'session':32s} {'model':14s} {'calls':>6s} {'input':>7s} {'output':>7s} {'ctx1st':>7s} {'ctxMed':>7s} {'ctxMax':>7s}  title")
+    print(f"{'session':32s} {'model':14s} {'calls':>6s} {'input':>7s} {'output':>7s} {'out/c':>6s} {'cache%':>6s} "
+          f"{'ctx1st':>7s} {'ctxMed':>7s} {'ctxMax':>7s}  title")
     for r in rows:
+        cache_pct = f"{100 * r['cache_read'] / r['input']:.0f}%" if r["input"] else "-"
+        out_call = fmt(r["output"] // r["calls"]) if r["calls"] else "-"
         print(f"{r['id'][:32]:32s} {r['model'][:14]:14s} {r['calls']:6d} {fmt(r['input']):>7s} {fmt(r['output']):>7s} "
+              f"{out_call:>6s} {cache_pct:>6s} "
               f"{fmt(r['ctx_first']):>7s} {fmt(r['ctx_median']):>7s} {fmt(r['ctx_max']):>7s}  {r['title']}"
               + (f"  [BLOWUP x{r['blowup_calls']}]" if r["blowup_calls"] else ""))
     meds = [r["ctx_median"] for r in rows if r["ctx_median"]]
-    print(f"\nSessions: {len(rows)} · total input {fmt(sum(r['input'] for r in rows))} · "
+    tot_in = sum(r["input"] for r in rows)
+    print(f"\nSessions: {len(rows)} · total input {fmt(tot_in)} · "
           f"total output {fmt(sum(r['output'] for r in rows))} · "
-          f"median-of-median ctx {fmt(int(statistics.median(meds))) if meds else '-'} · "
+          f"cache-hit {100 * sum(r['cache_read'] for r in rows) / tot_in:.0f}% · " if tot_in else "\nSessions: 0 · ",
+          end="")
+    print(f"median-of-median ctx {fmt(int(statistics.median(meds))) if meds else '-'} · "
           f"sessions with blow-up (>{fmt(BLOWUP_THRESHOLD)}/call) {sum(1 for r in rows if r['blowup_calls'])}")
     report_context()
+    if a.guard:
+        report_guard(since)
     return 0
+
+
+def report_guard(since: dt.datetime | None) -> None:
+    """Summarise token_guard denials (data/logs/token_guard.log in the repo and in Kanban worktrees)."""
+    logs = [os.path.join(REPO, "data", "logs", "token_guard.log")]
+    logs += glob.glob(os.path.expanduser("~/.cline/worktrees/*/*/data/logs/token_guard.log"))
+    counts: collections.Counter = collections.Counter()
+    total = 0
+    for p in logs:
+        if not os.path.isfile(p):
+            continue
+        for line in open(p, encoding="utf-8"):
+            parts = line.rstrip("\n").split("\t", 2)
+            if len(parts) < 3:
+                continue
+            try:
+                ts = dt.datetime.fromisoformat(parts[0]).astimezone(dt.timezone.utc)
+            except ValueError:
+                continue
+            if since and ts < since:
+                continue
+            total += 1
+            kind = re.sub(r"'[^']*'|\d+", "…", parts[2])[:90]
+            counts[(parts[1], kind)] += 1
+    print(f"\ntoken_guard denials: {total}")
+    for (agent, kind), n in counts.most_common(10):
+        print(f"  {n:4d}  {agent:12s} {kind}")
 
 
 if __name__ == "__main__":

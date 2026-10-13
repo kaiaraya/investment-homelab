@@ -1,13 +1,18 @@
 ---
 name: compact
-description: Use ONLY when the user explicitly invokes /compact. Writes a context snapshot of the
-  current conversation to docs/handoff/CONTEXT-<YYYY-MM-DD-HHMM>.md so work can continue in a fresh
-  conversation via /resume (Antigravity cannot truncate its own context window).
+description: Use when the user invokes /compact [focus], or when context exceeds ~60K tokens (AGENTS.md
+  token budget). Writes a short focused snapshot to docs/handoff/CONTEXT-<YYYY-MM-DD-HHMM>.md so work
+  continues in a fresh conversation/card via /resume.
 ---
 
-# /compact — Context Snapshot
+# /compact [focus] — Context Snapshot
 
 > Antigravity ลบ context ของตัวเองไม่ได้ (ต่างจาก Cline `/compact`) → ใช้ snapshot ไฟล์ + แชทใหม่ + `/resume` แทน
+
+## 0. Focus + size (token budget)
+- Optional focus arg, e.g. `/compact focus on current bug` → keep only what serves that focus.
+- **English bullets, ≤ 40 lines total.** No narrative, no tool output dumps, no code except 1–3 line snippets.
+- Must cover: goal · files changed · commands run + result · what is **still failing** · next step.
 
 ## 1. Build the snapshot (real conversation state only — Anti-Mock)
 Use exactly these sections:
@@ -30,7 +35,10 @@ Use exactly these sections:
 
 ## Current step + last verify
 - Step #n: <...>
-- Command: `<...>` → <actual result summary>
+- Commands run: `<...>` → <actual result summary>
+
+## Still failing / errors
+- <error + where> (or "none")
 
 ## Next step (exactly ONE atomic unit)
 - Step #n+1: <action>

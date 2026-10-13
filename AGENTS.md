@@ -31,6 +31,14 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 - STOP & ask the user when a unit exceeds **~20 tool calls**, a failure exceeds **3 attempts**, or the task exceeds **40 tool calls**.
 - Context > **60K tokens** → run skill `compact`, then continue in a new session with skill `resume`.
 - One Kanban card = one TASK = one session. Max **2** cards in parallel.
+- Hook `token_guard` (`.cline/hooks/PreToolUse`, `.agents/hooks.json`) enforces the read/search limits — if denied, follow the reason; don't retry the same call.
+
+## Response style
+- To user: Thai, concise. Agent-facing docs (Context map, Cline Report, CONTEXT snapshot): English bullets.
+- Show only the diff / changed lines. No recap, no basics, no repeating tool output back.
+
+## Ask before widening context
+- Start from the handoff Context map. Before reading files outside it, state in one line which file(s) and why; > 3 extra files → ask the user first.
 
 ## Workflow
 - Loop every unit: DECOMPOSE → EXECUTE → VERIFY → REFLECT → REPEAT (`.agents/rules/loop_engineering.md`).

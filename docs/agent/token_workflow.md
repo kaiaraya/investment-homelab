@@ -21,6 +21,26 @@ Why: baseline `docs/agent/token_baseline_2026-10-12.txt` — 15 unique sessions 
 7. **MCP**: only enable what the current task needs (`context7` for library docs only when needed).
 8. **Measure weekly**: `.venv/bin/python scripts/token_report.py --since <date>` — compare ctxMed and BLOWUP counts against the baseline.
 
+## Round 2 (2026-10-13) — enforcement, Kanban policy, cache
+### Hook `token_guard` (hard block, fail-open)
+- Cline/Kanban: `.cline/hooks/PreToolUse` · Antigravity: `.agents/hooks.json` → `scripts/hooks/token_guard.py`
+- Blocks: binary reads · images (Cline only) · text file > 400 lines without range / range > 400 · Cline search with > 3 queries or short/generic patterns.
+- Denials logged to `data/logs/token_guard.log` → `token_report.py --guard`. Temporarily disable: Antigravity `"enabled": false` in `.agents/hooks.json`; Cline: `chmod -x .cline/hooks/PreToolUse`.
+
+### Kanban policy
+- Every card: **`deepseek-flash`**. Use `deepseek-v4-pro` only after flash failed the same unit **twice** — and in a **new card** created from the handoff (not by switching models mid-card).
+- **Never resume a card whose context passed 150K** (each resume re-sends the whole history; card 468c9 was resumed 7× at ~900K). Close it → skill `compact` → new card with the CONTEXT snapshot.
+- New card prompt template:
+  ```
+  Task: docs/handoff/TASK-<name>.md — start from its "Context map"; work only its scope.
+  Mode: /token-lean. Verify: scripts/verify_changes.py <files>. Finish with the "Cline Report" section.
+  ```
+
+### Prompt caching (keep the prefix stable)
+- DeepSeek caches identical prompt prefixes (system + rules). Baseline cache-hit ≈ 96% → keep it there.
+- No dynamic content (dates, status, "today") in AGENTS.md / `.agents/rules/`. Batch rule edits into one commit — every change invalidates the cache for all cards.
+- Check `cache%` column in `token_report.py`.
+
 ## Targets (vs. baseline)
 | Metric | Baseline | Target |
 |---|---|---|
