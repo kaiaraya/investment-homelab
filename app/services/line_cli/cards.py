@@ -58,8 +58,21 @@ def _row(cells: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"type": "box", "layout": "horizontal", "margin": "xs", "contents": cells}
 
 
-def _cell(text: str, color: str = FG, flex: int = 1, align: str = "start", weight: str = "regular") -> Dict[str, Any]:
-    return {"type": "text", "text": text, "color": color, "size": "xs", "flex": flex, "align": align, "weight": weight}
+def _cell(text: str, color: str = FG, flex: int = 1, align: str = "start",
+          weight: str = "regular", wrap: bool = False) -> Dict[str, Any]:
+    cell: Dict[str, Any] = {"type": "text", "text": text, "color": color, "size": "xs",
+                            "flex": flex, "align": align, "weight": weight}
+    if wrap:
+        cell["wrap"] = True          # RCA-012: let a long symbol wrap instead of clip
+    return cell
+
+
+def _money(value: Optional[float]) -> str:
+    """Format a THB amount — ``None`` renders ``—`` (Anti-Mock, RCA-013).
+
+    A totals cell the page did not expose is never printed as a fabricated ``0.00``.
+    """
+    return "—" if value is None else f"{value:,.2f}"
 
 
 def _footer(buttons: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -167,15 +180,20 @@ PORT_ROWS_PER_BUBBLE = 12
 
 
 def _port_header_row() -> Dict[str, Any]:
+    """RCA-012: the symbol column keeps the largest share so ``DOHOME (S)`` is not clipped."""
     return _row([
-        _cell("หุ้น", MUTED, flex=3, weight="bold"), _cell("จำนวน", MUTED, flex=3, align="end"),
+        _cell("หุ้น", MUTED, flex=4, weight="bold"), _cell("จำนวน", MUTED, flex=2, align="end"),
         _cell("ทุน", MUTED, flex=2, align="end"), _cell("ล่าสุด", MUTED, flex=2, align="end"),
         _cell("%P/L", MUTED, flex=2, align="end"),
     ])
 
 
 def _port_row(r: Dict[str, Any]) -> Dict[str, Any]:
-    """One holding line. Side tag ``(S)``/``(B)``; unreadable %P/L renders ``—``."""
+    """One holding line. Side tag ``(S)``/``(B)``; unreadable %P/L renders ``—``.
+
+    RCA-012: the symbol cell wraps (``flex=4``) instead of being clipped, so a long
+    name plus its side suffix such as ``DOHOME (S)`` stays readable in full.
+    """
     ptype = str(r.get("position_type") or "LONG").upper()
     tag = " (S)" if ptype == "SHORT" else (" (B)" if ptype == "BORROWED" else "")
     pnl_pct = r.get("pnl_pct")
@@ -185,8 +203,8 @@ def _port_row(r: Dict[str, Any]) -> Dict[str, Any]:
         pc = float(pnl_pct)
         pnl_cell = _cell(f"{pc:+.2f}", UP if pc >= 0 else DOWN, flex=2, align="end")
     return _row([
-        _cell(f"{r.get('symbol', '')}{tag}", FG, flex=3, weight="bold"),
-        _cell(f"{int(r.get('volume', 0)):,}", FG, flex=3, align="end"),
+        _cell(f"{r.get('symbol', '')}{tag}", FG, flex=4, weight="bold", wrap=True),
+        _cell(f"{int(r.get('volume', 0)):,}", FG, flex=2, align="end"),
         _cell(f"{float(r.get('cost', 0.0)):.2f}", FG, flex=2, align="end"),
         _cell(f"{float(r.get('last', 0.0)):.2f}", FG, flex=2, align="end"),
         pnl_cell,
@@ -197,7 +215,8 @@ def port_card(
     *,
     broker: str,
     account: str,
-    total_value: float,
+    amount: Optional[float],
+    market_value: Optional[float],
     pnl_value: float,
     pnl_pct: float,
     rows: List[Dict[str, Any]],
@@ -208,13 +227,18 @@ def port_card(
 ) -> Dict[str, Any]:
     """``rows`` = normalised holdings (see ``handlers._normalise_holdings``).
 
+    RCA-013: the header mirrors the app's own labels — ``Amount`` (cost basis),
+    ``Market Value``, then ``Unrealized P/L``. A figure the page/data did not provide
+    renders ``—``, never a fabricated ``0.00``.
+
     A long book is paginated ``PORT_ROWS_PER_BUBBLE`` rows per bubble into a LINE
     carousel (RCA-002 follow-up) — every row is shown, no "และอีก N ตัว" teaser.
     """
     pnl_color = UP if pnl_value >= 0 else DOWN
     rows = rows or []
     summary: List[Dict[str, Any]] = [
-        _kv("มูลค่ารวม", f"{total_value:,.2f}"),
+        _kv("Amount", _money(amount)),
+        _kv("Market Value", _money(market_value)),
         _kv("Unrealized P/L", f"{pnl_value:+,.2f} ({pnl_pct:+.2f}%)", pnl_color),
         {"type": "separator", "margin": "md", "color": "#334155"},
     ]
@@ -242,7 +266,7 @@ def port_card(
             body = [header] + [_port_row(r) for r in page]
             bubbles.append(_bubble(title=f"📊 {broker.upper()} · ต่อ {idx + 1}/{len(pages)}", body=body))
 
-    alt = f"📊 {broker} พอร์ต มูลค่า {total_value:,.2f} ({len(rows)} ตัว)"
+    alt = f"📊 {broker} พอร์ต มูลค่า {_money(market_value)} ({len(rows)} ตัว)"
     if len(bubbles) == 1:
         return _flex(alt, bubbles[0])
     return carousel(bubbles, alt)

@@ -46,6 +46,21 @@ def _parse_int(cell: Any, default: int = 0) -> int:
         return default
 
 
+def _parse_float_or_none(cell: Any) -> Optional[float]:
+    """Parse a *totals* cell ("220,000.00") → float, or ``None``.
+
+    RCA-013 / Anti-Mock: a blank or placeholder cell (``-``, ``N/A``, ``ไม่พบข้อมูล``)
+    must yield ``None`` so the CLI renders ``—`` — never a fabricated ``0.00``.
+    """
+    txt = str(cell or "").replace(",", "").replace("%", "").replace("+", "").strip()
+    if not txt or _hkey(txt) in _PLACEHOLDER_CELL_VALUES:
+        return None
+    try:
+        return float(txt)
+    except Exception:
+        return None
+
+
 # ---- TradeMan Portfolio table discovery (RCA-006b, probe 2026-10-13) ----
 # The holdings header and body are two *separate* <table> elements. The legacy
 # `table tbody tr` scan also counted the summary/totals table (16 rows, not 15)
@@ -54,6 +69,7 @@ def _parse_int(cell: Any, default: int = 0) -> int:
 _PORTFOLIO_TABLES_JS = r"""() => {
     const norm = (el) => ((el && el.innerText) || "").replace(/\s+/g, " ").trim();
     return Array.from(document.querySelectorAll("table")).map((t) => ({
+        cls: (t.className || "").toString(),
         headers: Array.from(t.querySelectorAll("thead th")).map(norm),
         rows: Array.from(t.querySelectorAll("tbody tr"))
             .map((tr) => Array.from(tr.querySelectorAll("td")).map(norm)),
@@ -130,7 +146,46 @@ def _is_placeholder_or_totals_row(symbol_raw: str, cells: List[str]) -> bool:
     return False
 
 
-def _pair_holdings_tables(tables: List[Dict[str, Any]]) -> Optional[Dict[str, Dict[str, Any]]]:
+def _find_totals_row(
+    tables: List[Dict[str, Any]], header_pos: Optional[int] = None
+) -> Optional[List[str]]:
+    """Locate the on-page portfolio **totals** row — RCA-013.
+
+    The app renders a summary table (``table.w-full.h-[2rem]``) alongside the holdings
+    tables: exactly one row of ``>=8 td``. It is identified **by position within that
+    group** — never with a global ``table`` selector:
+
+    1. a table carrying the ``h-[2rem]`` summary class wins;
+    2. otherwise the first following single-row table whose first cell is a totals
+       token (``Total`` / ``ยอดรวม`` / ``มูลค่ารวม`` …).
+
+    Returns the row's cell texts, or ``None`` when no summary table can be confirmed
+    (a candidate that matches neither rule is deliberately **not** claimed as totals —
+    the caller then falls back to computed amounts).
+    """
+    start = 0 if header_pos is None else header_pos + 1
+    candidates: List[Any] = []
+    for pos, tbl in enumerate(tables or []):
+        if pos < start or tbl.get("has_thead") or tbl.get("in_scroll"):
+            continue
+        rows = [r for r in (tbl.get("rows") or []) if len(r) >= 8]
+        if len(rows) != 1:                       # header (0 rows) / body (15 rows) never match
+            continue
+        is_summary_cls = "2rem" in str(tbl.get("cls") or "")
+        is_totals_token = _hkey((rows[0] or [""])[0]) in _TOTALS_TOKENS
+        candidates.append((not is_summary_cls, not is_totals_token, pos, rows[0]))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: (c[0], c[1], c[2]))
+    not_summary_cls, not_totals_token, _, row = candidates[0]
+    if not_summary_cls and not_totals_token:
+        # A lone >=8-td row that is neither the summary table nor labelled as a total
+        # must not be reported as the portfolio total (Anti-Mock: fall back instead).
+        return None
+    return row
+
+
+def _pair_holdings_tables(tables: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Pair the holdings *header* table with its sibling *body* table — RCA-006b rule d.
 
     Returns ``{"header": <table carrying thead th>, "body": <table carrying the rows>}``
@@ -161,7 +216,12 @@ def _pair_holdings_tables(tables: List[Dict[str, Any]]) -> Optional[Dict[str, Di
         body = following[0]
     if body is None:
         return None
-    return {"header": tables[header_pos], "body": body}
+    return {
+        "header": tables[header_pos],
+        "body": body,
+        # RCA-013: the on-page summary row (Amount / Market Value / Unreal), or None
+        "totals": _find_totals_row(tables, header_pos),
+    }
 
 # TradeMan "View Order" side codes -> canonical side.
 # VERIFIED live 2026-10-07 (KSS-RCA-014) against the app's own colour palette
@@ -286,6 +346,11 @@ class TradeManDriver:
         # RCA-006b: True only when the last portfolio scrape ran on a verified,
         # authenticated TradeMan page + account. Callers must not show 🟢 live otherwise.
         self.portfolio_scrape_authenticated: bool = False
+        # RCA-013: the on-page summary-table totals, keyed
+        # ``{"amount", "market_value", "unrealized_pnl", "account_no"}``. ``None`` while
+        # the summary table is absent; individual fields stay ``None`` (never 0.0) when a
+        # cell is blank/placeholder, so the CLI can render "—".
+        self.portfolio_totals: Optional[Dict[str, Any]] = None
         self.discovered_accounts: List[Dict[str, Any]] = []
 
     @property
@@ -669,7 +734,12 @@ class TradeManDriver:
            ``table tbody tr`` scan;
         e) columns are mapped by header *name*, not by position;
         f) totals rows and placeholder rows are skipped;
-        g) every row carries the ``account_no`` read from the DOM.
+        g) every row carries the ``account_no`` read from the DOM;
+        h) the on-page *summary* row is read with the same header column positions and
+           exposed as ``self.portfolio_totals`` = ``{"amount" (Cost), "market_value",
+           "unrealized_pnl", "account_no"}`` — ``None`` while no summary table is found
+           and per-field ``None`` for a blank/placeholder cell (never ``0.0``); it is
+           cleared at the start of every scrape so a failure cannot leak stale figures.
 
         Returns list of dicts (legacy keys + ``account_no``):
         [{
@@ -685,6 +755,8 @@ class TradeManDriver:
         not render a 🟢 live badge.
         """
         async with self.lock:
+            # RCA-013: never let a stale summary row leak into a failed scrape
+            self.portfolio_totals = None
             await self.ensure_browser_ready()
             page = self.page
             if not page:
@@ -750,6 +822,23 @@ class TradeManDriver:
                         )
                     else:
                         table_ok = True
+                        # RCA-013: read the *on-page* totals row with the same header
+                        # column positions (Cost -> Amount, Market Value, Unreal).
+                        # Blank/unparsable cells stay None so the CLI renders "—".
+                        totals_cells = pair.get("totals") or []
+
+                        def total_cell(field: str) -> str:
+                            pos = col_idx.get(field)
+                            if pos is None or pos >= len(totals_cells):
+                                return ""
+                            return (totals_cells[pos] or "").strip()
+
+                        self.portfolio_totals = {
+                            "amount": _parse_float_or_none(total_cell("cost_value")),
+                            "market_value": _parse_float_or_none(total_cell("market_value")),
+                            "unrealized_pnl": _parse_float_or_none(total_cell("unrealized_pnl")),
+                            "account_no": account_no,
+                        }
                         for cells in pair["body"].get("rows") or []:
                             if len(cells) < 2:
                                 continue

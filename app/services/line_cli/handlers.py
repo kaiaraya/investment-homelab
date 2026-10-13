@@ -475,6 +475,20 @@ def _portfolio_totals(rows: List[Dict[str, Any]]) -> Tuple[float, float]:
     return total, pnl
 
 
+def _portfolio_amount(rows: List[Dict[str, Any]]) -> Optional[float]:
+    """Σ(volume x avg cost) — the app's *Amount* (cost basis) column, RCA-013.
+
+    ``BORROWED`` (``(B)``) rows are excluded: the page exposes no cost basis for them,
+    so counting them would invent one. Rows without a cost base are skipped too —
+    ``None`` (render ``—``) when nothing can be summed, never ``0.0`` (Anti-Mock).
+    """
+    parts = [
+        r["volume"] * r["cost"] for r in rows
+        if r.get("cost") and str(r.get("position_type") or "LONG").upper() != "BORROWED"
+    ]
+    return sum(parts) if parts else None
+
+
 #: Display-only labels for raw account-type codes (LIBERATOR reports ``CASH_BALANCE``).
 #: Presentation only — never touches the per-broker balance-value mapping (RCA-011).
 _ACCOUNT_TYPE_LABEL = {
@@ -524,16 +538,29 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
         # RCA-006b: a TradeMan scrape only counts as live when it ran on an authenticated
         # page AND a verified account — otherwise the card must say "อ่านไม่ได้".
         account_label = "LIVE"
+        # RCA-013: the on-page summary row is TradeMan-only — never reuse another
+        # broker's DOM for it (broker isolation). Empty for LIB / unknown platforms.
+        summary: Dict[str, Any] = {}
         if plat in ("KRUNGSRI", "TRADEMAN"):
             from app.browser.trademan_driver import trademan_driver
             if not getattr(trademan_driver, "portfolio_scrape_authenticated", False):
                 return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
             account_label = getattr(trademan_driver, "active_account_no", None) or "LIVE"
+            summary = getattr(trademan_driver, "portfolio_totals", None) or {}
         rows = _normalise_holdings(res.get("holdings", []))
         total, pnl = _portfolio_totals(rows)
+        # Amount = cost basis, Market Value = Σ vol×last **including** (B) rows — both
+        # fall back to the computed figures, and only when the page exposed no cell.
+        amount = _portfolio_amount(rows)
+        market_value: Optional[float] = total if rows else None
+        if summary.get("amount") is not None:
+            amount = summary["amount"]
+        if summary.get("market_value") is not None:
+            market_value = summary["market_value"]
         cost_base = total - pnl
         pnl_pct = (pnl / cost_base * 100.0) if cost_base else 0.0
-        return cards.port_card(broker=BROKER_LABEL[broker], account=account_label, total_value=total, pnl_value=pnl,
+        return cards.port_card(broker=BROKER_LABEL[broker], account=account_label,
+                               amount=amount, market_value=market_value, pnl_value=pnl,
                                pnl_pct=pnl_pct, rows=rows, snapshot_label=now_label,
                                stale=False, live=True, is_test=is_test)
 
@@ -586,7 +613,10 @@ async def _handle_read(
                 return {"status": "CLI_NO_DATA"}
             total, pnl = _portfolio_totals(rows)
             base = total - pnl
-            card = cards.port_card(broker=label, account="DB snapshot", total_value=total, pnl_value=pnl,
+            card = cards.port_card(broker=label, account="DB snapshot",
+                                   amount=_portfolio_amount(rows),
+                                   market_value=total if rows else None,
+                                   pnl_value=pnl,
                                    pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=rows,
                                    snapshot_label=_fmt_hhmm(ts), stale=_is_stale(ts), live=False)
             await service._send_reply(reply_token, card)

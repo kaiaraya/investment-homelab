@@ -59,6 +59,7 @@ Rules 1–5 above are now implemented in `app/browser/trademan_driver.py`:
 | 2. Dismiss popups → select account → verify | `popup_manager.dismiss_popups()` then `_select_account_on_page(page, target)`; option span `#dropDownAccountPort div.absolute span:text-is("<acc>")`, verified against `_read_current_account_no()`, else `ACCOUNT_SWITCH_FAILED` |
 | 3. Header table → sibling body table | `_PORTFOLIO_TABLES_JS` + `_pair_holdings_tables()` (never a global `table tbody tr`) |
 | 4. Map by header name, skip totals/placeholder | `_map_holdings_columns()`, `_is_placeholder_or_totals_row()` |
+| 4b. Read the summary/totals row (RCA-013) | `_find_totals_row()` (see the RCA-013 section below) |
 | 5. Refresh even when the URL already has `/Portfolio` | `scrape_portfolio` always re-navigates before scraping |
 
 `scrape_portfolio` returns the legacy keys plus `account_no` (read from the DOM), and sets
@@ -79,5 +80,38 @@ this DOM: 15 rows; the legacy scan returns 16).
   LONG `(last−cost)/cost`, SHORT `(cost−last)/cost`, BORROWED / UNKNOWN / no cost base → `—`.
   The card label is `Unrealized P/L` (this is **not** today's realized P/L).
 - The `/port` card tags rows `(S)`/`(B)` and paginates `PORT_ROWS_PER_BUBBLE = 12` rows per bubble into a
-  LINE carousel so all 15 rows are reachable (the "…และอีก N ตัว" teaser is gone).
+  LINE carousel so all 15 rows are reachable (the "…และอีก N ตัว" teaser is gone). The symbol cell is
+  `flex=4` + `wrap: true` and the qty cell `flex=2`, so `DOHOME (S)` is no longer clipped (CLI-RCA-012).
+
+## Totals row → `portfolio_totals` (CLI-RCA-013 fix, 2026-10-14)
+
+- `_PORTFOLIO_TABLES_JS` now also returns `cls` (the table's `className`) so the summary table can be
+  identified without a global selector.
+- `_find_totals_row(tables, header_pos)` (new) returns the summary row's cell texts, or `None`:
+  - candidates are the tables **after** the holdings header table that are neither the `thead` header nor
+    the `in_scroll` body table and hold exactly **one row with ≥8 td**;
+  - the table carrying the `h-[2rem]` class wins; otherwise the first candidate whose first cell is a
+    totals token (`Total` / `ยอดรวม` / `มูลค่ารวม` / `sum` …);
+  - a candidate matching **neither** rule is deliberately not claimed as totals → the CLI falls back.
+- `_pair_holdings_tables()` returns it as `pair["totals"]`; `scrape_portfolio` parses the three numeric
+  cells **by the header column positions** (`Cost → cost_value`, `Market Value`, `Unreal`) with the new
+  `_parse_float_or_none()` and stores:
+
+  ```python
+  trademan_driver.portfolio_totals = {
+      "amount", "market_value", "unrealized_pnl", "account_no"
+  }   # None while no summary table; a blank/placeholder cell stays None (never 0.0)
+  ```
+
+  It is reset to `None` at the start of every scrape, so a failed/expired scrape can never leak a previous
+  account's figures (Anti-Mock).
+- `handlers._live_card` (port) uses `portfolio_totals` **only for KSS/TRADEMAN** (broker isolation) and only
+  when the DOM cell is not `None`; otherwise it falls back to the computed values — Amount =
+  `_portfolio_amount()` = Σ(vol×avg) of non-BORROWED rows, Market Value = `_portfolio_totals()` = Σ(vol×last)
+  **including** `(B)` rows. Unreadable → `—` via `cards._money()`.
+- Card header (first bubble) is now `Amount` / `Market Value` / `Unrealized P/L` — the app's own labels; the
+  legacy `มูลค่ารวม` label is gone. The Unrealized P/L formula is unchanged (per side, P1).
+- Evidence: `tests/test_trademan_portfolio_scraper.py` (7 new: summary row parsed / blank → `None` /
+  absent → `None` / stale cleared / class-vs-token selection) and `tests/test_line_cli_flow.py`
+  (DOM-preferred totals, labels, `—`, `_money`, BORROWED excluded, unclipped symbol).
 

@@ -63,3 +63,25 @@ Status: **code + unit verified**; live re-test (`/port kss sync` sign check + lo
 - Observations (not yet RCA): per-row %P/L differs from app by ~0.02–0.11 pt (app likely includes fees in cost); card "มูลค่ารวม" matches neither app Amount nor Market Value → confirm which figure to show.
 - F-10 (P2): `data/session_state.json` rewritten 05:12 while gateway was down → suspect non-hermetic real-browser test overwrote the live Zero-OTP session (Invariant 8). Audit tests that call `ensure_browser_ready`/`storage_state`.
 - Resolved observation → **CLI-RCA-013 (Low, label/definition)**: card "มูลค่ารวม" = Σ(vol×last) of (S) rows only (verified = 531,932 from card rows). App *Market Value* = same + (B) rows (MTC 1,700×28.75 = 48,875 → 580,807). App *Amount* = Σ(vol×avg) cost basis (≈531,042); Unrealized = Amount − Market(S) = −889.59. Fix: show app-equivalent fields by label (Amount, Market Value) scraped from the DOM totals table, — **user chose option 1 (2026-10-14): show Amount + Market Value read from the DOM totals table, labelled as in the app.**
+
+## Proven fix — 2026-10-14 (Cline, TASK-cli-p1_5-port-totals-and-symbol-width)
+
+Status: **code + unit verified**; live re-test (`/port kss sync` vs Portfolio > Total, `DOHOME (S)` width)
+owned by Antigravity.
+
+| ID | Change (code) | Evidence |
+|---|---|---|
+| CLI-RCA-013 | `trademan_driver`: `_PORTFOLIO_TABLES_JS` returns `cls`; new `_find_totals_row()` locates the summary table **by position** next to the holdings pair (single ≥8-td row; `h-[2rem]` class, else a totals token — an unlabelled single-row table is refused) and `_pair_holdings_tables()` exposes it as `pair["totals"]`; new `_parse_float_or_none()` (blank/placeholder → `None`); `scrape_portfolio` fills `trademan_driver.portfolio_totals = {amount, market_value, unrealized_pnl, account_no}` (reset to `None` on every scrape, so a failed scrape never leaks stale figures). `handlers`: new `_portfolio_amount()` (Σ vol×avg, BORROWED excluded, `None` when no cost base); `_live_card`(port)/`_handle_read`(snapshot) prefer the on-page row for **KSS/TRADEMAN only** and fall back to computed Amount / Market Value. `cards`: header is now `Amount` / `Market Value` / `Unrealized P/L` (legacy `มูลค่ารวม` gone) with new `_money()` rendering `—` for `None` — never a fabricated `0.00` | `tests/test_trademan_portfolio_scraper.py` (7 new), `tests/test_line_cli_flow.py` (5 new: `test_live_port_card_prefers_dom_totals_row`, `test_port_card_header_labels_match_the_app`, `test_port_card_totals_render_dash_when_the_page_exposed_nothing`, `test_money_formats_thb_and_dash`, `test_portfolio_amount_excludes_borrowed_and_dom_totals_win`) |
+| CLI-RCA-012 | `cards._cell()` gains `wrap`; `_port_row()` symbol cell `flex=3 → 4` + `wrap=True`, qty cell `flex=3 → 2` (numbers keep `size=xs`), `_port_header_row()` follows the same ratios — so `DOHOME (S)` renders in full instead of `DOHOME …` | `tests/test_line_cli_flow.py::test_port_card_keeps_long_symbol_with_suffix_unclipped` |
+
+### Invariants preserved
+- The Unrealized P/L formula + `%P/L` per side are untouched (P1); `portfolio_totals["unrealized_pnl"]` is
+  stored but **not** used to render the card — the P1 side-aware logic still produces that figure.
+- Broker isolation: only `KRUNGSRI`/`TRADEMAN` read `trademan_driver.portfolio_totals`; LIB keeps the
+  computed Σ values (its `PositionItem` has no such row).
+- Anti-Mock: no summary table, blank cell, or no cost base → `None` → `—` (never `0.0`), and the totals are
+  cleared at the start of every scrape.
+
+## Live re-test P1.5 — 2026-10-14 06:10 (Antigravity)
+- RCA-012 ✅ live: `DOHOME (S)` rendered in full.
+- RCA-013 ⚠️ live: card Market Value excludes MTC (B). Computed fallback includes (B), so this shows the card read the **web DOM totals row**, and the web TradeMan summary row's Market Value counts (S) rows only. The mobile app's Market Value includes (B). Web ≠ mobile definition. Awaiting user decision: follow web, or add (B) market value to match mobile.

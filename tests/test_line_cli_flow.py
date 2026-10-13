@@ -470,6 +470,7 @@ async def test_live_port_card_shows_dom_account_when_authenticated(monkeypatch):
         {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0}]})
     monkeypatch.setattr(pillar2, "portfolio_holdings", holdings)
     monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", True, raising=False)
+    monkeypatch.setattr(trademan_driver, "portfolio_totals", None, raising=False)
     monkeypatch.setattr(trademan_driver, "active_account_no", "3024959", raising=False)
 
     card = await REAL_LIVE_CARD("port", "kss")
@@ -496,6 +497,7 @@ async def test_live_port_card_is_unavailable_when_scrape_not_authenticated(monke
     assert "/login kss" in text
     assert "🟢 live" not in text
     assert "มูลค่ารวม" not in text   # no fabricated totals for a failed scrape
+    assert "Amount" not in text      # RCA-013: nor the new summary labels
 
 
 @pytest.mark.asyncio
@@ -588,8 +590,9 @@ def test_port_card_paginates_into_carousel_and_drops_overflow_teaser():
 
     rows = [{"symbol": f"S{i}", "position_type": "LONG", "volume": 100, "cost": 10.0, "last": 11.0,
              "pnl_pct": 10.0} for i in range(15)]
-    card = cards.port_card(broker="KSS", account="3024959", total_value=16500.0, pnl_value=1500.0,
-                           pnl_pct=10.0, rows=rows, snapshot_label="10:00", stale=False, live=True)
+    card = cards.port_card(broker="KSS", account="3024959", amount=15000.0, market_value=16500.0,
+                           pnl_value=1500.0, pnl_pct=10.0, rows=rows, snapshot_label="10:00",
+                           stale=False, live=True)
 
     assert card["contents"]["type"] == "carousel"
     assert len(card["contents"]["contents"]) == 2      # 12 rows + 3 rows
@@ -606,14 +609,131 @@ def test_port_card_tags_side_and_shows_dash_for_unreadable_pnl():
              "pnl_pct": 10.0},
             {"symbol": "MTC", "position_type": "BORROWED", "volume": 100, "cost": 0.0, "last": 9.0,
              "pnl_pct": None}]
-    card = cards.port_card(broker="KSS", account="3024959", total_value=1800.0, pnl_value=100.0, pnl_pct=5.0,
-                           rows=rows, snapshot_label="10:00", stale=False, live=True)
+    card = cards.port_card(broker="KSS", account="3024959", amount=1000.0, market_value=1800.0,
+                           pnl_value=100.0, pnl_pct=5.0, rows=rows, snapshot_label="10:00",
+                           stale=False, live=True)
 
     text = _flex_text(card)
     assert "BCPG (S)" in text
     assert "MTC (B)" in text
     assert "—" in text
     assert card["contents"]["type"] == "bubble"        # a short book stays a single bubble
+
+
+# --------------------------------------------------------------------------- #
+# CLI-RCA-013 — the card header mirrors the app (Amount / Market Value)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_live_port_card_prefers_dom_totals_row(monkeypatch):
+    """RCA-013: KSS shows the on-page summary row, not the locally computed figures."""
+    from app.browser.trademan_driver import trademan_driver
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_holdings", AsyncMock(return_value={"holdings": [
+        {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0}]}))
+    monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", True, raising=False)
+    monkeypatch.setattr(trademan_driver, "active_account_no", "3024959", raising=False)
+    monkeypatch.setattr(trademan_driver, "portfolio_totals",
+                        {"amount": 33_750.0, "market_value": 35_100.0,
+                         "unrealized_pnl": 1_350.0, "account_no": "3024959"}, raising=False)
+
+    card = await REAL_LIVE_CARD("port", "kss")
+
+    text = _flex_text(card)
+    assert "33,750.00" in text and "35,100.00" in text     # the DOM row, not 34,000/35,000
+    assert "34,000.00" not in text and "35,000.00" not in text
+    assert "🟢 live" in text
+
+
+def test_port_card_header_labels_match_the_app():
+    from app.services.line_cli import cards
+
+    rows = [{"symbol": "DOHOME", "position_type": "SHORT", "volume": 100, "cost": 10.0,
+             "last": 9.0, "pnl_pct": 10.0}]
+    card = cards.port_card(broker="KSS", account="3024959", amount=1000.0, market_value=900.0,
+                           pnl_value=100.0, pnl_pct=11.11, rows=rows, snapshot_label="10:00",
+                           stale=False, live=True)
+
+    body = card["contents"]["body"]["contents"]
+    labels = [c["contents"][0]["text"] for c in body
+              if c.get("type") == "box" and c.get("layout") == "horizontal"][:3]
+    assert labels == ["Amount", "Market Value", "Unrealized P/L"]
+    text = _flex_text(card)
+    assert "1,000.00" in text and "900.00" in text
+    assert "มูลค่ารวม" not in text
+
+
+def test_port_card_totals_render_dash_when_the_page_exposed_nothing():
+    """Anti-Mock: an unknown Amount / Market Value renders — , never a fabricated 0.00."""
+    from app.services.line_cli import cards
+
+    card = cards.port_card(broker="KSS", account="3024959", amount=None, market_value=None,
+                           pnl_value=-889.59, pnl_pct=-0.17, rows=[], snapshot_label="10:00",
+                           stale=False, live=True)
+
+    body = card["contents"]["body"]["contents"]
+    shown = {c["contents"][0]["text"]: c["contents"][1]["text"] for c in body
+             if c.get("type") == "box" and c.get("layout") == "horizontal"
+             and c["contents"][0]["text"] in ("Amount", "Market Value")}
+    assert shown == {"Amount": "—", "Market Value": "—"}
+
+
+def test_money_formats_thb_and_dash():
+    from app.services.line_cli.cards import _money
+
+    assert _money(None) == "—"
+    assert _money(0.0) == "0.00"
+    assert _money(531932.4) == "531,932.40"
+
+
+def test_portfolio_amount_excludes_borrowed_and_dom_totals_win():
+    """Fallback (no DOM row): Amount = Σ vol×avg of non-BORROWED; MV includes (B)."""
+    from app.services.line_cli.handlers import (
+        _normalise_holdings,
+        _portfolio_amount,
+        _portfolio_totals,
+    )
+
+    rows = _normalise_holdings([
+        {"symbol": "S1", "position_type": "SHORT", "volume": 10, "avg_cost": 10.0, "current_price": 9.0},
+        {"symbol": "S2", "position_type": "SHORT", "volume": 20, "avg_cost": 5.0, "current_price": 6.0},
+        {"symbol": "B1", "position_type": "BORROWED", "volume": 10, "avg_cost": 0.0, "current_price": 7.0},
+    ])
+    assert _portfolio_amount(rows) == pytest.approx(10 * 10.0 + 20 * 5.0)   # (B) excluded
+    total, _ = _portfolio_totals(rows)
+    assert total == pytest.approx(10 * 9.0 + 20 * 6.0 + 10 * 7.0)           # (B) included
+
+
+def test_portfolio_amount_is_none_without_any_cost_base():
+    from app.services.line_cli.handlers import _normalise_holdings, _portfolio_amount
+
+    rows = _normalise_holdings([{"symbol": "B1", "position_type": "BORROWED",
+                                 "volume": 10, "avg_cost": 0.0, "current_price": 7.0}])
+    assert _portfolio_amount(rows) is None
+
+
+def test_port_card_keeps_long_symbol_with_suffix_unclipped():
+    """RCA-012: a long symbol + its side suffix stay in one wrapping text node."""
+    from app.services.line_cli import cards
+
+    rows = [{"symbol": "DOHOME", "position_type": "SHORT", "volume": 2000, "cost": 8.0,
+             "last": 8.5, "pnl_pct": 6.25}]
+    card = cards.port_card(broker="KSS", account="3024959", amount=16_000.0,
+                           market_value=17_000.0, pnl_value=1_000.0, pnl_pct=6.25, rows=rows,
+                           snapshot_label="10:00", stale=False, live=True)
+
+    body = card["contents"]["body"]["contents"]
+    boxes = [c for c in body if c.get("type") == "box" and c.get("layout") == "horizontal"]
+    header_row = next(c for c in boxes if c["contents"][0].get("text") == "หุ้น")
+    symbol_cell = next(c for c in boxes if c["contents"][0].get("text") == "DOHOME (S)")
+
+    assert header_row["contents"][0]["flex"] == 4        # symbol gets the room
+    assert header_row["contents"][1]["flex"] == 2        # qty column yields it
+    assert symbol_cell["contents"][0]["wrap"] is True    # wraps instead of clipping
+    assert symbol_cell["contents"][0]["flex"] == 4
+    assert symbol_cell["contents"][1]["flex"] == 2
+    assert symbol_cell["contents"][0]["size"] == "xs"    # numbers/labels not shrunk
 
 
 

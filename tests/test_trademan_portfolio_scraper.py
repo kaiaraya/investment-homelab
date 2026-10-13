@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 
 from app.browser.trademan_driver import (
+    _find_totals_row,
     _is_placeholder_or_totals_row,
     _map_holdings_columns,
     _pair_holdings_tables,
@@ -55,7 +56,7 @@ def _fixture_html() -> str:
         </div>
       </div>
       <table class="w-full h-[2rem]"><tbody><tr>
-        <td>Total</td><td>20,000</td><td>20,000</td><td>-</td><td>-</td><td>-</td>
+        <td>Total</td><td>20,000</td><td>20,000</td><td>-</td><td>-</td><td>200,000.00</td>
         <td>220,000.00</td><td>20,000.00</td><td>10.00%</td><td>0</td>
       </tr></tbody></table>
     </body></html>"""
@@ -71,14 +72,19 @@ def _runbook_inventory():
                 f"{i}0,000.00", f"{i}1,000.00", "1,000.00", "10.00%", "0"]
 
     return [
-        {"headers": [], "rows": [["Legend", "MARGIN"]], "in_scroll": False, "has_thead": False},
-        {"headers": ["Symbol", "Price", "Change"], "rows": [["PTT", "35.00", "+0.25"]],
+        {"cls": "w-full", "headers": [], "rows": [["Legend", "MARGIN"]],
+         "in_scroll": False, "has_thead": False},
+        {"cls": "", "headers": ["Symbol", "Price", "Change"], "rows": [["PTT", "35.00", "+0.25"]],
          "in_scroll": False, "has_thead": True},
-        {"headers": list(_HEADERS), "rows": [], "in_scroll": False, "has_thead": True},
-        {"headers": [], "rows": [cells(sym, i) for i, sym in enumerate(_SYMBOLS, start=1)],
+        {"cls": "w-full h-[2.5rem]", "headers": list(_HEADERS), "rows": [],
+         "in_scroll": False, "has_thead": True},
+        {"cls": "w-full relative", "headers": [],
+         "rows": [cells(sym, i) for i, sym in enumerate(_SYMBOLS, start=1)],
          "in_scroll": True, "has_thead": False},
-        {"headers": [], "rows": [["Total", "20,000", "20,000", "-", "-", "-",
-                                  "220,000.00", "20,000.00", "10.00%", "0"]],
+        # RCA-013: the on-page summary row — Cost/Market Value/Unreal carry real values
+        {"cls": "w-full h-[2rem]", "headers": [],
+         "rows": [["Total", "20,000", "20,000", "-", "-", "200,000.00",
+                   "220,000.00", "20,000.00", "10.00%", "0"]],
          "in_scroll": False, "has_thead": False},
     ]
 
@@ -94,6 +100,7 @@ def _isolate_driver_state():
         trademan_driver.active_account_no,
         trademan_driver.active_account_type,
         trademan_driver.portfolio_scrape_authenticated,
+        trademan_driver.portfolio_totals,
     )
     trademan_driver.active_account_no = settings.TRADEMAN_ACCOUNT_NO_MARGIN
     trademan_driver.active_account_type = "MARGIN"
@@ -103,6 +110,7 @@ def _isolate_driver_state():
         trademan_driver.active_account_no,
         trademan_driver.active_account_type,
         trademan_driver.portfolio_scrape_authenticated,
+        trademan_driver.portfolio_totals,
     ) = saved
 
 def test_map_holdings_columns_by_name_not_position():
@@ -140,6 +148,38 @@ def test_pair_holdings_tables_picks_body_not_totals_table():
 def test_pair_holdings_tables_returns_none_without_holdings_header():
     assert _pair_holdings_tables(_runbook_inventory()[1:2]) is None       # watchlist only
     assert _pair_holdings_tables([]) is None
+
+
+def test_find_totals_row_prefers_summary_class_and_returns_cost_cell():
+    """RCA-013: the h-[2rem] summary row is found by position, not a global selector."""
+    inventory = _runbook_inventory()
+    pair = _pair_holdings_tables(inventory)
+    assert pair["totals"] is not None
+    row = _find_totals_row(inventory, None)
+    assert row is not None and row[0] == "Total"
+    assert row[5] == "200,000.00"                   # Cost column → Amount
+
+
+def test_find_totals_row_falls_back_to_totals_token_without_class():
+    inventory = _runbook_inventory()
+    inventory[-1]["cls"] = ""                       # class attribute absent in the DOM
+    pair = _pair_holdings_tables(inventory)
+    row = _find_totals_row(inventory, None)
+    assert row is not None and row[0] == "Total"
+
+
+def test_find_totals_row_returns_none_without_summary_table():
+    inventory = [t for t in _runbook_inventory() if "2rem" not in (t.get("cls") or "")]
+    assert _find_totals_row(inventory, None) is None
+
+
+def test_find_totals_row_ignores_unlabelled_single_row_table():
+    """A single >=8-td table with no summary class and no totals token is NOT totals."""
+    inventory = [t for t in _runbook_inventory() if "2rem" not in (t.get("cls") or "")]
+    inventory.append({"cls": "w-full", "headers": [],
+                      "rows": [["สรุปพอร์ต", "1", "2", "3", "4", "5", "6", "7", "8"]],
+                      "in_scroll": False, "has_thead": False})
+    assert _find_totals_row(inventory, None) is None
 
 
 def test_is_placeholder_or_totals_row():
@@ -196,6 +236,7 @@ async def test_portfolio_tables_js_against_html_fixture():
             await browser.close()
 
     assert len(inventory) == 5
+    assert any("2rem" in (t.get("cls") or "") for t in inventory)   # summary table class
     pair = _pair_holdings_tables(inventory)
     assert pair is not None
     assert pair["header"]["headers"] == list(_HEADERS)
@@ -324,3 +365,68 @@ async def test_scrape_portfolio_returns_empty_and_not_live_without_holdings_tabl
 
     assert holdings == []
     assert trademan_driver.portfolio_scrape_authenticated is False
+
+
+# ==========================================
+# RCA-013: on-page summary row -> portfolio_totals
+# ==========================================
+
+def _totals_inventory(cost="200,000.00", market="220,000.00", unreal="20,000.00"):
+    """``_runbook_inventory()`` with the summary-table cells overridden."""
+    inv = _runbook_inventory()
+    inv[-1]["rows"] = [["Total", "20,000", "20,000", "-", "-", cost, market, unreal,
+                        "10.00%", "0"]]
+    return inv
+
+
+@pytest.mark.asyncio
+async def test_scrape_portfolio_reads_totals_from_summary_table():
+    margin_no = settings.TRADEMAN_ACCOUNT_NO_MARGIN
+    page = _mock_portfolio_page(_runbook_inventory())
+
+    holdings = await _run_scrape(page)
+
+    assert len(holdings) == 15                      # summary row is still not a holding
+    assert trademan_driver.portfolio_totals == {
+        "amount": 200_000.0,
+        "market_value": 220_000.0,
+        "unrealized_pnl": 20_000.0,
+        "account_no": margin_no,
+    }
+
+
+@pytest.mark.asyncio
+async def test_scrape_portfolio_totals_none_when_summary_cells_blank():
+    """An all-``-`` summary row yields None per field — never 0.00 (Anti-Mock)."""
+    page = _mock_portfolio_page(_totals_inventory(cost="-", market="-", unreal="-"))
+
+    await _run_scrape(page)
+
+    assert trademan_driver.portfolio_totals == {
+        "amount": None, "market_value": None, "unrealized_pnl": None,
+        "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN,
+    }
+
+
+@pytest.mark.asyncio
+async def test_scrape_portfolio_totals_none_without_summary_table():
+    inventory = [t for t in _runbook_inventory() if "2rem" not in (t.get("cls") or "")]
+    page = _mock_portfolio_page(inventory)
+
+    await _run_scrape(page)
+
+    assert trademan_driver.portfolio_totals == {
+        "amount": None, "market_value": None, "unrealized_pnl": None,
+        "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN,
+    }
+
+
+@pytest.mark.asyncio
+async def test_scrape_portfolio_clears_stale_totals_on_unauthenticated_session():
+    page = _mock_portfolio_page(_runbook_inventory(), url="https://trademan.in.th/SignIn")
+    trademan_driver.portfolio_totals = {"amount": 1.0, "market_value": 1.0,
+                                        "unrealized_pnl": 1.0, "account_no": "x"}
+
+    await _run_scrape(page)
+
+    assert trademan_driver.portfolio_totals is None
