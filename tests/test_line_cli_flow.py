@@ -8,6 +8,7 @@ mocked at the ``line_cli.handlers`` boundary (``_broker_*``), which is exactly
 where Broker Isolation lives.
 """
 
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock
 
@@ -15,6 +16,10 @@ import pytest
 
 from app.services.line_cli import handlers
 from app.services.line_cli import parser as cli_parser
+
+#: The autouse `_broker_edges` fixture stubs ``handlers._live_card`` — keep a real
+#: reference so the card-content tests below exercise the actual builder.
+REAL_LIVE_CARD = handlers._live_card
 
 
 # --------------------------------------------------------------------------- #
@@ -447,3 +452,205 @@ async def test_webhook_still_ignores_plain_text(client, db_session, monkeypatch)
     assert resp.status_code == 200, resp.text
     results = resp.json()["results"]
     assert results and results[0]["status"] == "IGNORED"
+
+
+# --------------------------------------------------------------------------- #
+# RCA-006b / RCA-009 — live /port|cash cards must never claim 🟢 on unreadable data
+# --------------------------------------------------------------------------- #
+def _flex_text(card) -> str:
+    return json.dumps(card, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_live_port_card_shows_dom_account_when_authenticated(monkeypatch):
+    from app.browser.trademan_driver import trademan_driver
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    holdings = AsyncMock(return_value={"holdings": [
+        {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0}]})
+    monkeypatch.setattr(pillar2, "portfolio_holdings", holdings)
+    monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", True, raising=False)
+    monkeypatch.setattr(trademan_driver, "active_account_no", "3024959", raising=False)
+
+    card = await REAL_LIVE_CARD("port", "kss")
+
+    holdings.assert_awaited_with(platform="TRADEMAN")
+    text = _flex_text(card)
+    assert "3024959" in text        # account number read from the DOM
+    assert "🟢 live" in text
+    assert "อ่านไม่ได้" not in text
+
+
+@pytest.mark.asyncio
+async def test_live_port_card_is_unavailable_when_scrape_not_authenticated(monkeypatch):
+    from app.browser.trademan_driver import trademan_driver
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_holdings", AsyncMock(return_value={"holdings": []}))
+    monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", False, raising=False)
+
+    card = await REAL_LIVE_CARD("port", "kss")
+
+    text = _flex_text(card)
+    assert "อ่านไม่ได้" in text and "session หมดอายุ" in text
+    assert "/login kss" in text
+    assert "🟢 live" not in text
+    assert "มูลค่ารวม" not in text   # no fabricated totals for a failed scrape
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_is_unavailable_when_balances_unauthenticated(monkeypatch):
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    balances = AsyncMock(return_value={
+        "platform": "KRUNGSRI", "authenticated": False,
+        "accounts": [{"account_type": "MARGIN", "cash_balance": None, "line_available": None,
+                      "excess_equity": None, "is_active": True}]})
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", balances)
+
+    card = await REAL_LIVE_CARD("cash", "kss")
+
+    balances.assert_awaited_with(platform="TRADEMAN")
+    text = _flex_text(card)
+    assert "อ่านไม่ได้" in text and "/login kss" in text
+    assert "🟢 live" not in text
+    assert "0.00" not in text        # anti-mock: never a fabricated 0.00 balance
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_is_unavailable_when_every_field_unreadable(monkeypatch):
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value={
+        "platform": "KRUNGSRI", "authenticated": True,
+        "accounts": [{"account_type": "CASH", "cash_balance": None, "line_available": None,
+                      "excess_equity": None, "is_active": True}]}))
+
+    card = await REAL_LIVE_CARD("cash", "kss")
+
+    text = _flex_text(card)
+    assert "อ่านไม่ได้" in text
+    assert "🟢 live" not in text
+
+# --------------------------------------------------------------------------- #
+# RCA-002 — P/L must follow the position side (LONG vs SHORT vs BORROWED)
+# --------------------------------------------------------------------------- #
+def test_normalise_holdings_pnl_follows_side():
+    from app.services.line_cli.handlers import _normalise_holdings
+
+    rows = {r["symbol"]: r for r in _normalise_holdings([
+        {"symbol": "LONGOK", "position_type": "LONG", "volume": 100, "avg_cost": 10.0, "current_price": 11.0},
+        {"symbol": "SHORTOK", "position_type": "SHORT", "volume": 100, "avg_cost": 10.0, "current_price": 9.0},
+        {"symbol": "SHORTLOSS", "position_type": "SHORT", "volume": 100, "avg_cost": 10.0, "current_price": 11.0},
+        {"symbol": "BORROWED", "position_type": "BORROWED", "volume": 100, "avg_cost": 0.0, "current_price": 11.0},
+        {"symbol": "UNKNOWN", "position_type": "UNKNOWN", "volume": 100, "avg_cost": 10.0, "current_price": 11.0},
+    ])}
+
+    assert rows["LONGOK"]["pnl_pct"] == pytest.approx(10.0)
+    assert rows["SHORTOK"]["pnl_pct"] == pytest.approx(10.0)      # price fell → short gains
+    assert rows["SHORTLOSS"]["pnl_pct"] == pytest.approx(-10.0)   # price rose → short loses
+    assert rows["BORROWED"]["pnl_pct"] is None                    # no cost base → "—"
+    assert rows["UNKNOWN"]["pnl_pct"] is None                     # side unreadable → "—"
+
+
+def test_normalise_holdings_defaults_missing_side_to_long():
+    """LIBERATOR ``PositionItem`` has no side field → LONG, never UNKNOWN."""
+    from app.services.line_cli.handlers import _normalise_holdings
+
+    row = _normalise_holdings([{"symbol": "cpall", "volume": 100, "avg_cost": 10.0, "market_price": 12.0}])[0]
+
+    assert row["position_type"] == "LONG"
+    assert row["pnl_pct"] == pytest.approx(20.0)
+
+
+def test_portfolio_totals_prefers_dom_pnl_and_inverts_short_fallback():
+    from app.services.line_cli.handlers import _normalise_holdings, _portfolio_totals
+
+    rows = _normalise_holdings([
+        {"symbol": "A", "position_type": "LONG", "volume": 10, "avg_cost": 10.0, "current_price": 11.0,
+         "unrealized_pnl": 10.0, "market_value": 110.0},
+        {"symbol": "B", "position_type": "SHORT", "volume": 10, "avg_cost": 10.0, "current_price": 12.0,
+         "unrealized_pnl": -20.0, "market_value": 120.0},
+    ])
+    total, pnl = _portfolio_totals(rows)
+    assert total == pytest.approx(230.0)
+    assert pnl == pytest.approx(-10.0)
+
+    fallback = _normalise_holdings([
+        {"symbol": "S", "position_type": "SHORT", "volume": 10, "avg_cost": 10.0, "current_price": 12.0}])
+    total, pnl = _portfolio_totals(fallback)
+    assert total == pytest.approx(120.0)
+    assert pnl == pytest.approx(-20.0)   # short at a loss → negative total
+
+
+def test_port_card_paginates_into_carousel_and_drops_overflow_teaser():
+    from app.services.line_cli import cards
+
+    rows = [{"symbol": f"S{i}", "position_type": "LONG", "volume": 100, "cost": 10.0, "last": 11.0,
+             "pnl_pct": 10.0} for i in range(15)]
+    card = cards.port_card(broker="KSS", account="3024959", total_value=16500.0, pnl_value=1500.0,
+                           pnl_pct=10.0, rows=rows, snapshot_label="10:00", stale=False, live=True)
+
+    assert card["contents"]["type"] == "carousel"
+    assert len(card["contents"]["contents"]) == 2      # 12 rows + 3 rows
+    text = _flex_text(card)
+    assert "และอีก" not in text                        # every row is rendered
+    assert "Unrealized P/L" in text
+    assert "P/L วันนี้" not in text
+
+
+def test_port_card_tags_side_and_shows_dash_for_unreadable_pnl():
+    from app.services.line_cli import cards
+
+    rows = [{"symbol": "BCPG", "position_type": "SHORT", "volume": 100, "cost": 10.0, "last": 9.0,
+             "pnl_pct": 10.0},
+            {"symbol": "MTC", "position_type": "BORROWED", "volume": 100, "cost": 0.0, "last": 9.0,
+             "pnl_pct": None}]
+    card = cards.port_card(broker="KSS", account="3024959", total_value=1800.0, pnl_value=100.0, pnl_pct=5.0,
+                           rows=rows, snapshot_label="10:00", stale=False, live=True)
+
+    text = _flex_text(card)
+    assert "BCPG (S)" in text
+    assert "MTC (B)" in text
+    assert "—" in text
+    assert card["contents"]["type"] == "bubble"        # a short book stays a single bubble
+
+
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_lib_uses_liberator_balances(monkeypatch):
+    """RCA-007 regression at the CLI layer: /cash lib asks LIBERATOR, never Click2Win.
+
+    Also covers the raw-enum leak: LIBERATOR reports ``account_type="CASH_BALANCE"``,
+    which must render as a human label — never the raw code.
+    """
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    balances = AsyncMock(return_value={
+        "platform": "LIBERATOR", "authenticated": True,
+        "accounts": [{"account_type": "CASH_BALANCE", "cash_balance": 123456.78,
+                      "line_available": 200000.0, "excess_equity": 100000.0, "is_active": True}]})
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", balances)
+
+    card = await REAL_LIVE_CARD("cash", "lib")
+
+    balances.assert_awaited_with(platform="LIBERATOR")
+    text = _flex_text(card)
+    assert "LIB" in text
+    assert "123,456.78" in text
+    assert "🟢 live" in text
+    assert "อ่านไม่ได้" not in text
+    assert "Cash Balance" in text          # human label in the card header
+    assert "CASH_BALANCE" not in text      # raw enum never leaks to LINE
+
+
+def test_account_type_label_maps_raw_codes():
+    from app.services.line_cli.handlers import _account_type_label
+
+    assert _account_type_label("CASH_BALANCE") == "Cash Balance"
+    assert _account_type_label("margin") == "Margin"
+    assert _account_type_label(None) == "CASH"
+    assert _account_type_label("WEIRD_CODE") == "WEIRD_CODE"   # unknown → pass through honestly
+
+

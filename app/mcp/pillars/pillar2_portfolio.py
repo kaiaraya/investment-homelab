@@ -355,10 +355,21 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
     plat_raw = (platform or settings.TRADING_PLATFORM).upper().strip()
     if plat_raw in ["KRUNGSRI", "TRADEMAN"]:
         plat = "KRUNGSRI"
+    elif plat_raw in ["LIBERATOR", "LIB"]:
+        # RCA-007: LIBERATOR must route to the Liberator branch below — previously it
+        # fell through to `else: CLICK2WIN`, so `/cash lib` showed Click2Win balances.
+        plat = "LIBERATOR"
     elif plat_raw in ["SETTRADE_OPENAPI", "SETTRADE"]:
         plat = "SETTRADE_OPENAPI"
-    else:
+    elif plat_raw in ["CLICK2WIN", "C2W"]:
         plat = "CLICK2WIN"
+    else:
+        # Anti-Mock + Broker Isolation (RCA-007): an unknown broker name must raise,
+        # never silently fall back to Click2Win (would report wrong-broker data).
+        raise ValueError(
+            f"Unknown trading platform: {platform!r}. "
+            "Expected one of: KRUNGSRI/TRADEMAN, LIBERATOR/LIB, SETTRADE_OPENAPI/SETTRADE, CLICK2WIN/C2W."
+        )
 
     active_type = account_guardrail.normalize_account_type(plat, account_type)
 
@@ -388,6 +399,9 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
 
     elif plat == "KRUNGSRI":
         balances = await trademan_driver.scrape_account_summary() if hasattr(trademan_driver, "scrape_account_summary") else {}
+        # RCA-009: scrape_account_summary returns None (not 0.0) for an unreadable value
+        # and sets authenticated=False when the page is a SignIn/expired session.
+        auth_ok = bool(balances.get("authenticated", True)) if isinstance(balances, dict) else False
         # Anti-Mock (CLI-RCA-003): do NOT fabricate a 500k balance when the scraper
         # returned no value — leave it None so callers can say "อ่านไม่ได้" honestly.
         cash_acc = {
@@ -411,6 +425,7 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
         }
         return {
             "platform": "KRUNGSRI",
+            "authenticated": auth_ok,
             "active_account_type": account_context.krungsri_active.value,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "accounts": [cash_acc, margin_acc]
@@ -431,6 +446,7 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
         }
         return {
             "platform": "LIBERATOR",
+            "authenticated": True,
             "active_account_type": AccountType.CASH.value,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "accounts": [lib_acc]
@@ -457,6 +473,7 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
         }
         return {
             "platform": "SETTRADE_OPENAPI",
+            "authenticated": True,
             "active_account_type": account_context.settrade_active.value,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "accounts": [eq_acc, tfex_acc]

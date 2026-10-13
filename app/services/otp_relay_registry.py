@@ -38,6 +38,7 @@ from typing import Dict, Optional
 from sqlalchemy import select
 
 from app.db.models import SessionLog
+from app.services.redaction import redact_otp_details
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,6 @@ async def record_otp_received(
     except Exception as e:  # pragma: no cover - defensive
         logger.error(f"[OTP RELAY] Could not persist LINE_OTP_RECEIVED row: {e}")
         return False
-    logger.info(f"[OTP RELAY] LINE_OTP_RECEIVED persisted -> {details}")
+    logger.info(f"[OTP RELAY] LINE_OTP_RECEIVED persisted -> {redact_otp_details(details)}")
     return True
 

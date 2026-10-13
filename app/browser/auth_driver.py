@@ -21,6 +21,7 @@ from app.db.session import AsyncSessionLocal
 from app.db.models import SessionLog
 from app.browser.popup_manager import popup_manager
 from app.browser.tab_manager import tab_manager
+from app.services.redaction import redact_otp, redact_url
 from app.schemas.auth import LoginResult, AuthStatus, BrokerPlatform, OTPPayload, OTPSource
 
 logger = logging.getLogger(__name__)
@@ -163,6 +164,32 @@ class KrungsriAuthDriver:
         except Exception:
             return False
 
+    @staticmethod
+    def _url_is_signin(url: Optional[str]) -> bool:
+        """RCA-008: TradeMan redirects a dead session to an auth page whose URL contains
+        'signin' or 'login' (case-insensitive). Either means the session is NOT authenticated."""
+        u = (url or "").lower()
+        return "signin" in u or "login" in u
+
+    async def _account_no_visible(self, page: Optional[Page]) -> bool:
+        """RCA-008: the account dropdown renders the active 7-digit account number at
+        ``#dropDownAccountPort > div.flex.w-full.justify-between > div`` (see runbook
+        trademan_portfolio_dom.md). On a SignIn/expired page the selector is absent or
+        empty, so a merely-visible selector is NOT proof of a live session — require an
+        actual 7-digit account number in the DOM."""
+        if not page:
+            return False
+        try:
+            el = await page.query_selector(
+                "#dropDownAccountPort > div.flex.w-full.justify-between > div"
+            )
+            if not el:
+                return False
+            text = (await el.inner_text()) or ""
+            return bool(re.search(r"\b\d{7}\b", text))
+        except Exception:
+            return False
+
     async def verify_saved_session(self) -> bool:
         """
         Strict DOM Validation:
@@ -177,9 +204,9 @@ class KrungsriAuthDriver:
         if self.page and not self.page.is_closed():
             try:
                 current_url = self.page.url.lower()
-                if "trademan.in.th" in current_url:
+                if "trademan.in.th" in current_url and not self._url_is_signin(current_url):
                     account_el = await self.page.query_selector("#dropDownAccountPort, .account-selector")
-                    if account_el and await account_el.is_visible():
+                    if account_el and await account_el.is_visible() and await self._account_no_visible(self.page):
                         title = await self.page.evaluate("() => document.title")
                         logger.info(f"Active TradeMan tab verified with DOM selector (Title: '{title}'). Reusing session.")
                         self.status = "AUTHENTICATED"
@@ -213,8 +240,13 @@ class KrungsriAuthDriver:
             except Exception:
                 account_selector = None
 
+            # RCA-008: the dropdown can appear briefly before the app redirects an expired
+            # session to /SignIn. Let the page settle, then re-check BOTH the final URL
+            # (not signin/login) AND a real 7-digit account number in the DOM.
+            await self.page.wait_for_timeout(3000)
             current_url = self.page.url.lower()
-            if account_selector and "trademan.in.th" in current_url and "login" not in current_url:
+            account_no_ok = await self._account_no_visible(self.page)
+            if account_selector and "trademan.in.th" in current_url and not self._url_is_signin(current_url) and account_no_ok:
                 self.status = "AUTHENTICATED"
                 self.last_heartbeat = datetime.now(timezone.utc)
                 await popup_manager.dismiss_popups(self.page)
@@ -224,7 +256,10 @@ class KrungsriAuthDriver:
                 await self._log_event("SESSION_RESTORED", f"TradeMan session validated successfully via DOM selector at {current_url}")
                 return True
             else:
-                logger.warning("TradeMan session validation failed: #dropDownAccountPort NOT found in DOM. Session is expired.")
+                logger.warning(
+                    "TradeMan saved-session validation failed (url=%s, account_no_visible=%s). Session expired.",
+                    current_url, account_no_ok,
+                )
                 # Invariant 8 (non-destructive): NEVER hard-delete the saved Zero-OTP
                 # token on a validation miss. Quarantine it instead so the session can
                 # be recovered / re-inspected (mirrors Liberator's *.stale.bak.json).
@@ -463,7 +498,7 @@ class KrungsriAuthDriver:
                         otp_input_sel=otp_input_sel,
                         channel=otp_channel,
                     )
-                    logger.info(f"Received OTP '{otp_val}' from {otp_source}! Submitting to Krungsri...")
+                    logger.info(f"Received OTP '{redact_otp(otp_val)}' from {otp_source}! Submitting to Krungsri...")
                     
                     # Fill OTP if not already typed in browser DOM
                     if otp_source != "browser_dom_manual":
@@ -632,7 +667,7 @@ class KrungsriAuthDriver:
                 try:
                     curr_val = await self.page.input_value(otp_input_sel)
                     if curr_val and len(curr_val.strip()) == 6 and curr_val.strip().isdigit():
-                        logger.info(f"Detected 6-digit OTP already typed in browser DOM: {curr_val[:2]}****")
+                        logger.info(f"Detected 6-digit OTP already typed in browser DOM: {redact_otp(curr_val.strip())}")
                         return curr_val.strip(), "browser_dom_manual"
                 except Exception:
                     pass
@@ -826,7 +861,7 @@ class KrungsriAuthDriver:
                             async with active_page.expect_popup(timeout=8000) as popup_info:
                                 await loc.click()
                             new_page = await popup_info.value
-                            logger.info(f"TradeMan SSO popup opened: {new_page.url}")
+                            logger.info(f"TradeMan SSO popup opened: {redact_url(new_page.url)}")
                             active_page = new_page
                             trademan_clicked = True
                             break

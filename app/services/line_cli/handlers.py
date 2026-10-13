@@ -361,9 +361,10 @@ async def _read_db_positions(db: Any) -> Tuple[List[Dict[str, Any]], Optional[st
     for p in res.scalars().all():
         cost = float(p.avg_cost or 0.0)
         last = float(p.current_price if p.current_price is not None else cost)
-        pnl_pct = ((last - cost) / cost * 100.0) if cost else 0.0
-        rows.append({"symbol": p.symbol, "volume": int(p.volume or 0), "cost": cost,
-                     "last": last, "pnl_pct": pnl_pct})
+        ptype = _position_type(getattr(p, "position_type", None))
+        rows.append({"symbol": p.symbol, "position_type": ptype, "volume": int(p.volume or 0),
+                     "cost": cost, "last": last, "pnl_pct": _holding_pnl_pct(ptype, cost, last),
+                     "unrealized_pnl": None, "market_value": None})
         if p.updated_at and (latest is None or p.updated_at > latest):
             latest = p.updated_at
     rows.sort(key=lambda r: r["volume"] * r["last"], reverse=True)
@@ -401,16 +402,90 @@ async def _read_db_orders(db: Any) -> Tuple[List[Dict[str, Any]], int, int, Opti
     return rows, open_count, len(rows), (latest.isoformat() if latest else None)
 
 
+_POSITION_TYPES = ("LONG", "SHORT", "BORROWED", "UNKNOWN")
+
+
+def _position_type(value: Any) -> str:
+    """Normalise a holding side.
+
+    A **missing** side means a cash-only book (LIBERATOR ``PositionItem`` has no side
+    field) -> LONG. An **explicit** unrecognised value -> UNKNOWN (never guess a sign).
+    """
+    if value is None or str(value).strip() == "":
+        return "LONG"
+    v = str(value).strip().upper()
+    return v if v in _POSITION_TYPES else "UNKNOWN"
+
+
+def _holding_pnl_pct(position_type: str, cost: float, last: float) -> Optional[float]:
+    """RCA-002: %P/L must follow the side — a SHORT gains when the price *falls*.
+
+    Returns ``None`` (= render ``—``) when the sign cannot be known honestly:
+    BORROWED / UNKNOWN side, or no cost base to divide by. Never fabricates ``0.0``.
+    """
+    ptype = (position_type or "LONG").upper()
+    if ptype in ("BORROWED", "UNKNOWN") or not cost:
+        return None
+    if ptype == "SHORT":
+        return (cost - last) / cost * 100.0
+    return (last - cost) / cost * 100.0
+
+
 def _normalise_holdings(holdings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Broker-agnostic holding row — keeps the side plus the page's own P/L columns."""
     out = []
     for h in holdings or []:
         cost = float(h.get("avg_cost", 0.0) or 0.0)
         last = float(h.get("current_price") or h.get("market_price") or cost)
-        pnl_pct = ((last - cost) / cost * 100.0) if cost else 0.0
-        out.append({"symbol": str(h.get("symbol", "")).upper(), "volume": int(h.get("volume", 0) or 0),
-                    "cost": cost, "last": last, "pnl_pct": pnl_pct})
+        ptype = _position_type(h.get("position_type"))
+        unreal = h.get("unrealized_pnl")
+        mval = h.get("market_value")
+        out.append({"symbol": str(h.get("symbol", "")).upper(), "position_type": ptype,
+                    "volume": int(h.get("volume", 0) or 0), "cost": cost, "last": last,
+                    "pnl_pct": _holding_pnl_pct(ptype, cost, last),
+                    "unrealized_pnl": float(unreal) if unreal is not None else None,
+                    "market_value": float(mval) if mval is not None else None})
     out.sort(key=lambda r: r["volume"] * r["last"], reverse=True)
     return out
+
+
+def _portfolio_totals(rows: List[Dict[str, Any]]) -> Tuple[float, float]:
+    """(market value, unrealized P/L) for normalised rows.
+
+    Prefers the page's own ``Unreal``/``Market Value`` columns; falls back to a
+    **side-aware** ``volume x (last - cost)`` (inverted for SHORT) only when the page
+    did not expose them. BORROWED / UNKNOWN rows with no P/L column contribute 0.0 —
+    never a fabricated figure (Anti-Mock).
+    """
+    total = 0.0
+    pnl = 0.0
+    for r in rows:
+        mv = r.get("market_value")
+        total += float(mv) if mv is not None else r["volume"] * r["last"]
+        up = r.get("unrealized_pnl")
+        if up is None:
+            ptype = str(r.get("position_type") or "LONG").upper()
+            if ptype in ("BORROWED", "UNKNOWN"):
+                up = 0.0
+            elif ptype == "SHORT":
+                up = -r["volume"] * (r["last"] - r["cost"])
+            else:
+                up = r["volume"] * (r["last"] - r["cost"])
+        pnl += float(up)
+    return total, pnl
+
+
+#: Display-only labels for raw account-type codes (LIBERATOR reports ``CASH_BALANCE``).
+#: Presentation only — never touches the per-broker balance-value mapping (RCA-011).
+_ACCOUNT_TYPE_LABEL = {
+    "CASH_BALANCE": "Cash Balance", "CASH": "Cash", "MARGIN": "Margin",
+    "EQUITY": "Equity", "DERIVATIVES": "Derivatives",
+}
+
+
+def _account_type_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    return _ACCOUNT_TYPE_LABEL.get(raw.upper(), raw or "CASH")
 
 
 _CAT_KIND = {
@@ -446,14 +521,21 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
     if kind == "port":
         from app.mcp.pillars.pillar2_portfolio import portfolio_holdings
         res = await portfolio_holdings(platform=plat)
+        # RCA-006b: a TradeMan scrape only counts as live when it ran on an authenticated
+        # page AND a verified account — otherwise the card must say "อ่านไม่ได้".
+        account_label = "LIVE"
+        if plat in ("KRUNGSRI", "TRADEMAN"):
+            from app.browser.trademan_driver import trademan_driver
+            if not getattr(trademan_driver, "portfolio_scrape_authenticated", False):
+                return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
+            account_label = getattr(trademan_driver, "active_account_no", None) or "LIVE"
         rows = _normalise_holdings(res.get("holdings", []))
-        total = sum(r["volume"] * r["last"] for r in rows)
-        pnl = sum(r["volume"] * (r["last"] - r["cost"]) for r in rows)
+        total, pnl = _portfolio_totals(rows)
         cost_base = total - pnl
         pnl_pct = (pnl / cost_base * 100.0) if cost_base else 0.0
-        return cards.port_card(broker=BROKER_LABEL[broker], account="LIVE", total_value=total, pnl_value=pnl,
-                               pnl_pct=pnl_pct, rows=rows[:10], overflow=max(0, len(rows) - 10),
-                               snapshot_label=now_label, stale=False, live=True, is_test=is_test)
+        return cards.port_card(broker=BROKER_LABEL[broker], account=account_label, total_value=total, pnl_value=pnl,
+                               pnl_pct=pnl_pct, rows=rows, snapshot_label=now_label,
+                               stale=False, live=True, is_test=is_test)
 
     if kind == "orders":
         from app.mcp.pillars.pillar2_portfolio import current_orders
@@ -479,9 +561,12 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
         rows.append({"label": "กำลังซื้อ / Buying power", "value": f"{float(acc['line_available']):,.2f}"})
     if acc.get("excess_equity") is not None:
         rows.append({"label": "Excess equity", "value": f"{float(acc['excess_equity']):,.2f}"})
-    if not rows:
-        rows.append({"label": "ℹ️", "value": "ไม่พบข้อมูลวงเงินจากโบรกเกอร์"})
-    return cards.cash_card(broker=BROKER_LABEL[broker], account=acc.get("account_type", "CASH"),
+    if res.get("authenticated") is False or not rows:
+        # RCA-009: unauthenticated or every field unreadable -> never render 🟢 live
+        # and never show a fabricated 0.00.
+        return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
+    return cards.cash_card(broker=BROKER_LABEL[broker],
+                           account=_account_type_label(acc.get("account_type")),
                            rows=rows, snapshot_label=now_label, live=True)
 
 
@@ -499,13 +584,11 @@ async def _handle_read(
             if not rows:
                 await service._send_reply(reply_token, _text(f"ℹ️ ยังไม่มี snapshot — ใช้ /port {parsed.broker} sync"))
                 return {"status": "CLI_NO_DATA"}
-            total = sum(r["volume"] * r["last"] for r in rows)
-            pnl = sum(r["volume"] * (r["last"] - r["cost"]) for r in rows)
+            total, pnl = _portfolio_totals(rows)
             base = total - pnl
             card = cards.port_card(broker=label, account="DB snapshot", total_value=total, pnl_value=pnl,
-                                   pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=rows[:10],
-                                   overflow=max(0, len(rows) - 10), snapshot_label=_fmt_hhmm(ts),
-                                   stale=_is_stale(ts), live=False)
+                                   pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=rows,
+                                   snapshot_label=_fmt_hhmm(ts), stale=_is_stale(ts), live=False)
             await service._send_reply(reply_token, card)
             return {"status": "CLI_PORT", "count": len(rows)}
         if kind == "orders":

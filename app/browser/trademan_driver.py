@@ -18,6 +18,151 @@ from app.browser.popup_manager import popup_manager
 
 logger = logging.getLogger(__name__)
 
+
+def _extract_account_no(text: Any) -> Optional[str]:
+    """Extract the first *exactly* 7-digit TradeMan account number from a DOM text blob.
+
+    RCA-006a: the account number is validated against this shape (see
+    ``learned_workflows/krungsri/trademan_portfolio_dom.md``), so a longer/shorter
+    digit run must never be accepted as an account number.
+    """
+    match = re.search(r"(?<!\d)(\d{7})(?!\d)", str(text or ""))
+    return match.group(1) if match else None
+
+
+def _parse_float(cell: Any, default: float = 0.0) -> float:
+    """Parse a Thai-formatted number cell ("1,234.50", "5%", "+3.2") → float."""
+    try:
+        return float(str(cell).replace(",", "").replace("%", "").replace("+", "").strip())
+    except Exception:
+        return default
+
+
+def _parse_int(cell: Any, default: int = 0) -> int:
+    """Parse a Thai-formatted quantity cell ("1,234", "800.0") → int."""
+    try:
+        return int(float(str(cell).replace(",", "").replace("+", "").strip()))
+    except Exception:
+        return default
+
+
+# ---- TradeMan Portfolio table discovery (RCA-006b, probe 2026-10-13) ----
+# The holdings header and body are two *separate* <table> elements. The legacy
+# `table tbody tr` scan also counted the summary/totals table (16 rows, not 15)
+# and could pair the wrong account's rows. Dump the table inventory once, then
+# do all pairing/mapping in Python (unit-testable without a browser).
+_PORTFOLIO_TABLES_JS = r"""() => {
+    const norm = (el) => ((el && el.innerText) || "").replace(/\s+/g, " ").trim();
+    return Array.from(document.querySelectorAll("table")).map((t) => ({
+        headers: Array.from(t.querySelectorAll("thead th")).map(norm),
+        rows: Array.from(t.querySelectorAll("tbody tr"))
+            .map((tr) => Array.from(tr.querySelectorAll("td")).map(norm)),
+        in_scroll: !!(t.parentElement && t.parentElement.classList
+            && t.parentElement.classList.contains("scrollbar-container")),
+        has_thead: !!t.querySelector("thead")
+    }));
+}"""
+
+_HOLDINGS_HEADER_ALIASES = {
+    # TradeMan holdings header (probe): Symbol | On Hand | Sellable | Avg | Last |
+    # Cost | Market Value | Unreal | %Unreal | Real
+    "symbol": ("symbol", "ticker"),
+    "on_hand": ("onhand", "holding", "holdingqty"),
+    "sellable": ("sellable", "available", "availableqty"),
+    "avg_cost": ("avg", "average", "avgcost", "averagecost"),
+    "current_price": ("last", "lastprice", "marketprice"),
+    "cost_value": ("cost", "costvalue", "totalcost"),
+    "market_value": ("marketvalue", "mktvalue"),
+    "unrealized_pnl": ("unreal", "unrealized", "unrealizedpnl", "unrealizedprofit"),
+    "pnl_pct": ("unreal", "unrealpct", "unrealpercent", "pnl", "pnlpercent"),
+}
+
+_HOLDINGS_FIELD_ORDER = (
+    "symbol", "on_hand", "sellable", "avg_cost", "current_price",
+    "cost_value", "market_value", "unrealized_pnl", "pnl_pct",
+)
+
+_HOLDINGS_REQUIRED_FIELDS = ("symbol", "on_hand", "market_value")
+
+# Totals-row / placeholder markers — never reported as holdings (RCA-006b rule f)
+_TOTALS_TOKENS = ("total", "totals", "totalvalue", "sum", "รวม", "ยอดรวม", "มูลค่ารวม")
+
+_PLACEHOLDER_CELL_VALUES = ("", "-", "--", "n/a", "na", "ไม่พบ", "ไม่พบข้อมูล", "nodata")
+
+
+def _hkey(name: Any) -> str:
+    """Normalise a header / cell text for matching: lowercase, alphanumeric only."""
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def _map_holdings_columns(headers: List[str]) -> Dict[str, int]:
+    """Map holdings column *names* (not positions) to indexes — RCA-006b rule e.
+
+    ``Unreal`` and ``%Unreal`` normalise to the same key, so a header containing
+    ``%`` is claimed by ``pnl_pct`` and the plain one by ``unrealized_pnl``.
+    """
+    idx: Dict[str, int] = {}
+    for col, raw_name in enumerate(headers):
+        raw_txt = str(raw_name or "")
+        if "%" in raw_txt and "pnl_pct" not in idx:
+            idx["pnl_pct"] = col
+            continue
+        key = _hkey(raw_txt)
+        if not key:
+            continue
+        for field in _HOLDINGS_FIELD_ORDER:
+            if field in idx:
+                continue
+            if key in _HOLDINGS_HEADER_ALIASES[field]:
+                idx[field] = col
+                break
+    return idx
+
+
+def _is_placeholder_or_totals_row(symbol_raw: str, cells: List[str]) -> bool:
+    """True for totals rows / placeholder rows that must never be counted as holdings."""
+    sym_key = _hkey(symbol_raw)
+    if not sym_key or sym_key in _TOTALS_TOKENS:
+        return True
+    tail = [_hkey(c) for c in cells[1:]]
+    if tail and all((not c) or (c in _PLACEHOLDER_CELL_VALUES) for c in tail):
+        return True
+    return False
+
+
+def _pair_holdings_tables(tables: List[Dict[str, Any]]) -> Optional[Dict[str, Dict[str, Any]]]:
+    """Pair the holdings *header* table with its sibling *body* table — RCA-006b rule d.
+
+    Returns ``{"header": <table carrying thead th>, "body": <table carrying the rows>}``
+    or ``None``. The header table names the columns (0 body rows); the body table is a
+    following table with rows, living in the
+    ``div.overflow-y-auto.scrollbar-container.section`` next to it.
+    """
+    header_pos = None
+    for pos, tbl in enumerate(tables or []):
+        keys = {_hkey(h) for h in (tbl.get("headers") or [])}
+        if all(
+            any(alias in keys for alias in _HOLDINGS_HEADER_ALIASES[field])
+            for field in _HOLDINGS_REQUIRED_FIELDS
+        ):
+            header_pos = pos
+            break
+    if header_pos is None:
+        return None
+
+    following = [
+        t for t in tables[header_pos + 1:]
+        if any(any(c for c in row) for row in (t.get("rows") or []))
+    ]
+    body = next((t for t in following if t.get("in_scroll")), None)
+    if body is None:
+        body = next((t for t in following if not t.get("has_thead")), None)
+    if body is None and following:
+        body = following[0]
+    if body is None:
+        return None
+    return {"header": tables[header_pos], "body": body}
+
 # TradeMan "View Order" side codes -> canonical side.
 # VERIFIED live 2026-10-07 (KSS-RCA-014) against the app's own colour palette
 #   (Ga3w9f6D.js / XNfJS877.js: #D964D7 <-> "Short", #478BCC <-> "Cover",
@@ -138,6 +283,9 @@ class TradeManDriver:
         self.page_override: Optional[Page] = None
         self.active_account_no: str = settings.TRADEMAN_ACCOUNT_NO_MARGIN or "3024959"
         self.active_account_type: str = "MARGIN"
+        # RCA-006b: True only when the last portfolio scrape ran on a verified,
+        # authenticated TradeMan page + account. Callers must not show 🟢 live otherwise.
+        self.portfolio_scrape_authenticated: bool = False
         self.discovered_accounts: List[Dict[str, Any]] = []
 
     @property
@@ -291,16 +439,48 @@ class TradeManDriver:
 
         return self.page
 
+    async def _read_current_account_no(self, page: Any) -> Optional[str]:
+        """Read the account number *currently displayed* in #dropDownAccountPort (RCA-006a).
+
+        Uses the runbook selector
+        ``#dropDownAccountPort > div.flex.w-full.justify-between > div``
+        (``learned_workflows/krungsri/trademan_portfolio_dom.md``).
+
+        Never reads the whole container text: while the dropdown is open that blob
+        contains every account option, which is exactly the "wrong account" bug.
+        Returns None when the number cannot be read — callers must not guess.
+        """
+        selectors = (
+            "#dropDownAccountPort > div.flex.w-full.justify-between > div",
+            "#dropDownAccountPort > div.flex.w-full.justify-between",
+        )
+        for sel in selectors:
+            try:
+                element = await page.query_selector(sel)
+            except Exception:
+                element = None
+            if not element:
+                continue
+            try:
+                text = await element.inner_text()
+            except Exception:
+                continue
+            acc_no = _extract_account_no(text)
+            if acc_no:
+                return acc_no
+        return None
+
     async def switch_account(self, account_type: str) -> Dict[str, Any]:
         """
         Switches between Krungsri CASH and MARGIN (Credit Balance) accounts directly on TradeMan UI.
         
         Steps:
         1. Ensures session is authenticated (login -> OTP -> TradeMan SSO).
-        2. Navigates to Portfolio tab (where Trading A/C selector #dropDownAccountPort lives).
-        3. Clicks #dropDownAccountPort to open the dropdown list.
-        4. Selects target account option (MARGIN: 3024959 or Credit Balance; CASH: Cash Balance).
-        5. Waits for DOM to re-render, extracts updated account number, and updates state.
+        2. Delegates the DOM-level switch to ``_select_account_on_page()`` (RCA-006a), which
+           clicks ``#dropDownAccountPort div.absolute span:text-is("<acc_no>")`` and verifies
+           that the current-account div really shows the target before reporting success.
+        Returns ``success=False`` with status ``ACCOUNT_SWITCH_FAILED`` when the switch cannot
+        be confirmed (Anti-Mock: no fabricated account_no).
         """
         async with self.lock:
             target = account_type.upper().strip()
@@ -328,88 +508,148 @@ class TradeManDriver:
                     "status": "SIMULATED_SWITCH",
                     "message": f"Switched Krungsri account context to {target} (Browser not active)."
                 }
+            return await self._select_account_on_page(page, target)
 
-            # 2. Ensure on Portfolio tab
-            await self.switch_tab("portfolio")
-            await page.wait_for_timeout(1000)
+    async def _select_account_on_page(self, page: Page, target: str) -> Dict[str, Any]:
+        """DOM-level account switch on an ALREADY authenticated TradeMan page (RCA-006a).
+
+        Shared by ``switch_account()`` (which authenticates first) and
+        ``scrape_portfolio()`` (which must never trigger a login/OTP — Invariant 9).
+        The caller is expected to hold ``self.lock``.
+        """
+        # 2. Ensure on Portfolio tab
+        await self.switch_tab("portfolio")
+        await page.wait_for_timeout(1000)
+        await popup_manager.dismiss_popups(page)
+
+        # 3. Locate #dropDownAccountPort
+        account_btn = None
+        try:
+            account_btn = await page.wait_for_selector("#dropDownAccountPort", state="visible", timeout=6000)
+        except Exception:
+            pass
+
+        if not account_btn:
+            logger.warning("Could not find #dropDownAccountPort on TradeMan Portfolio screen.")
+            # RCA-006a: never report a fabricated account number / fake success here.
+            return {
+                "success": False,
+                "status": "ACCOUNT_SWITCH_FAILED",
+                "platform": "KRUNGSRI",
+                "account_type": target,
+                "error": (
+                    "Account dropdown '#dropDownAccountPort' not found on the TradeMan "
+                    "Portfolio screen (session expired or wrong page?)."
+                )
+            }
+
+        # 4. Resolve the configured target account number (7 digits, from settings)
+        raw_target_no = (
+            settings.TRADEMAN_ACCOUNT_NO_MARGIN if target == "MARGIN"
+            else settings.TRADEMAN_ACCOUNT_NO_CASH
+        )
+        expected_acc = _extract_account_no(raw_target_no)
+        if not expected_acc:
+            return {
+                "success": False,
+                "status": "ACCOUNT_SWITCH_FAILED",
+                "platform": "KRUNGSRI",
+                "account_type": target,
+                "error": (
+                    f"No valid 7-digit Krungsri {target} account number configured "
+                    f"(TRADEMAN_ACCOUNT_NO_{'MARGIN' if target == 'MARGIN' else 'CASH'})."
+                )
+            }
+
+        current_acc_no = await self._read_current_account_no(page)
+        logger.info(f"TradeMan Current Account displayed: '{current_acc_no}' | Target: {target} ({expected_acc})")
+
+        # 5. Expand the dropdown and click the exact option span.
+        #    RCA-006a: `.v-list-item:has-text(...)` is STALE (UI is now Nuxt + Tailwind).
+        if current_acc_no != expected_acc:
             await popup_manager.dismiss_popups(page)
-
-            # 3. Locate #dropDownAccountPort
-            account_btn = None
-            try:
-                account_btn = await page.wait_for_selector("#dropDownAccountPort", state="visible", timeout=6000)
-            except Exception:
-                pass
-
-            if not account_btn:
-                logger.warning("Could not find #dropDownAccountPort on TradeMan Portfolio screen.")
-                return {
-                    "success": True,
-                    "platform": "KRUNGSRI",
-                    "account_type": target,
-                    "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN if target == "MARGIN" else "3024959-CASH",
-                    "status": "UPDATED_CONTEXT",
-                    "warning": "Account dropdown '#dropDownAccountPort' not found on current screen."
-                }
-
-            current_acc_text = (await account_btn.inner_text()).strip()
-            logger.info(f"TradeMan Current Account displayed: '{current_acc_text}' | Target: {target}")
-
-            # 4. Click dropdown to expand options
             await account_btn.click()
             await page.wait_for_timeout(800)
 
-            # 5. Select target account option
-            target_acc_no = settings.TRADEMAN_ACCOUNT_NO_MARGIN if target == "MARGIN" else (settings.TRADEMAN_ACCOUNT_NO_CASH or "3024952")
-            target_selectors = [
-                f"span:has-text('{target_acc_no}')",
-                f".v-list-item:has-text('{target_acc_no}')",
-                f"div:has-text('{target_acc_no}')",
-                f"button:has-text('{target_acc_no}')",
-                f":has-text('{target_acc_no}')"
-            ]
-
+            option_sel = f'#dropDownAccountPort div.absolute span:text-is("{expected_acc}")'
+            option_el = None
             try:
-                matched_element = None
-                for sel in target_selectors:
-                    try:
-                        matched_element = await page.wait_for_selector(sel, state="visible", timeout=1500)
-                        if matched_element:
-                            break
-                    except Exception:
-                        continue
+                option_el = await page.wait_for_selector(option_sel, state="visible", timeout=5000)
+            except Exception:
+                option_el = None
 
-                if matched_element:
-                    await matched_element.click()
-                    await page.wait_for_timeout(1500)
-                    logger.info(f"Clicked matched TradeMan account option for {target} ({target_acc_no})")
-                else:
-                    logger.info(f"Target {target} ({target_acc_no}) already selected or dropdown auto-closed.")
-                    await page.keyboard.press("Escape")
-            except Exception as opt_err:
-                logger.warning(f"Notice while navigating TradeMan account dropdown: {opt_err}")
+            if not option_el:
+                logger.warning(f"TradeMan account option '{expected_acc}' not found in the dropdown.")
                 try:
                     await page.keyboard.press("Escape")
                 except Exception:
                     pass
+                return {
+                    "success": False,
+                    "status": "ACCOUNT_SWITCH_FAILED",
+                    "platform": "KRUNGSRI",
+                    "account_type": target,
+                    "expected_account_no": expected_acc,
+                    "current_account_no": current_acc_no,
+                    "error": (
+                        f"Account option '{expected_acc}' is not visible in the "
+                        "#dropDownAccountPort dropdown."
+                    )
+                }
 
-            # 6. Read updated account number from #dropDownAccountPort
-            updated_text = (await account_btn.inner_text()).strip()
-            acc_match = re.search(r'\b(\d{6,8})\b', updated_text)
-            new_acc_no = acc_match.group(1) if acc_match else (settings.TRADEMAN_ACCOUNT_NO_MARGIN if target == "MARGIN" else updated_text)
+            try:
+                await option_el.click()
+            except Exception as click_err:
+                logger.warning(f"Click on TradeMan account option '{expected_acc}' failed: {click_err}")
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                return {
+                    "success": False,
+                    "status": "ACCOUNT_SWITCH_FAILED",
+                    "platform": "KRUNGSRI",
+                    "account_type": target,
+                    "expected_account_no": expected_acc,
+                    "current_account_no": current_acc_no,
+                    "error": f"Click on account option '{expected_acc}' failed: {click_err}"
+                }
 
-            self.active_account_no = new_acc_no
-            self.active_account_type = target
+            await page.wait_for_timeout(1500)
+            logger.info(f"Clicked TradeMan account option for {target} ({expected_acc})")
 
-            logger.info(f"TradeMan account successfully activated: {target} ({new_acc_no})")
+        # 6. Verify the current-account div really shows the target account (Anti-Mock)
+        verified_acc = await self._read_current_account_no(page)
+        if verified_acc != expected_acc:
+            logger.error(
+                f"TradeMan account switch verification failed: expected '{expected_acc}', "
+                f"DOM shows '{verified_acc}'."
+            )
             return {
-                "success": True,
+                "success": False,
+                "status": "ACCOUNT_SWITCH_FAILED",
                 "platform": "KRUNGSRI",
                 "account_type": target,
-                "account_no": new_acc_no,
-                "status": "AUTHENTICATED_AND_SWITCHED",
-                "message": f"Successfully activated Krungsri {target} account ({new_acc_no}) on TradeMan UI."
+                "expected_account_no": expected_acc,
+                "current_account_no": verified_acc,
+                "error": (
+                    f"Account switch not confirmed: expected '{expected_acc}' but the DOM shows "
+                    f"'{verified_acc}'. Refusing to report success (Anti-Mock)."
+                )
             }
+
+        self.active_account_no = expected_acc
+        self.active_account_type = target
+
+        logger.info(f"TradeMan account successfully activated: {target} ({expected_acc})")
+        return {
+            "success": True,
+            "platform": "KRUNGSRI",
+            "account_type": target,
+            "account_no": expected_acc,
+            "status": "AUTHENTICATED_AND_SWITCHED",
+            "message": f"Successfully activated Krungsri {target} account ({expected_acc}) on TradeMan UI."
+        }
 
     # ==========================================
     # 3.1 Portfolio & SBL Scrapers
@@ -418,94 +658,158 @@ class TradeManDriver:
     async def scrape_portfolio(self) -> List[Dict[str, Any]]:
         """
         Scrapes current stock holdings from TradeMan Portfolio tab.
-        Returns list of dicts:
+
+        RCA-006b (Anti-Mock) — never report another account's rows or the totals row:
+        a) the session must be authenticated (RCA-008 check);
+        b) the working account is selected + verified on the live page (RCA-006a logic);
+        c) the Portfolio page is re-loaded even when the URL already contains /Portfolio;
+        d) the holdings table is found by pairing the header table (``thead th`` =
+           Symbol + On Hand + Market Value) with its sibling body table inside
+           ``div.overflow-y-auto.scrollbar-container.section`` — never a global
+           ``table tbody tr`` scan;
+        e) columns are mapped by header *name*, not by position;
+        f) totals rows and placeholder rows are skipped;
+        g) every row carries the ``account_no`` read from the DOM.
+
+        Returns list of dicts (legacy keys + ``account_no``):
         [{
             'raw_symbol': 'CPALL', 'symbol': 'CPALL', 'volume': 800, 'avg_cost': 46.25,
             'current_price': 46.00, 'prior_close_price': 46.00,
             'cost_value': 37000.0, 'market_value': 36800.0,
             'unrealized_pnl': -200.0, 'pnl_pct': -0.54,
-            'position_type': 'LONG'
+            'position_type': 'LONG', 'account_no': '3024959'
         }]
+
+        Returns an empty list when the session is not authenticated or the account cannot
+        be confirmed; callers must then check ``portfolio_scrape_authenticated`` and must
+        not render a 🟢 live badge.
         """
         async with self.lock:
             await self.ensure_browser_ready()
             page = self.page
             if not page:
                 logger.info("TradeManDriver: Browser not connected, returning empty portfolio.")
+                self.portfolio_scrape_authenticated = False
                 return []
 
-            if "Portfolio" not in page.url:
-                logger.info("Navigating to TradeMan Portfolio: https://trademan.in.th/Portfolio ...")
-                await page.goto("https://trademan.in.th/Portfolio", wait_until="domcontentloaded", timeout=20000)
+            # (a) RCA-008: a SignIn / expired page has no holdings — never treat it as data
+            if not await self._is_authenticated_page(page):
+                logger.warning(
+                    "TradeManDriver: portfolio scrape blocked — TradeMan session is not "
+                    f"authenticated (URL: {getattr(page, 'url', '?')}). Returning [] (Anti-Mock)."
+                )
+                self.portfolio_scrape_authenticated = False
+                return []
+
+            # (c) Always re-load the Portfolio page: the SPA keeps the previous account's rows
+            try:
+                await page.goto(
+                    "https://trademan.in.th/Portfolio", wait_until="domcontentloaded", timeout=20000
+                )
                 await page.wait_for_timeout(2000)
+            except Exception as nav_err:
+                logger.warning(f"TradeManDriver: Portfolio reload failed ({nav_err}); using current page.")
 
             # Auto-dismiss any blocking popups/banners via Hybrid AI
             await popup_manager.dismiss_popups(page)
 
+            # (b) Select + verify the account on the ALREADY authenticated page. Deliberately
+            #     not switch_account(): a background scrape must never fire a login/SMS OTP
+            #     (Invariant 9).
+            switch_res = await self._select_account_on_page(
+                page, (self.active_account_type or "MARGIN").upper()
+            )
+            if not switch_res.get("success"):
+                logger.warning(
+                    "TradeManDriver: account selection failed before portfolio scrape: "
+                    f"{switch_res.get('error') or switch_res.get('message')}"
+                )
+                self.portfolio_scrape_authenticated = False
+                return []
+            account_no = switch_res.get("account_no")
+
+
             holdings: List[Dict[str, Any]] = []
+            table_ok = False
             try:
-                # Fast single evaluate call to get all row text in 5ms
-                raw_rows = await page.evaluate('''() => {
-                    const rows = document.querySelectorAll("table tbody tr");
-                    return Array.from(rows).map(r => 
-                        Array.from(r.querySelectorAll("td")).map(td => td.innerText.trim())
-                    ).filter(tds => tds.length >= 8);
-                }''')
+                # Fast single evaluate call to dump the table inventory, pair in Python
+                tables = await page.evaluate(_PORTFOLIO_TABLES_JS) or []
+                pair = _pair_holdings_tables(tables)
+                if not pair:
+                    logger.warning(
+                        "TradeManDriver: holdings header/body table pair not found (needs "
+                        "thead = Symbol + On Hand + Market Value). No holdings reported."
+                    )
+                else:
+                    col_idx = _map_holdings_columns(pair["header"].get("headers") or [])
+                    missing = [f for f in _HOLDINGS_REQUIRED_FIELDS if f not in col_idx]
+                    if missing:
+                        logger.warning(
+                            f"TradeManDriver: holdings table header is missing {missing}; "
+                            "no holdings parsed."
+                        )
+                    else:
+                        table_ok = True
+                        for cells in pair["body"].get("rows") or []:
+                            if len(cells) < 2:
+                                continue
+                            sym_raw = (cells[col_idx["symbol"]] or "").strip()
+                            if _is_placeholder_or_totals_row(sym_raw, cells):
+                                logger.debug(
+                                    f"TradeMan portfolio: skipped totals/placeholder row '{sym_raw}'"
+                                )
+                                continue
 
-                for texts in raw_rows:
-                    sym_raw = texts[0]
-                    if not sym_raw or sym_raw in ["Symbol", "Total"]:
-                        continue
+                            def cell(field: str) -> str:
+                                pos = col_idx.get(field)
+                                if pos is None or pos >= len(cells):
+                                    return ""
+                                return (cells[pos] or "").strip()
 
-                    pos_type = "LONG"
-                    clean_sym = sym_raw
-                    if "(S)" in sym_raw:
-                        pos_type = "SHORT"
-                        clean_sym = sym_raw.replace("(S)", "").strip()
-                    elif "(B)" in sym_raw:
-                        pos_type = "BORROWED"
-                        clean_sym = sym_raw.replace("(B)", "").strip()
+                            # RCA-002: the page marks the side as "(S)"/"(B)" next to the
+                            # symbol. Without a marker the side is genuinely unknown — never
+                            # assume LONG, because that inverts the P/L sign for a short.
+                            pos_type = "UNKNOWN"
+                            clean_sym = sym_raw
+                            if "(S)" in sym_raw:
+                                pos_type = "SHORT"
+                                clean_sym = sym_raw.replace("(S)", "").strip()
+                            elif "(B)" in sym_raw:
+                                pos_type = "BORROWED"
+                                clean_sym = sym_raw.replace("(B)", "").strip()
 
-                    def to_float(v: str) -> float:
-                        try:
-                            return float(v.replace(",", "").replace("%", "").strip())
-                        except:
-                            return 0.0
+                            on_hand = _parse_int(cell("on_hand"))
+                            sellable = _parse_int(cell("sellable"))
+                            current_price = _parse_float(cell("current_price"))
 
-                    def to_int(v: str) -> int:
-                        try:
-                            return int(v.replace(",", "").strip())
-                        except:
-                            return 0
-
-                    on_hand = to_int(texts[1])
-                    sellable = to_int(texts[2])
-                    avg_cost = to_float(texts[3])
-                    current_price = to_float(texts[4])
-                    cost_val = to_float(texts[5])
-                    mkt_val = to_float(texts[6])
-                    unrealized_pnl = to_float(texts[7])
-                    pnl_pct = to_float(texts[8]) if len(texts) > 8 else 0.0
-
-                    holdings.append({
-                        "raw_symbol": sym_raw,
-                        "symbol": clean_sym,
-                        "volume": sellable if sellable > 0 else on_hand,
-                        "on_hand": on_hand,
-                        "sellable": sellable,
-                        "avg_cost": avg_cost,
-                        "current_price": current_price,
-                        "prior_close_price": current_price,
-                        "cost_value": cost_val,
-                        "market_value": mkt_val,
-                        "unrealized_pnl": unrealized_pnl,
-                        "pnl_pct": pnl_pct,
-                        "position_type": pos_type
-                    })
+                            holdings.append({
+                                "raw_symbol": sym_raw,
+                                "symbol": clean_sym,
+                                "volume": sellable if sellable > 0 else on_hand,
+                                "on_hand": on_hand,
+                                "sellable": sellable,
+                                "avg_cost": _parse_float(cell("avg_cost")),
+                                "current_price": current_price,
+                                "prior_close_price": current_price,
+                                "cost_value": _parse_float(cell("cost_value")),
+                                "market_value": _parse_float(cell("market_value")),
+                                "unrealized_pnl": _parse_float(cell("unrealized_pnl")),
+                                "pnl_pct": _parse_float(cell("pnl_pct")),
+                                "position_type": pos_type,
+                                "account_no": account_no,
+                            })
             except Exception as e:
                 logger.error(f"Error scraping portfolio: {e}")
+                self.portfolio_scrape_authenticated = False
+                return []
 
-            logger.info(f"Scraped {len(holdings)} holdings from TradeMan Portfolio.")
+            self.active_account_no = account_no or self.active_account_no
+            # 🟢 live only when the holdings table was actually located and parsed
+            self.portfolio_scrape_authenticated = table_ok
+            logger.info(
+                f"Scraped {len(holdings)} holdings from TradeMan Portfolio "
+                f"(account {self.active_account_no})."
+            )
             return holdings
 
     async def scrape_sbl_lots(self) -> List[Dict[str, Any]]:
@@ -1954,13 +2258,54 @@ class TradeManDriver:
                 "borrowed_qty": volume
             }
 
-    async def scrape_account_summary(self, force_live: bool = False) -> Dict[str, float]:
+    @staticmethod
+    def _unreadable_summary() -> Dict[str, Any]:
+        """RCA-009: honest 'cannot read' marker. Never fabricate 0.0 / 500k as if real."""
+        return {
+            "excess_equity": None,
+            "cash_balance": None,
+            "realized_pnl_today": None,
+            "total_equity": None,
+            "authenticated": False,
+        }
+
+    @staticmethod
+    def _fmt_baht(value: Optional[float]) -> str:
+        """Log-safe money formatter that never raises on None (RCA-009)."""
+        return f"฿{value:,.2f}" if isinstance(value, (int, float)) else "อ่านไม่ได้"
+
+    async def _is_authenticated_page(self, page: Optional[Page]) -> bool:
+        """RCA-008/009: TradeMan is authenticated only when the URL is not a SignIn/login
+        page AND the current-account dropdown renders a real 7-digit account number at
+        ``#dropDownAccountPort > div.flex.w-full.justify-between > div`` (see runbook
+        trademan_portfolio_dom.md)."""
+        if not page:
+            return False
+        try:
+            url = (page.url or "").lower()
+            if "trademan.in.th" not in url or "signin" in url or "login" in url:
+                return False
+            el = await page.query_selector(
+                "#dropDownAccountPort > div.flex.w-full.justify-between > div"
+            )
+            if not el:
+                return False
+            text = (await el.inner_text()) or ""
+            return bool(re.search(r"\b\d{7}\b", text))
+        except Exception:
+            return False
+
+    async def scrape_account_summary(self, force_live: bool = False) -> Dict[str, Any]:
         """
         Scrapes financial account summary from TradeMan platform:
         - Excess Equity (EE)
         - Cash Balance / Line Available / PP
         - Realized PnL Today
         - Total Portfolio Equity
+
+        RCA-009 (Anti-Mock): any value that cannot be read honestly is returned as ``None``
+        (never ``0.0``), and ``authenticated`` is ``False`` when the page is a SignIn/expired
+        session or the summary selectors are missing. Callers must render "อ่านไม่ได้".
         """
         async with self.lock:
             await self.ensure_browser_ready()
@@ -1973,77 +2318,81 @@ class TradeManDriver:
                         "realized_pnl_today": 0.0,
                         "total_equity": 500_000.0
                     }
-                return {
-                    "excess_equity": 0.0,
-                    "cash_balance": 0.0,
-                    "realized_pnl_today": 0.0,
-                    "total_equity": 0.0
-                }
+                # No page at all -> we genuinely cannot read anything (Anti-Mock, RCA-009).
+                logger.warning("scrape_account_summary: no active page -> returning unreadable (None).")
+                return self._unreadable_summary()
 
             await self.switch_tab("portfolio")
             await page.wait_for_timeout(800)
 
-            summary = {
-                "excess_equity": 0.0,
-                "cash_balance": 0.0,
-                "realized_pnl_today": 0.0,
-                "total_equity": 0.0
+            # RCA-009: never scrape a SignIn/expired page and report 0.0 as if it were real.
+            if not await self._is_authenticated_page(page):
+                logger.warning(
+                    "scrape_account_summary: page not authenticated (url=%s, SignIn/session "
+                    "expired) -> returning None for all fields.",
+                    getattr(page, "url", None),
+                )
+                return self._unreadable_summary()
+
+            summary: Dict[str, Any] = {
+                "excess_equity": None,
+                "cash_balance": None,
+                "realized_pnl_today": None,
+                "total_equity": None
             }
+
+            def _to_float(txt: Any) -> Optional[float]:
+                clean = re.sub(r"[^\d.-]", "", str(txt or ""))
+                if not clean or clean in ("-", ".", "-."):
+                    return None
+                try:
+                    return float(clean)
+                except ValueError:
+                    return None
 
             try:
                 # 1. Excess Equity (EE)
                 ee_el = await page.query_selector(".excess-equity, td:has-text('Excess Equity') + td, td:has-text('EE') + td")
                 if ee_el:
-                    txt = await ee_el.inner_text()
-                    clean = re.sub(r'[^\d.-]', '', str(txt))
-                    if clean:
-                        summary["excess_equity"] = float(clean)
+                    summary["excess_equity"] = _to_float(await ee_el.inner_text())
+                else:
+                    logger.warning("scrape_account_summary: EE selector not found -> excess_equity=None")
 
                 # 2. Cash Balance / Line Available / PP
                 cash_el = await page.query_selector(".cash-balance, td:has-text('Line Available') + td, td:has-text('Cash Balance') + td, td:has-text('เงินสดคงเหลือ') + td, td:has-text('PP') + td")
                 if cash_el:
-                    txt = await cash_el.inner_text()
-                    clean = re.sub(r'[^\d.-]', '', str(txt))
-                    if clean:
-                        summary["cash_balance"] = float(clean)
+                    summary["cash_balance"] = _to_float(await cash_el.inner_text())
+                else:
+                    logger.warning("scrape_account_summary: cash selector not found -> cash_balance=None")
 
                 # 3. Realized PnL Today
                 pnl_el = await page.query_selector(".realized-pnl-today, td:has-text('Realized P/L') + td, td:has-text('กำไรที่เกิดขึ้นจริง') + td")
                 if pnl_el:
-                    txt = await pnl_el.inner_text()
-                    clean = re.sub(r'[^\d.-]', '', str(txt))
-                    if clean:
-                        summary["realized_pnl_today"] = float(clean)
+                    summary["realized_pnl_today"] = _to_float(await pnl_el.inner_text())
+                else:
+                    logger.warning("scrape_account_summary: realized PnL selector not found -> realized_pnl_today=None")
 
                 # 4. Total Equity
                 eq_el = await page.query_selector(".total-equity, td:has-text('Total Equity') + td, td:has-text('มูลค่าพอร์ตทั้งหมด') + td")
                 if eq_el:
-                    txt = await eq_el.inner_text()
-                    clean = re.sub(r'[^\d.-]', '', str(txt))
-                    if clean:
-                        summary["total_equity"] = float(clean)
+                    summary["total_equity"] = _to_float(await eq_el.inner_text())
+                else:
+                    logger.warning("scrape_account_summary: total equity selector not found -> total_equity=None")
 
-                # Fallback: regex search on body text if elements not found by selector
-                if summary["excess_equity"] == 0.0 or summary["total_equity"] == 0.0:
-                    raw_body = await page.inner_text("body") if hasattr(page, "inner_text") else ""
-                    body_text = str(raw_body) if isinstance(raw_body, str) else ""
-                    if body_text:
-                        ee_m = re.search(r"Excess Equity\s*[:：]?\s*([\d,]+\.?\d*)", body_text, re.IGNORECASE)
-                        if ee_m:
-                            summary["excess_equity"] = float(ee_m.group(1).replace(",", ""))
-                        eq_m = re.search(r"(?<!Excess\s)(?<!Excess)Equity\s*[:：]?\s*([\d,]+\.?\d*)", body_text, re.IGNORECASE)
-                        if eq_m:
-                            summary["total_equity"] = float(eq_m.group(1).replace(",", ""))
-                        pp_m = re.search(r"(?:Cash Balance|PP)\s*[:：]?\s*([\d,]+\.?\d*)", body_text, re.IGNORECASE)
-                        if pp_m:
-                            summary["cash_balance"] = float(pp_m.group(1).replace(",", ""))
             except Exception as e:
                 logger.error(f"Error scraping account summary: {e}")
 
+            # RCA-009: the old body-text regex "fallback" GUESSED values and could emit a
+            # fabricated figure. It is deliberately REMOVED — a selector miss now stays
+            # None and surfaces honestly to the caller as "อ่านไม่ได้".
+
+            summary["authenticated"] = True
             logger.info(f"Scraped TradeMan Account Summary: {summary}")
             await self._log_event(
                 "SCRAPE_ACCOUNT_SUMMARY",
-                f"Scraped EE: ฿{summary['excess_equity']:,.2f}, Equity: ฿{summary['total_equity']:,.2f}, Cash: ฿{summary['cash_balance']:,.2f}"
+                f"Scraped EE: {self._fmt_baht(summary['excess_equity'])}, "
+                f"Equity: {self._fmt_baht(summary['total_equity'])}, "
+                f"Cash: {self._fmt_baht(summary['cash_balance'])}"
             )
             return summary
 

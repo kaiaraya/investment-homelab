@@ -50,6 +50,7 @@ FULL_SUITE_TARGET = "tests/"
 MODULE_TEST_MAP: Dict[str, List[str]] = {
     # OTP relay / LINE (Gate C/D — LINE-RCA-010)
     "app/services/otp_relay_registry.py": ["tests/test_otp_multibroker_attribution.py"],
+    "app/services/redaction.py": ["tests/test_redaction.py"],
     "app/services/otp_relay_readiness.py": [
         "tests/test_otp_relay_readiness.py",
         "tests/test_otp_channel_authoritative.py",
@@ -132,6 +133,8 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_trademan_view_order_scraper.py",
         "tests/test_pillar2_order_ledger.py",
         "tests/test_trademan_amend_bypass_dryrun.py",
+        "tests/test_sbl_account_driver.py",
+        "tests/test_trademan_portfolio_scraper.py",
     ],
     "app/brokers/krungsri/plugin.py": ["tests/test_broker_registry.py"],
     "app/core/events.py": [

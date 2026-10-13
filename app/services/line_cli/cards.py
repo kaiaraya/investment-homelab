@@ -163,6 +163,36 @@ def status_card(
 # --------------------------------------------------------------------------- #
 # /port
 # --------------------------------------------------------------------------- #
+PORT_ROWS_PER_BUBBLE = 12
+
+
+def _port_header_row() -> Dict[str, Any]:
+    return _row([
+        _cell("หุ้น", MUTED, flex=3, weight="bold"), _cell("จำนวน", MUTED, flex=3, align="end"),
+        _cell("ทุน", MUTED, flex=2, align="end"), _cell("ล่าสุด", MUTED, flex=2, align="end"),
+        _cell("%P/L", MUTED, flex=2, align="end"),
+    ])
+
+
+def _port_row(r: Dict[str, Any]) -> Dict[str, Any]:
+    """One holding line. Side tag ``(S)``/``(B)``; unreadable %P/L renders ``—``."""
+    ptype = str(r.get("position_type") or "LONG").upper()
+    tag = " (S)" if ptype == "SHORT" else (" (B)" if ptype == "BORROWED" else "")
+    pnl_pct = r.get("pnl_pct")
+    if pnl_pct is None:
+        pnl_cell = _cell("—", MUTED, flex=2, align="end")
+    else:
+        pc = float(pnl_pct)
+        pnl_cell = _cell(f"{pc:+.2f}", UP if pc >= 0 else DOWN, flex=2, align="end")
+    return _row([
+        _cell(f"{r.get('symbol', '')}{tag}", FG, flex=3, weight="bold"),
+        _cell(f"{int(r.get('volume', 0)):,}", FG, flex=3, align="end"),
+        _cell(f"{float(r.get('cost', 0.0)):.2f}", FG, flex=2, align="end"),
+        _cell(f"{float(r.get('last', 0.0)):.2f}", FG, flex=2, align="end"),
+        pnl_cell,
+    ])
+
+
 def port_card(
     *,
     broker: str,
@@ -171,45 +201,51 @@ def port_card(
     pnl_value: float,
     pnl_pct: float,
     rows: List[Dict[str, Any]],
-    overflow: int,
     snapshot_label: str,
     stale: bool,
     live: bool,
     is_test: bool = False,
 ) -> Dict[str, Any]:
-    pnl_color = UP if pnl_value >= 0 else DOWN
-    body: List[Dict[str, Any]] = [
-        _kv("มูลค่ารวม", f"{total_value:,.2f}"),
-        _kv("P/L วันนี้", f"{pnl_value:+,.2f} ({pnl_pct:+.2f}%)", pnl_color),
-        {"type": "separator", "margin": "md", "color": "#334155"},
-        _row([
-            _cell("หุ้น", MUTED, flex=3, weight="bold"), _cell("จำนวน", MUTED, flex=3, align="end"),
-            _cell("ทุน", MUTED, flex=2, align="end"), _cell("ล่าสุด", MUTED, flex=2, align="end"),
-            _cell("%P/L", MUTED, flex=2, align="end"),
-        ]),
-    ]
-    for r in rows:
-        pc = float(r.get("pnl_pct", 0.0))
-        body.append(_row([
-            _cell(str(r.get("symbol", "")), FG, flex=3, weight="bold"),
-            _cell(f"{int(r.get('volume', 0)):,}", FG, flex=3, align="end"),
-            _cell(f"{float(r.get('cost', 0.0)):.2f}", FG, flex=2, align="end"),
-            _cell(f"{float(r.get('last', 0.0)):.2f}", FG, flex=2, align="end"),
-            _cell(f"{pc:+.2f}", UP if pc >= 0 else DOWN, flex=2, align="end"),
-        ]))
-    if overflow > 0:
-        body.append(_cell(f"…และอีก {overflow} ตัว", MUTED))
-    body.append({"type": "separator", "margin": "md", "color": "#334155"})
-    ts_color = WARN if stale else (UP if live else MUTED)
-    prefix = "🟢 live " if live else "🕒 snapshot "
-    body.append(_cell(f"{prefix}{snapshot_label}" + ("  ⚠️ ข้อมูลเก่า" if stale else ""), ts_color))
+    """``rows`` = normalised holdings (see ``handlers._normalise_holdings``).
 
+    A long book is paginated ``PORT_ROWS_PER_BUBBLE`` rows per bubble into a LINE
+    carousel (RCA-002 follow-up) — every row is shown, no "และอีก N ตัว" teaser.
+    """
+    pnl_color = UP if pnl_value >= 0 else DOWN
+    rows = rows or []
+    summary: List[Dict[str, Any]] = [
+        _kv("มูลค่ารวม", f"{total_value:,.2f}"),
+        _kv("Unrealized P/L", f"{pnl_value:+,.2f} ({pnl_pct:+.2f}%)", pnl_color),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+    ]
+    header = _port_header_row()
     badge = "TEST" if is_test else None
     footer = [_msg_button(f"🔄 /port {broker} sync", f"/port {broker} sync", color="#0ea5e9"),
               _msg_button(f"📋 /orders {broker}", f"/orders {broker}")]
-    return _flex(f"📊 {broker} พอร์ต มูลค่า {total_value:,.2f}",
-                 _bubble(title=f"📊 {broker.upper()} · {account}", badge=badge, badge_bg=TEST_COLOR,
-                         body=body, footer=footer))
+    ts_color = WARN if stale else (UP if live else MUTED)
+    prefix = "🟢 live " if live else "🕒 snapshot "
+    status = _cell(f"{prefix}{snapshot_label}" + ("  ⚠️ ข้อมูลเก่า" if stale else ""), ts_color)
+
+    pages = [rows[i:i + PORT_ROWS_PER_BUBBLE] for i in range(0, len(rows), PORT_ROWS_PER_BUBBLE)] or [[]]
+    bubbles: List[Dict[str, Any]] = []
+    for idx, page in enumerate(pages):
+        if idx == 0:
+            body: List[Dict[str, Any]] = list(summary) + [header]
+            if not rows:
+                body.append(_cell("ℹ️ ยังไม่มีหุ้นในพอร์ต", MUTED))
+            body.extend(_port_row(r) for r in page)
+            body.append({"type": "separator", "margin": "md", "color": "#334155"})
+            body.append(status)
+            bubbles.append(_bubble(title=f"📊 {broker.upper()} · {account}", badge=badge,
+                                   badge_bg=TEST_COLOR, body=body, footer=footer))
+        else:
+            body = [header] + [_port_row(r) for r in page]
+            bubbles.append(_bubble(title=f"📊 {broker.upper()} · ต่อ {idx + 1}/{len(pages)}", body=body))
+
+    alt = f"📊 {broker} พอร์ต มูลค่า {total_value:,.2f} ({len(rows)} ตัว)"
+    if len(bubbles) == 1:
+        return _flex(alt, bubbles[0])
+    return carousel(bubbles, alt)
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +259,25 @@ def cash_card(*, broker: str, account: str, rows: List[Dict[str, str]], snapshot
     footer = [_msg_button(f"🔄 /cash {broker} sync", f"/cash {broker} sync", color="#0ea5e9")]
     return _flex(f"💰 {broker} เงินคงเหลือ",
                  _bubble(title=f"💰 {broker.upper()} · {account}", body=body, footer=footer))
+
+
+# --------------------------------------------------------------------------- #
+# "อ่านไม่ได้" / session expired (RCA-009, RCA-006b)
+# --------------------------------------------------------------------------- #
+UNAVAILABLE_HINT = "อ่านไม่ได้ / session หมดอายุ"
+
+
+def unavailable_card(*, broker: str, login_cmd: str) -> Dict[str, Any]:
+    """Honest read-failure card — never claims 🟢 live and never shows fabricated numbers."""
+    line = f"⚠️ {UNAVAILABLE_HINT} — {login_cmd}"
+    body: List[Dict[str, Any]] = [
+        _cell(line, WARN, weight="bold"),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell("ตัวเลขจะกลับมาแสดงหลังเข้าสู่ระบบใหม่", MUTED),
+    ]
+    footer = [_msg_button(f"🔐 {login_cmd}", login_cmd, color="#0ea5e9")]
+    return _flex(f"⚠️ {broker} อ่านข้อมูลไม่ได้",
+                 _bubble(title=f"⚠️ {broker.upper()} · อ่านไม่ได้", body=body, footer=footer))
 
 
 # --------------------------------------------------------------------------- #

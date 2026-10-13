@@ -169,6 +169,9 @@ async def test_auth_driver_session_reuse_active_tab():
     mock_page.goto = AsyncMock()
     mock_el = MagicMock()
     mock_el.is_visible = AsyncMock(return_value=True)
+    # RCA-008: the current-account div must carry a real 7-digit account number, otherwise
+    # a page that is about to redirect to /SignIn would be accepted as authenticated.
+    mock_el.inner_text = AsyncMock(return_value="3024959")
     mock_page.query_selector = AsyncMock(return_value=mock_el)
 
     auth_driver.page = mock_page

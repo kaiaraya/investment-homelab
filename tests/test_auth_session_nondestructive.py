@@ -94,3 +94,84 @@ async def test_missing_session_file_returns_false_without_side_effects(isolated_
     assert result is False
     assert not os.path.exists(sess)
     page.goto.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_signin_url_is_rejected_and_quarantined(isolated_auth_driver, monkeypatch):
+    """RCA-008: a session redirected to /SignIn must NOT be reported as authenticated."""
+    sess = isolated_auth_driver
+    _seed_session_file(sess)
+
+    page = MagicMock()
+    page.is_closed = MagicMock(return_value=False)
+    page.url = "https://trademan.in.th/SignIn"
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+    page.wait_for_selector = AsyncMock(return_value=MagicMock(name="account_selector"))
+    monkeypatch.setattr(auth_driver, "_log_event", AsyncMock())
+    auth_driver.page = page
+    auth_driver.context = None
+
+    result = await auth_driver.verify_saved_session()
+
+    assert result is False
+    assert not os.path.exists(sess)
+    assert os.path.exists(f"{sess}.stale.bak.json"), "Dead session must be quarantined, not trusted"
+
+
+@pytest.mark.asyncio
+async def test_dropdown_without_account_number_is_rejected(isolated_auth_driver, monkeypatch):
+    """RCA-008: the dropdown can render (then redirect) before the session dies. A merely
+    visible selector with no 7-digit account number must be treated as NOT authenticated."""
+    sess = isolated_auth_driver
+    _seed_session_file(sess)
+
+    el = MagicMock()
+    el.is_visible = AsyncMock(return_value=True)
+    el.inner_text = AsyncMock(return_value="")
+
+    page = MagicMock()
+    page.is_closed = MagicMock(return_value=False)
+    page.url = "https://trademan.in.th/Portfolio"
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+    page.wait_for_selector = AsyncMock(return_value=el)
+    page.query_selector = AsyncMock(return_value=el)
+    monkeypatch.setattr(auth_driver, "_log_event", AsyncMock())
+    auth_driver.page = page
+    auth_driver.context = None
+
+    result = await auth_driver.verify_saved_session()
+
+    assert result is False
+    assert os.path.exists(f"{sess}.stale.bak.json")
+
+
+@pytest.mark.asyncio
+async def test_valid_session_with_account_number_is_accepted(isolated_auth_driver, monkeypatch):
+    """RCA-008: a live session exposes a real 7-digit account number -> authenticated (True)."""
+    sess = isolated_auth_driver
+    _seed_session_file(sess)
+
+    el = MagicMock()
+    el.is_visible = AsyncMock(return_value=True)
+    el.inner_text = AsyncMock(return_value="3024952")
+
+    page = MagicMock()
+    page.is_closed = MagicMock(return_value=False)
+    page.url = "https://trademan.in.th/Portfolio"
+    page.goto = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+    page.wait_for_selector = AsyncMock(return_value=el)
+    page.query_selector = AsyncMock(return_value=el)
+    page.evaluate = AsyncMock(return_value="TradeMan")
+    monkeypatch.setattr(auth_driver, "_log_event", AsyncMock())
+    auth_driver.page = page
+    auth_driver.context = None
+
+    result = await auth_driver.verify_saved_session()
+
+    assert result is True
+    assert auth_driver.status == "AUTHENTICATED"
+    assert not os.path.exists(f"{sess}.stale.bak.json")
+

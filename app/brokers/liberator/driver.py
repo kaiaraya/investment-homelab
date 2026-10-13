@@ -31,6 +31,7 @@ from app.brokers.liberator.session_health import (
 )
 from app.services.kdeconnect_service import kdeconnect_service
 from app.browser.tab_manager import tab_manager
+from app.services.redaction import redact_otp
 from app.schemas.auth import LoginResult, AuthStatus, BrokerPlatform, OTPSource
 
 logger = logging.getLogger("LiberatorDriver")
@@ -475,7 +476,7 @@ class LiberatorDriver:
                                     if broker_matches(driver_broker, _tag_broker):
                                         captured_otp = _otp_val
                                         captured_source = _src_tag
-                                        logger.info(f"Captured OTP via event_bus ({_src_tag}): {captured_otp[:2]}****")
+                                        logger.info(f"Captured OTP via event_bus ({_src_tag}): {redact_otp(captured_otp)}")
                                         break
                                     logger.info(
                                         f"Ignoring queued OTP tagged for '{_tag_broker}' — this driver is "
@@ -521,7 +522,7 @@ class LiberatorDriver:
                                             captured_source = event_type_to_source(_row.event_type)
                                             logger.info(
                                                 f"Captured OTP via {_row.event_type} (session_logs_db): "
-                                                f"{captured_otp[:2]}****"
+                                                f"{redact_otp(captured_otp)}"
                                             )
                                             break
 
@@ -543,7 +544,7 @@ class LiberatorDriver:
                             if val and len(val.strip()) >= 6 and val.strip().isdigit():
                                 captured_otp = val.strip()
                                 captured_source = "browser_dom_manual"
-                                logger.info(f"Detected OTP filled manually on screen: {captured_otp[:2]}****")
+                                logger.info(f"Detected OTP filled manually on screen: {redact_otp(captured_otp)}")
                                 break
                     except Exception:
                         pass
@@ -562,7 +563,7 @@ class LiberatorDriver:
                     print("\n" + "=" * 75)
                     print(f"🎉 2FA OTP CAPTURED VIA {captured_source}!")
                     print(f" • Expected Ref Code : [Ref: {expected_ref}]")
-                    print(f" • Captured OTP Code : {captured_otp}")
+                    print(f" • Captured OTP Code : {redact_otp(captured_otp)}")
                     print(f" • Safety Hold       : Submitting in 4 seconds (Displayed live on your Chrome)...")
                     print("=" * 75 + "\n")
                     await asyncio.sleep(4.0)
