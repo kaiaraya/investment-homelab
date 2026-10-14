@@ -318,9 +318,14 @@ class KrungsriQuickTradeDriver:
         await page.click("button:has-text('Change Price& Volume')")
         await page.wait_for_timeout(1500)
         price_str = self._fmt_price(new_price)
-        await page.fill("input[name='price']", price_str)
+        for sel in ("input[formcontrolname='price']", "input[name='price']"):
+            try:
+                await page.fill(sel, price_str)
+                break
+            except Exception:
+                continue
         if pin:
-            for sel in ("input[name='pin']", "input[placeholder*='PIN']", "input[placeholder*='Pin']"):
+            for sel in ("input[placeholder='PIN']", "input[type='password']", "input[name='pin']", "input[placeholder*='PIN']", "input[placeholder*='Pin']"):
                 try:
                     await page.fill(sel, pin)
                     break

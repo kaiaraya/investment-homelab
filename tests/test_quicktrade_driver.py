@@ -162,7 +162,8 @@ async def test_fill_amendment_sets_price_and_pin_only():
     page = FakePage()
     price = await d._fill_amendment(page, 29.5, "1234")
     assert price == "29.50"
-    assert page.filled.get("input[name='price']") == "29.50"
+    assert (page.filled.get("input[formcontrolname='price']") == "29.50" or
+            page.filled.get("input[name='price']") == "29.50")
     assert any("pin" in s.lower() for s in page.filled if "pin" in s.lower())
     assert not any("volume" in s.lower() for s in page.filled)
     assert any("Change Price& Volume" in c for c in page.clicks)
