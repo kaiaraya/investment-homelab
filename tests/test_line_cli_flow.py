@@ -856,13 +856,13 @@ def test_account_type_label_maps_raw_codes():
 # CLI-RCA-011 (P2a) — /cash kss binds each figure to the account read off the dropdown
 # --------------------------------------------------------------------------- #
 def _kss_balances(account_type, *, values_bound=True, line_available=None,
-                  excess_equity=None, authenticated=True):
+                  cash_balance=None, excess_equity=None, authenticated=True):
     """``portfolio_get_balances()`` payload for one bound (or unbound) KSS account."""
     return {
         "platform": "KRUNGSRI", "authenticated": authenticated,
         "scraped_account_no": "3024959" if values_bound else None,
         "accounts": [{"account_type": account_type, "values_bound": values_bound,
-                      "line_available": line_available, "cash_balance": None,
+                      "line_available": line_available, "cash_balance": cash_balance,
                       "excess_equity": excess_equity, "is_active": True}],
     }
 
@@ -912,6 +912,40 @@ async def test_live_cash_card_kss_cash_has_no_ee_row(monkeypatch):
     assert "42,000.00" in text
     assert "Excess Equity" not in text
     assert "Margin" not in text
+    assert "Cash balance" not in text      # P2b: the CASH account exposes no such row
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_kss_margin_shows_cash_balance_when_readable(monkeypatch):
+    """CLI-RCA-011 (P2b): a readable Account Info "Cash Balance" gets its own row.
+
+    It must be a distinct figure from Line Available (PP) — conflating the two was the
+    original CLI-RCA-011 bug.
+    """
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
+        "MARGIN", line_available=250_000.0, cash_balance=88_000.0, excess_equity=900_000.0)))
+
+    text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
+
+    assert "Line Available" in text and "250,000.00" in text
+    assert "Excess Equity" in text and "900,000.00" in text
+    assert "Cash balance" in text and "88,000.00" in text
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_kss_omits_cash_balance_when_unreadable(monkeypatch):
+    """CLI-RCA-011 (P2b): no "Cash balance" row unless the driver read a value (Anti-Mock)."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
+        "CASH", line_available=42_000.0, cash_balance=None)))
+
+    text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
+
+    assert "Line Available" in text and "42,000.00" in text
+    assert "Cash balance" not in text
 
 
 @pytest.mark.asyncio

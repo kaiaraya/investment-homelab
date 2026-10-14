@@ -622,6 +622,12 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
             ee = acc.get("excess_equity")
             rows.append({"label": "Excess Equity",
                          "value": f"{float(ee):,.2f}" if ee is not None else "—"})
+        # CLI-RCA-011 (P2b): the honest Account Info "Cash Balance" row — rendered only when
+        # the driver actually read it (Anti-Mock: never a fabricated 0.00). The CASH account
+        # exposes no such row, so it legitimately stays hidden there.
+        cash_balance = acc.get("cash_balance")
+        if cash_balance is not None:
+            rows.append({"label": "Cash balance", "value": f"{float(cash_balance):,.2f}"})
         return cards.cash_card(broker=BROKER_LABEL[broker],
                                account=_account_type_label(acc.get("account_type")),
                                rows=rows, snapshot_label=now_label, live=True)

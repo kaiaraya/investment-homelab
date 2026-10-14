@@ -28,9 +28,13 @@ async def test_scrape_account_summary_dry_run():
             with patch.object(type(trademan_driver), "page", new_callable=PropertyMock, return_value=None):
                 summary = await trademan_driver.scrape_account_summary()
     assert "excess_equity" in summary
+    assert "line_available" in summary
     assert "cash_balance" in summary
+    assert "real_cash_balance" in summary
+    assert "credit_line" in summary
     assert "realized_pnl_today" in summary
     assert summary["excess_equity"] == 500_000.0
+    assert summary["line_available"] == 500_000.0
     assert summary["cash_balance"] == 500_000.0
     assert summary["realized_pnl_today"] == 0.0
 
@@ -38,22 +42,31 @@ async def test_scrape_account_summary_dry_run():
 @pytest.mark.asyncio
 async def test_scrape_account_summary_live_dom():
     """
-    Verifies that scrape_account_summary() correctly queries and parses
-    DOM text values in Live mode.
+    Verifies that scrape_account_summary() correctly queries and parses the TradeMan
+    DOM (CLI-RCA-011 P2b selectors) in Live mode.
     """
     mock_page = AsyncMock()
     
     mock_page.url = "https://trademan.in.th/Portfolio"
 
-    # Mock query selectors for EE, Cash, and Realized PnL
+    # One element per summary field so the test proves each selector maps to the right value.
     mock_ee = AsyncMock()
     mock_ee.inner_text.return_value = "฿ 452,150.00"
-    
-    mock_cash = AsyncMock()
-    mock_cash.inner_text.return_value = "฿ 120,500.00"
+
+    mock_line = AsyncMock()
+    mock_line.inner_text.return_value = "฿ 120,500.00"
+
+    mock_real_cash = AsyncMock()
+    mock_real_cash.inner_text.return_value = "฿ 88,000.00"
+
+    mock_credit = AsyncMock()
+    mock_credit.inner_text.return_value = "฿ 1,000,000.00"
 
     mock_pnl = AsyncMock()
     mock_pnl.inner_text.return_value = "+ 3,450.50"
+
+    mock_equity = AsyncMock()
+    mock_equity.inner_text.return_value = "฿ 1,234,567.00"
 
     # RCA-009: the authenticated marker = the account div renders a 7-digit account number.
     mock_acc = AsyncMock()
@@ -62,12 +75,18 @@ async def test_scrape_account_summary_live_dom():
     async def mock_query_selector(selector):
         if "dropDownAccountPort" in selector:
             return mock_acc
-        if "excess-equity" in selector or "Excess Equity" in selector:
+        if "Excess Equity" in selector:
             return mock_ee
-        if "cash-balance" in selector or "Cash Balance" in selector or "Line Available" in selector:
-            return mock_cash
-        if "realized-pnl-today" in selector or "Realized P/L" in selector:
+        if ":has-text('PP')" in selector or "Buy Limit" in selector:
+            return mock_line
+        if "Cash Balance" in selector:
+            return mock_real_cash
+        if "Credit Line" in selector:
+            return mock_credit
+        if "Realized P/L" in selector:
             return mock_pnl
+        if ":has-text('Equity')" in selector:
+            return mock_equity
         return None
 
     mock_page.query_selector.side_effect = mock_query_selector
@@ -80,7 +99,13 @@ async def test_scrape_account_summary_live_dom():
                         summary = await trademan_driver.scrape_account_summary()
                         mock_tab.assert_awaited_with("portfolio")
                         assert summary["excess_equity"] == 452150.00
+                        assert summary["line_available"] == 120500.00
+                        # CLI-RCA-011 (P2b): ``cash_balance`` stays for the 5 legacy callers
+                        # and mirrors Line Available; the honest cash figure is its own key.
                         assert summary["cash_balance"] == 120500.00
+                        assert summary["real_cash_balance"] == 88000.00
+                        assert summary["credit_line"] == 1000000.00
+                        assert summary["total_equity"] == 1234567.00
                         assert summary["realized_pnl_today"] == 3450.50
                         assert summary["authenticated"] is True
                         # CLI-RCA-011 (P2a): the account number comes from the dropdown DOM.
@@ -130,7 +155,10 @@ async def test_scrape_account_summary_signin_page_returns_none():
                         summary = await trademan_driver.scrape_account_summary()
                         assert summary["authenticated"] is False
                         assert summary["excess_equity"] is None
+                        assert summary["line_available"] is None      # CLI-RCA-011 (P2b)
                         assert summary["cash_balance"] is None
+                        assert summary["real_cash_balance"] is None   # CLI-RCA-011 (P2b)
+                        assert summary["credit_line"] is None         # CLI-RCA-011 (P2b)
                         assert summary["realized_pnl_today"] is None
                         assert summary["total_equity"] is None
                         assert summary["account_no"] is None      # CLI-RCA-011 (P2a)
@@ -161,7 +189,10 @@ async def test_scrape_account_summary_missing_selectors_returns_none():
                         summary = await trademan_driver.scrape_account_summary()
                         assert summary["authenticated"] is True
                         assert summary["excess_equity"] is None
+                        assert summary["line_available"] is None      # CLI-RCA-011 (P2b)
                         assert summary["cash_balance"] is None
+                        assert summary["real_cash_balance"] is None   # CLI-RCA-011 (P2b)
+                        assert summary["credit_line"] is None         # CLI-RCA-011 (P2b)
                         assert summary["total_equity"] is None
                         assert summary["account_no"] == "3024952"   # CLI-RCA-011 (P2a)
 
@@ -175,7 +206,113 @@ async def test_scrape_account_summary_no_page_returns_none_not_zero():
                 summary = await trademan_driver.scrape_account_summary()
                 assert summary["authenticated"] is False
                 assert summary["excess_equity"] is None
+                assert summary["line_available"] is None      # CLI-RCA-011 (P2b)
                 assert summary["cash_balance"] is None
+                assert summary["real_cash_balance"] is None   # CLI-RCA-011 (P2b)
+                assert summary["credit_line"] is None         # CLI-RCA-011 (P2b)
+
+
+# Structure taken from learned_workflows/krungsri/trademan_portfolio_dom.md (probe 2026-10-14):
+# a bottom ``div.bg-darkGray`` bar plus the Account Info table. Note that the MARGIN bar lists
+# "Excess Equity" *before* "Equity" — the exact layout where a bare ``:has-text('Equity')``
+# would mis-read the Excess Equity figure as the total equity.
+_ACCOUNT_SUMMARY_HTML = """<html><body>
+  <div class="flex bg-darkGray">
+    <div class="text-center h-full"><div class="m-auto">
+      <div class="text-textGrayColor text-xs">Excess Equity</div>
+      <div class="text-sm font-semibold">452,150.00</div>
+    </div></div>
+    <div class="text-center h-full"><div class="m-auto">
+      <div class="text-textGrayColor text-xs">PP</div>
+      <div class="text-sm font-semibold">120,500.00</div>
+    </div></div>
+    <div class="text-center h-full"><div class="m-auto">
+      <div class="text-textGrayColor text-xs">Equity</div>
+      <div class="text-sm font-semibold">1,234,567.00</div>
+    </div></div>
+  </div>
+  <table class="w-full"><tbody>
+    <tr><td class="text-textGrayColor justify-between"><div>Account Type</div><div>:</div></td>
+        <td class="text-left">Credit Balance</td></tr>
+    <tr><td class="text-textGrayColor justify-between"><div>Excess Equity</div><div>:</div></td>
+        <td class="text-left">452,150.00</td></tr>
+    <tr><td class="text-textGrayColor justify-between"><div>PP</div><div>:</div></td>
+        <td class="text-left">120,500.00</td></tr>
+    <tr><td class="text-textGrayColor justify-between"><div>Credit Line</div><div>:</div></td>
+        <td class="text-left">1,000,000.00</td></tr>
+    <tr><td class="text-textGrayColor justify-between"><div>Cash Balance</div><div>:</div></td>
+        <td class="text-left">88,000.00</td></tr>
+    <tr><td class="text-textGrayColor justify-between"><div>Equity</div><div>:</div></td>
+        <td class="text-left">1,234,567.00</td></tr>
+  </tbody></table>
+</body></html>"""
+
+
+def _find_local_chromium():
+    """Fallback to any chromium build already present in the ms-playwright cache."""
+    import glob
+    import os
+
+    patterns = (
+        "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell",
+        "chromium-*/chrome-linux/chrome",
+    )
+    root = os.path.expanduser("~/.cache/ms-playwright")
+    for pattern in patterns:
+        hits = sorted(glob.glob(os.path.join(root, pattern)), reverse=True)
+        if hits:
+            return hits[0]
+    return None
+
+
+@pytest.mark.asyncio
+async def test_scrape_account_summary_reads_real_dom_selectors():
+    """CLI-RCA-011 (P2b): render the probed DOM and prove every selector maps correctly.
+
+    The MARGIN bottom bar lists "Excess Equity" before "Equity", so ``:has-text('Equity')``
+    alone would return the Excess Equity figure as the total equity. The production selector
+    must exclude "Excess" — this test is the regression guard for that collision.
+    """
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as pw:
+        try:
+            browser = await pw.chromium.launch(headless=True)
+        except Exception as exc:  # this env's ms-playwright build != the driver's revision
+            exe = _find_local_chromium()
+            if not exe:
+                pytest.skip(f"Playwright chromium unavailable: {exc}")
+            try:
+                browser = await pw.chromium.launch(headless=True, executable_path=exe)
+            except Exception as exc2:
+                pytest.skip(f"Playwright chromium unavailable: {exc} / fallback {exe}: {exc2}")
+        try:
+            page = await browser.new_page()
+            await page.set_content(_ACCOUNT_SUMMARY_HTML)
+            with patch.object(settings, "DRY_RUN_MODE", False):
+                with patch.object(type(trademan_driver), "page",
+                                  new_callable=PropertyMock, return_value=page):
+                    with patch.object(trademan_driver, "ensure_browser_ready", new_callable=AsyncMock):
+                        with patch.object(trademan_driver, "switch_tab", new_callable=AsyncMock):
+                            with patch.object(trademan_driver, "_is_authenticated_page",
+                                              new_callable=AsyncMock, return_value=True):
+                                with patch.object(trademan_driver, "_log_event", new_callable=AsyncMock):
+                                    summary = await trademan_driver.scrape_account_summary()
+            # the table-only fallback selector must also skip the "Excess Equity" row
+            table_eq = await page.query_selector(
+                "tr:has-text('Equity'):not(:has-text('Excess')) > td:nth-of-type(2)")
+            table_eq_text = await table_eq.inner_text() if table_eq is not None else None
+        finally:
+            await browser.close()
+
+    assert summary["excess_equity"] == 452150.00        # bottom bar col 1
+    assert summary["line_available"] == 120500.00       # PP (MARGIN bottom bar col 2)
+    assert summary["cash_balance"] == 120500.00         # legacy mirror of Line Available
+    assert summary["real_cash_balance"] == 88000.00     # Account Info table row
+    assert summary["credit_line"] == 1000000.00         # Account Info table row
+    assert summary["total_equity"] == 1234567.00        # Equity, NOT the earlier Excess Equity
+    assert table_eq_text is not None and "1,234,567.00" in table_eq_text
 
 
 @pytest.mark.asyncio

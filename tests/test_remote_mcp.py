@@ -301,11 +301,11 @@ async def test_pillar2_portfolio_risk():
 
 @pytest.mark.asyncio
 async def test_pillar2_kss_balances_bind_only_to_scraped_account():
-    """CLI-RCA-011 (P2a): scraped figures attach ONLY to the account whose number was read.
+    """CLI-RCA-011 (P2a/P2b): scraped figures attach ONLY to the account whose number was read.
 
     (a) the dropdown read the MARGIN account -> MARGIN carries the values and CASH is all-None.
-    (c) the driver key ``cash_balance`` is really Line Available (selector order), so no
-        account may ever expose a ``cash_balance`` figure.
+    (c) P2b: the driver reads the real DOM, so ``cash_balance`` is now the honest Account Info
+        "Cash Balance" row (``real_cash_balance``) while ``line_available`` keeps its own key.
     """
     from app.core.config import settings
 
@@ -313,8 +313,12 @@ async def test_pillar2_kss_balances_bind_only_to_scraped_account():
     with patch("app.browser.trademan_driver.trademan_driver.scrape_account_summary", new_callable=AsyncMock) as m_sum:
         m_sum.return_value = {
             "account_no": margin_no,
-            "cash_balance": 250_000.0,      # really Line Available (CLI-RCA-011)
+            "line_available": 250_000.0,
+            "cash_balance": 250_000.0,          # legacy mirror of Line Available
+            "real_cash_balance": 88_000.0,      # honest "Cash Balance" table row (P2b)
+            "credit_line": 1_000_000.0,
             "excess_equity": 900_000.0,
+            "total_equity": 1_234_567.0,
             "authenticated": True,
         }
         res = await portfolio_get_balances(platform="KRUNGSRI")
@@ -327,9 +331,11 @@ async def test_pillar2_kss_balances_bind_only_to_scraped_account():
     # (a) values live ONLY under MARGIN
     assert margin["line_available"] == 250_000.0
     assert margin["excess_equity"] == 900_000.0
+    assert margin["cash_balance"] == 88_000.0         # P2b: honest cash row, not Line Available
+    assert margin["credit_line"] == 1_000_000.0
+    assert margin["total_equity"] == 1_234_567.0
     assert cash["line_available"] is None and cash["excess_equity"] is None
-    # (c) driver ``cash_balance`` is Line Available -> never surfaced as a cash balance
-    assert all(a["cash_balance"] is None for a in res["accounts"])
+    assert cash["cash_balance"] is None and cash["credit_line"] is None
 
 
 @pytest.mark.asyncio
@@ -337,8 +343,11 @@ async def test_pillar2_kss_balances_unbound_when_account_no_missing():
     """(b) an unreadable/absent account number binds NONE of the values (Anti-Mock)."""
     with patch("app.browser.trademan_driver.trademan_driver.scrape_account_summary", new_callable=AsyncMock) as m_sum:
         m_sum.return_value = {          # no ``account_no`` -> nothing may be bound
-            "cash_balance": 250_000.0,
+            "line_available": 250_000.0,
+            "real_cash_balance": 88_000.0,
             "excess_equity": 900_000.0,
+            "credit_line": 1_000_000.0,
+            "total_equity": 1_234_567.0,
             "authenticated": True,
         }
         res = await portfolio_get_balances(platform="KRUNGSRI")
@@ -350,6 +359,8 @@ async def test_pillar2_kss_balances_unbound_when_account_no_missing():
         assert acc["line_available"] is None
         assert acc["cash_balance"] is None
         assert acc["excess_equity"] is None
+        assert acc["credit_line"] is None
+        assert acc["total_equity"] is None
 
 
 # ==============================================================================
@@ -514,7 +525,8 @@ async def test_multi_account_capability_guardrails():
 
     # 6. Balances inspection multi-account verification
     with patch("app.browser.trademan_driver.trademan_driver.scrape_account_summary", new_callable=AsyncMock) as m_sum:
-        m_sum.return_value = {"cash_balance": 500_000.0, "excess_equity": 500_000.0}
+        m_sum.return_value = {"line_available": 500_000.0, "real_cash_balance": 500_000.0,
+                              "excess_equity": 500_000.0}
         bal_res = await portfolio_get_balances(platform="KRUNGSRI")
     assert len(bal_res["accounts"]) == 2
     acc_types = [a["account_type"] for a in bal_res["accounts"]]

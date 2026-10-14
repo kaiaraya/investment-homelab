@@ -427,10 +427,16 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
         def _bind(acc: Dict[str, Any]) -> Dict[str, Any]:
             bound = scraped_no is not None and str(scraped_no) == str(acc["account_no"])
             acc["values_bound"] = bound
-            # Driver key ``cash_balance`` is really Line Available (selector order, CLI-RCA-011).
-            acc["line_available"] = balances.get("cash_balance") if bound else None
-            acc["cash_balance"] = None          # not scraped honestly yet -> P2b
+            # CLI-RCA-011 (P2b): the driver now reads the REAL TradeMan DOM, so each key maps
+            # 1:1 onto a scraped figure. ``line_available`` keeps the legacy ``cash_balance``
+            # key as a fallback (it always mirrored Line Available before P2b), while
+            # ``cash_balance`` is now the honest Account Info "Cash Balance" row.
+            fallback_line = balances.get("line_available") or balances.get("cash_balance")
+            acc["line_available"] = fallback_line if bound else None
+            acc["cash_balance"] = balances.get("real_cash_balance") if bound else None
             acc["excess_equity"] = balances.get("excess_equity") if bound else None
+            acc["credit_line"] = balances.get("credit_line") if bound else None
+            acc["total_equity"] = balances.get("total_equity") if bound else None
             return acc
 
         cash_acc, margin_acc = _bind(cash_acc), _bind(margin_acc)

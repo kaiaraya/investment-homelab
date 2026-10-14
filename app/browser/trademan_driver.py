@@ -2352,7 +2352,10 @@ class TradeManDriver:
         """RCA-009: honest 'cannot read' marker. Never fabricate 0.0 / 500k as if real."""
         return {
             "excess_equity": None,
+            "line_available": None,
             "cash_balance": None,
+            "real_cash_balance": None,
+            "credit_line": None,
             "realized_pnl_today": None,
             "total_equity": None,
             "account_no": None,
@@ -2389,7 +2392,9 @@ class TradeManDriver:
         """
         Scrapes financial account summary from TradeMan platform:
         - Excess Equity (EE)
-        - Cash Balance / Line Available / PP
+        - Line Available (PP for MARGIN / Buy Limit for CASH)
+        - Real Cash Balance (Account Info table row)
+        - Credit Line
         - Realized PnL Today
         - Total Portfolio Equity
 
@@ -2404,9 +2409,12 @@ class TradeManDriver:
                 if settings.DRY_RUN_MODE and not force_live:
                     return {
                         "excess_equity": 500_000.0,
+                        "line_available": 500_000.0,
                         "cash_balance": 500_000.0,
+                        "real_cash_balance": 500_000.0,
+                        "credit_line": None,
                         "realized_pnl_today": 0.0,
-                        "total_equity": 500_000.0
+                        "total_equity": 500_000.0,
                     }
                 # No page at all -> we genuinely cannot read anything (Anti-Mock, RCA-009).
                 logger.warning("scrape_account_summary: no active page -> returning unreadable (None).")
@@ -2426,7 +2434,12 @@ class TradeManDriver:
 
             summary: Dict[str, Any] = {
                 "excess_equity": None,
+                "line_available": None,
+                # ``cash_balance`` is kept for the 5 legacy callers and mirrors
+                # ``line_available`` (assigned after the scrape below).
                 "cash_balance": None,
+                "real_cash_balance": None,
+                "credit_line": None,
                 "realized_pnl_today": None,
                 "total_equity": None,
                 "account_no": None,
@@ -2446,32 +2459,73 @@ class TradeManDriver:
                     return None
 
             try:
-                # 1. Excess Equity (EE)
-                ee_el = await page.query_selector(".excess-equity, td:has-text('Excess Equity') + td, td:has-text('EE') + td")
+                # CLI-RCA-011 (P2b): selectors now target the REAL TradeMan DOM probed on
+                # 2026-10-14 (see learned_workflows/krungsri/trademan_portfolio_dom.md). The old
+                # ``td:has-text(...) + td`` sibling selector missed because the label/value live
+                # inside nested <div>s of the bottom ``div.bg-darkGray`` bar and the Account Info
+                # table (``tr`` label in td:nth-of-type(1), value in td:nth-of-type(2)).
+
+                # 1. Excess Equity (EE) — bottom bar col 1 (MARGIN) else Account Info table.
+                ee_el = await page.query_selector(
+                    "div.bg-darkGray div.text-center:has-text('Excess Equity') div.font-semibold, "
+                    "div.bg-darkGray div.text-center:has-text('Excess Equity') div.text-sm, "
+                    "tr:has-text('Excess Equity') > td:nth-of-type(2)"
+                )
                 if ee_el:
                     summary["excess_equity"] = _to_float(await ee_el.inner_text())
                 else:
                     logger.warning("scrape_account_summary: EE selector not found -> excess_equity=None")
 
-                # 2. Cash Balance / Line Available / PP
-                # CLI-RCA-011: selector ORDER matters — ``Line Available`` is tried first, so
-                # the returned ``cash_balance`` value is really **Line Available** on TradeMan.
-                # Do NOT rename the key (5 other callers) nor reorder (selectors = P2b).
-                cash_el = await page.query_selector(".cash-balance, td:has-text('Line Available') + td, td:has-text('Cash Balance') + td, td:has-text('เงินสดคงเหลือ') + td, td:has-text('PP') + td")
-                if cash_el:
-                    summary["cash_balance"] = _to_float(await cash_el.inner_text())
+                # 2. Line Available = PP (MARGIN) / Buy Limit (CASH) / Line Available.
+                line_el = await page.query_selector(
+                    "div.bg-darkGray div.text-center:has-text('PP') div.font-semibold, "
+                    "div.bg-darkGray div.text-center:has-text('Buy Limit') div.font-semibold, "
+                    "div.bg-darkGray div.text-center:has-text('PP') div.text-sm, "
+                    "div.bg-darkGray div.text-center:has-text('Buy Limit') div.text-sm, "
+                    "tr:has-text('PP') > td:nth-of-type(2), "
+                    "tr:has-text('Buy Limit') > td:nth-of-type(2), "
+                    "tr:has-text('Line Available') > td:nth-of-type(2)"
+                )
+                if line_el:
+                    summary["line_available"] = _to_float(await line_el.inner_text())
                 else:
-                    logger.warning("scrape_account_summary: cash selector not found -> cash_balance=None")
+                    logger.warning("scrape_account_summary: line available selector not found -> line_available=None")
 
-                # 3. Realized PnL Today
+                # 3. Real Cash Balance — Account Info table row (MARGIN exposes it).
+                real_cash_el = await page.query_selector(
+                    "tr:has-text('Cash Balance') > td:nth-of-type(2)"
+                )
+                if real_cash_el:
+                    summary["real_cash_balance"] = _to_float(await real_cash_el.inner_text())
+                else:
+                    logger.warning("scrape_account_summary: real cash balance selector not found -> real_cash_balance=None")
+
+                # 4. Credit Line — bottom bar col 1 (CASH) else Account Info table.
+                credit_el = await page.query_selector(
+                    "div.bg-darkGray div.text-center:has-text('Credit Line') div.font-semibold, "
+                    "div.bg-darkGray div.text-center:has-text('Credit Line') div.text-sm, "
+                    "tr:has-text('Credit Line') > td:nth-of-type(2)"
+                )
+                if credit_el:
+                    summary["credit_line"] = _to_float(await credit_el.inner_text())
+                else:
+                    logger.warning("scrape_account_summary: credit line selector not found -> credit_line=None")
+
+                # 5. Realized PnL Today
                 pnl_el = await page.query_selector(".realized-pnl-today, td:has-text('Realized P/L') + td, td:has-text('กำไรที่เกิดขึ้นจริง') + td")
                 if pnl_el:
                     summary["realized_pnl_today"] = _to_float(await pnl_el.inner_text())
                 else:
                     logger.warning("scrape_account_summary: realized PnL selector not found -> realized_pnl_today=None")
 
-                # 4. Total Equity
-                eq_el = await page.query_selector(".total-equity, td:has-text('Total Equity') + td, td:has-text('มูลค่าพอร์ตทั้งหมด') + td")
+                # 6. Total Equity — bottom bar col 3 / Account Info table. The label is matched
+                # EXACTLY: ``:has-text('Equity')`` alone also matches the "Excess Equity"
+                # column/row (substring), which would return EE as the total equity.
+                eq_el = await page.query_selector(
+                    "div.bg-darkGray div.text-center:has-text('Equity'):not(:has-text('Excess')) div.font-semibold, "
+                    "div.bg-darkGray div.text-center:has-text('Equity'):not(:has-text('Excess')) div.text-sm, "
+                    "tr:has-text('Equity'):not(:has-text('Excess')) > td:nth-of-type(2)"
+                )
                 if eq_el:
                     summary["total_equity"] = _to_float(await eq_el.inner_text())
                 else:
@@ -2479,6 +2533,11 @@ class TradeManDriver:
 
             except Exception as e:
                 logger.error(f"Error scraping account summary: {e}")
+
+            # Backward compatibility (5 legacy callers read ``cash_balance``): on TradeMan the
+            # key has always really held Line Available, so keep that contract. The honest cash
+            # figure now lives in ``real_cash_balance``.
+            summary["cash_balance"] = summary["line_available"]
 
             # RCA-009: the old body-text regex "fallback" GUESSED values and could emit a
             # fabricated figure. It is deliberately REMOVED — a selector miss now stays
@@ -2490,7 +2549,8 @@ class TradeManDriver:
                 "SCRAPE_ACCOUNT_SUMMARY",
                 f"Scraped EE: {self._fmt_baht(summary['excess_equity'])}, "
                 f"Equity: {self._fmt_baht(summary['total_equity'])}, "
-                f"Cash: {self._fmt_baht(summary['cash_balance'])}"
+                f"Line Available: {self._fmt_baht(summary['line_available'])}, "
+                f"Real Cash: {self._fmt_baht(summary['real_cash_balance'])}"
             )
             return summary
 

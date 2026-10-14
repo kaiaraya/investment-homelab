@@ -121,23 +121,83 @@ this DOM: 15 rows; the legacy scan returns 16).
   absent → `None` / stale cleared / class-vs-token selection) and `tests/test_line_cli_flow.py`
   (DOM-preferred totals, labels, `—`, `_money`, BORROWED excluded, unclipped symbol).
 
-## Summary keys — `cash_balance` is really Line Available (CLI-RCA-011, P2a 2026-10-14)
+## Summary keys after P2b (CLI-RCA-011, 2026-10-14)
 
-- ⚠️ `scrape_account_summary()["cash_balance"]` does **not** hold a cash balance on TradeMan: the step-2
-  selector list tries `Line Available` **first**, then `Cash Balance` / `เงินสดคงเหลือ` / `PP`, so the value
-  returned is the **Line Available** of the account the page is showing. The key name is kept (5 other
-  callers) and the selector order is a **P2b** decision — do not reorder it in isolation.
+- ⚠️ History (P2a, superseded): `scrape_account_summary()["cash_balance"]` used to hold the **Line Available**
+  of the account on screen (the old selector list tried `Line Available` first), not a cash balance.
+- P2b (2026-10-14) rewrote the selectors against the probed DOM and normalised the keys:
+  `excess_equity` · `line_available` (PP for MARGIN / Buy Limit for CASH) · `real_cash_balance` (the Account
+  Info `Cash Balance` row — MARGIN exposes it, CASH does not) · `credit_line` · `realized_pnl_today` ·
+  `total_equity` · `account_no`. `cash_balance` is still emitted for the 5 legacy callers and is now an
+  explicit **mirror of `line_available`** (`summary["cash_balance"] = summary["line_available"]`).
+- Every key is `None` when its selector misses (Anti-Mock, RCA-009) — never `0.0`, and the body-text regex
+  fallback stays removed.
 - Since P2a the summary also carries `account_no`, read from
   `#dropDownAccountPort > div.flex.w-full.justify-between > div` via `_read_current_account_no()`, and is
   `None` when unreadable; `_unreadable_summary()` returns `account_no: None` too.
 - `pillar2_portfolio.portfolio_get_balances` (KRUNGSRI) binds each figure **only** to the account whose
-  number matches (`values_bound=True`); every other account gets `None`, and its `cash_balance` stays
-  `None` until P2b scrapes a real cash/P&L selector. The KSS `/cash` card therefore shows
-  `Line Available` (plus `Excess Equity` for MARGIN) under the account it could actually read; nothing
-  readable → `อ่านไม่ได้` (never 🟢 live).
-- Still unknown (P2b): the Account Info panel's labels/values (Trading A/C, Credit Limit, Excess Equity,
-  Margin Required, %MM, Cash Balance) and the expand chevron. Probe them with
-  `scripts/krungsri/probe_account_info.py` — read-only, shape-only output in `data/probe_out/`.
+  number matches (`values_bound=True`); every other account gets `None`. `_bind()` maps `line_available`
+  (falling back to the legacy `cash_balance` key), `cash_balance` ← `real_cash_balance` (the honest table
+  row), `excess_equity`, `credit_line`, `total_equity`. The KSS `/cash` card therefore shows
+  `Line Available`, an `Excess Equity` row for MARGIN, and a `Cash balance` row **only when
+  `real_cash_balance` was actually read** — under the account it could read; nothing readable →
+  `อ่านไม่ได้` (never 🟢 live).
+- Probed & Discovered (P2b, 2026-10-14): The Account Info panel is always rendered at the bottom center
+  of `/Portfolio` (no chevron click required). Verified via `scripts/krungsri/probe_account_info.py`
+  dumps (`data/probe_out/account_info_*.json`).
 - Evidence: `tests/test_sbl_account_driver.py`, `tests/test_remote_mcp.py`, `tests/test_line_cli_flow.py`,
   `tests/test_probe_account_info.py`.
+
+## Ground-Truth DOM for Account Info & Bottom Bar (CLI-RCA-011 P2b, 2026-10-14)
+
+### 1. Bottom Summary Bar (`div.bg-darkGray`)
+Located at the bottom of the portfolio screen (`div.h-full.border-borderGray > div.flex.bg-darkGray`).
+Divided into 3 centered columns (`div.text-center.h-full`):
+- Label: `div.text-textGrayColor.text-xs`
+- Value: `div.text-sm.font-semibold`
+
+| Account Type | Col 1 | Col 2 | Col 3 |
+|---|---|---|---|
+| **MARGIN** | `Excess Equity` | `PP` (Purchasing Power) | `Equity` |
+| **CASH** | `Credit Line` | `Buy Limit` | `Equity` |
+
+Robust CSS selectors:
+- Column Col: `div.bg-darkGray div.text-center:has-text('<LABEL>') div.text-sm, div.bg-darkGray div.text-center:has-text('<LABEL>') div.font-semibold`
+
+### 2. Middle Account Info Table (`div.w-full.font-light > table.w-full`)
+Each row `tr` consists of:
+- `td:nth-of-type(1)`: Label container (`td.text-textGrayColor.justify-between > div:nth-of-type(1)` contains the label name, `div:nth-of-type(2)` contains `:`)
+- `td:nth-of-type(2)`: Value container (`td.text-left` or `td.text-right` contains the formatted number / text)
+
+Available Fields:
+- **MARGIN (`Credit Balance`):**
+  - Table 1 (Left): `Excess Equity`, `Equity`, `%MM`, `Margin Required`
+  - Table 2 (Right): `Account Type`, `PP`, `Credit Line`, `Cash Balance`, `Liabilities (Loan)`
+- **CASH (`Cash Balance`):**
+  - Table: `Name`, `Account Type`, `Credit Line`, `Buy Limit`, `Equity`
+
+Robust CSS selectors:
+- `tr:has-text('<LABEL>') > td:nth-of-type(2)` (or `tr:has(td:has-text('<LABEL>')) > td:last-child`)
+- Old selector bug: `td:has-text('Excess Equity') + td` failed because `+ td` matched nothing when label and colon were inside divs of td1, or when values were in the bottom summary bar.
+
+### 3. Selectors shipped in `trademan_driver.scrape_account_summary` (P2b, verified)
+
+| Field | Selector (Playwright `query_selector`, comma = first match wins) |
+|---|---|
+| `excess_equity` | `div.bg-darkGray div.text-center:has-text('Excess Equity') div.font-semibold`, `… div.text-sm`, `tr:has-text('Excess Equity') > td:nth-of-type(2)` |
+| `line_available` | bottom bar `div.text-center:has-text('PP')` / `:has-text('Buy Limit')` `div.font-semibold` / `div.text-sm`, then `tr:has-text('PP')` / `:has-text('Buy Limit')` / `:has-text('Line Available')` `> td:nth-of-type(2)` |
+| `real_cash_balance` | `tr:has-text('Cash Balance') > td:nth-of-type(2)` (MARGIN only) |
+| `credit_line` | bottom bar `div.text-center:has-text('Credit Line') div.font-semibold` / `div.text-sm`, else `tr:has-text('Credit Line') > td:nth-of-type(2)` |
+| `total_equity` | bottom bar `div.text-center:has-text('Equity'):not(:has-text('Excess')) div.font-semibold` / `div.text-sm`, else `tr:has-text('Equity'):not(:has-text('Excess')) > td:nth-of-type(2)` |
+| `realized_pnl_today` | unchanged: `.realized-pnl-today`, `td:has-text('Realized P/L') + td`, `td:has-text('กำไรที่เกิดขึ้นจริง') + td` |
+
+⚠️ **Collision guard (must keep):** the MARGIN bottom bar reads `Excess Equity` → `PP` → `Equity`, so a bare
+`:has-text('Equity')` matches the **Excess Equity** column first and would report EE as the total equity.
+`:not(:has-text('Excess'))` is what prevents it — regression-guarded by
+`tests/test_sbl_account_driver.py::test_scrape_account_summary_reads_real_dom_selectors` (real chromium +
+HTML fixture).
+
+Evidence: `tests/test_sbl_account_driver.py` (per-field mock selectors + real-DOM fixture),
+`tests/test_remote_mcp.py` (`_bind` mapping), `tests/test_line_cli_flow.py` (`/cash kss` card rows).
+
 

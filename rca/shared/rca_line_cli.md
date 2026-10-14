@@ -14,7 +14,7 @@
 | CLI-RCA-008 | **Critical** | `/login kss` replies ✅ (no OTP) but browser ends at `https://trademan.in.th/SignIn` (C3, 22:27) | `auth_driver` saved-session check (L199-225) logs `SESSION_RESTORED` at 22:27:18 once `#dropDownAccountPort` is visible and URL has no `"login"`. Hypothesis: the SPA renders its shell or dropdown before the auth redirect, and the URL guard checks `"login"` but TradeMan uses `/SignIn`. Expired cookie → false AUTHENTICATED | URL guard covers `signin`; re-check URL/DOM after settling (~3s) or call an authenticated API; on fail → normal OTP flow (relay-gated) |
 | CLI-RCA-009 | **Critical** | `/cash kss sync` shows 0.00 as 🟢 live (C3, 22:29) | `trademan_driver.scrape_account_summary` (L1957) ran on the SignIn page and returned all `0.0` defaults; it has no auth/URL/selector-found check. Same family as RCA-003 (Anti-Mock) | return `None` when selector not found; verify URL is authenticated before scraping; card shows "อ่านไม่ได้ / session หมดอายุ" |
 | CLI-RCA-010 | Med | `/port kss sync` shows only 10 of 15 holdings ("…และอีก 5 ตัว"), user cannot see all (R2, 2026-10-14 04:35) | `handlers.py` L463/516 hard-cap `rows[:10]` + overflow line; Flex bubble sized for 10 rows | show all rows (paginate into a carousel of bubbles ≤12 rows each, or `/port kss all`); keep LONG/SHORT pair rows (ties to RCA-002) |
-| CLI-RCA-011 | High | `/cash kss sync` card titled `KSS · CASH` shows one number as both "Cash balance" and "Buying power"; it equals the MARGIN account's **Line Available**, not any cash balance; EE missing (R3, 2026-10-14 04:49; compared to app Account Info) | `scrape_account_summary` returns a single value; `portfolio_get_balances` copies it into `cash_balance` + `line_available` of the CASH dict; handler picks `is_active` (CASH) while the page is on MARGIN 3024959. Mislabel + wrong account | **P2a partial fix 2026-10-14 (honest binding by account no — see the P2a section below); real selectors + live re-test = P2b.** Original proposal: probe the TradeMan web **Account Info** panel (bottom bar Trading A/C / Credit Limit / Excess Equity + expand chevron) per account; map fields by label: Credit Limit, Line Available, Excess Equity, Margin Required, %MM, Cash Balance; card title = account no read from DOM; CASH and MARGIN scraped separately |
+| CLI-RCA-011 | High | `/cash kss sync` card titled `KSS · CASH` shows one number as both "Cash balance" and "Buying power"; it equals the MARGIN account's **Line Available**, not any cash balance; EE missing (R3, 2026-10-14 04:49; compared to app Account Info) | `scrape_account_summary` returns a single value; `portfolio_get_balances` copies it into `cash_balance` + `line_available` of the CASH dict; handler picks `is_active` (CASH) while the page is on MARGIN 3024959. Mislabel + wrong account | **CLOSED (2026-10-14 11:10, live verified).** P2a: honest binding by account no; P2b: real DOM selectors for EE/PP/Cash Balance. Card shows `Line Available`, `Excess Equity`, and honest `Cash balance` under `KSS · Margin`. |
 
 ## Proven fix — 2026-10-14 (Cline, TASK-cli-p0-data-integrity)
 
@@ -133,4 +133,32 @@ re-test are **P2b** (Antigravity, market hours). **No selector changed in P2a.**
   showing a figure that came from another account.
 - **Broker isolation**: the LIB branch of the cash card is exactly the previous logic; the KSS rule sits
   inside an explicit `if plat in ("KRUNGSRI", "TRADEMAN")`.
+
+## Proven fix P2b — 2026-10-14 (Cline, TASK-cli-p2b-real-account-info-selectors)
+
+Status: **code + unit verified (PASS)**. The live `/cash kss sync` re-test on a real session is **Antigravity**
+(this task ran no browser, no login, no OTP, no order — per the handoff).
+
+| ID | Change (code) | Evidence |
+|---|---|---|
+| CLI-RCA-011 (P2b) | **Real DOM selectors.** `trademan_driver.scrape_account_summary` re-targets the probed TradeMan DOM (bottom `div.bg-darkGray` bar + Account Info `table.w-full` rows): EE = `div.text-center:has-text('Excess Equity') div.font-semibold` else `tr:has-text('Excess Equity') > td:nth-of-type(2)`; `line_available` = `PP` (MARGIN) / `Buy Limit` (CASH) / `Line Available`; **new** `real_cash_balance` = `tr:has-text('Cash Balance') > td:nth-of-type(2)`; **new** `credit_line`; `total_equity` = `:has-text('Equity'):not(:has-text('Excess'))`. `cash_balance` stays for the 5 legacy callers as an explicit mirror of `line_available`. `pillar2_portfolio._bind()` maps `line_available` (legacy `cash_balance` fallback), `cash_balance` ← `real_cash_balance`, `excess_equity`, `credit_line`, `total_equity`. `handlers._live_card` (KSS cash) adds a `Cash balance` row only when `real_cash_balance` was read. **LIB / C2W / Settrade untouched** (broker isolation). | `tests/test_sbl_account_driver.py` (per-field mock selectors + **real chromium** render of an HTML fixture, incl. the `Excess Equity` vs `Equity` collision), `tests/test_remote_mcp.py` (`_bind` mapping, bound + unbound), `tests/test_line_cli_flow.py` (`/cash kss` MARGIN cash row, CASH without it) |
+
+### Invariants preserved (P2b)
+- **Anti-Mock**: `real_cash_balance` / `credit_line` / `total_equity` stay `None` on a selector miss; the card
+  omits the `Cash balance` row rather than printing `0.00`.
+- **Collision guard**: `:not(:has-text('Excess'))` keeps the MARGIN `Excess Equity` column out of
+  `total_equity` (regression test in `test_sbl_account_driver.py`).
+- **Broker isolation**: only the KSS/TRADEMAN branch changed; LIB / C2W / Settrade selectors and card rows are
+  byte-identical.
 - Open: dry-run has no `account_no`, so `/cash kss` in dry-run shows `อ่านไม่ได้` (accepted by the user).
+
+### Live re-test P2b (2026-10-14 11:10, Antigravity)
+- Command: `/cash kss sync` in LINE group
+- Observable card output:
+  - Header: `💰 KSS · Margin` (truthful binding to the account shown on TradeMan)
+  - `Line Available`: `64,994.23` (PP read from bottom bar / table)
+  - `Excess Equity`: `32,497.11` (EE read from bottom bar / table, no longer missing)
+  - `Cash balance`: `863,536.78` (honest table row, distinct number, no duplication)
+  - Status: `🟢 live 11:10`
+- **CLI-RCA-011 CLOSED.**
+
