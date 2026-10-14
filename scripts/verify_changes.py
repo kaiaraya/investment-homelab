@@ -137,6 +137,10 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_trademan_portfolio_scraper.py",
     ],
     "app/brokers/krungsri/plugin.py": ["tests/test_broker_registry.py"],
+    # Pillar 6 — Krungsri Quick Trade passive price negotiation (2026-10-14)
+    "app/brokers/krungsri/quicktrade_driver.py": ["tests/test_quicktrade_driver.py"],
+    "app/services/quicktrade_negotiation_service.py": ["tests/test_quicktrade_negotiation_policy.py"],
+    "app/api/v1/quicktrade.py": ["tests/test_quicktrade_negotiation_policy.py"],
     "app/core/events.py": [
         "tests/test_otp_multibroker_attribution.py",
         "tests/test_line_otp_group.py",
@@ -154,6 +158,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/dev_resume_session.py": ["tests/test_dev_resume_session.py"],
     "scripts/hooks/token_guard.py": ["tests/test_token_guard.py"],
     "scripts/krungsri/probe_account_info.py": ["tests/test_probe_account_info.py"],
+    "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
 }
 
 DOC_SUFFIXES = (".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".env")

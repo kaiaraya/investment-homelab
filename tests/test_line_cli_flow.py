@@ -963,3 +963,93 @@ async def test_live_cash_card_kss_unbound_account_is_unavailable(monkeypatch):
     assert "Line Available" not in text
 
 
+
+
+# --------------------------------------------------------------------------- #
+# /negotiate — Quick Trade in-place amendment (Pillar 6)
+# --------------------------------------------------------------------------- #
+def _patch_negotiate(monkeypatch, result):
+    import app.services.quicktrade_negotiation_service as svc
+    monkeypatch.setattr(svc, 'negotiate_order_price', AsyncMock(return_value=result))
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_negotiate_requires_an_order_no(service, db_session):
+    res = await _run(service, '/negotiate', db=db_session)
+    assert res['status'] == 'CLI_NEGOTIATE_BAD_ARGS'
+    assert 'รูปแบบ' in service.last_text()
+
+
+@pytest.mark.asyncio
+async def test_negotiate_kill_switch_blocks(service, db_session, monkeypatch):
+    from app.services.kill_switch_service import kill_switch_service
+    monkeypatch.setattr(kill_switch_service, 'is_active', lambda: True)
+    res = await _run(service, '/negotiate 11008198', db=db_session)
+    assert res['status'] == 'CLI_KILL_SWITCH'
+    assert 'KILL-SWITCH' in service.last_text()
+
+
+@pytest.mark.asyncio
+async def test_negotiate_out_of_hours_blocks(service, db_session, monkeypatch):
+    monkeypatch.setattr(handlers, '_in_nego_window', lambda now=None: False)
+    res = await _run(service, '/negotiate 11008198', db=db_session)
+    assert res['status'] == 'CLI_OUT_OF_HOURS'
+
+
+@pytest.mark.asyncio
+async def test_negotiate_amends_in_place_and_pushes_card(service, db_session, monkeypatch):
+    from app.db.models import SessionLog
+    from sqlalchemy import select
+    svc = _patch_negotiate(monkeypatch, {
+        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT',
+        'outcome': 'OK', 'current_price': 29.25, 'target_price': 29.50, 'volume': 500,
+        'reason': '', 'amendment': {'success': True, 'submitted': True, 'dry_run': False},
+    })
+
+    res = await _run(service, '/negotiate 11008198', db=db_session)
+    assert res['status'] == 'CLI_NEGOTIATE' and res['outcome'] == 'OK'
+    svc.negotiate_order_price.assert_awaited_once_with('11008198')
+    card, target = service.pushes[-1]
+    assert card['type'] == 'flex' and 'ต่อราคา #11008198' in card['altText']
+    assert target == 'U_OP'
+    logs = (await db_session.execute(
+        select(SessionLog).where(SessionLog.event_type == 'LINE_CLI_NEGO'))).scalars().all()
+    assert any('11008198' in (l.details or '') for l in logs)
+
+
+@pytest.mark.asyncio
+async def test_negotiate_uptick_violation_is_shown_as_failure(service, db_session, monkeypatch):
+    _patch_negotiate(monkeypatch, {
+        'success': False, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT',
+        'outcome': 'UPTICK_VIOLATION', 'current_price': 29.25, 'target_price': None,
+        'volume': 500, 'reason': 'offer_1 29.00 < last 29.25', 'amendment': None,
+        'error': 'offer_1 29.00 < last 29.25',
+    })
+
+    res = await _run(service, '/negotiate 11008198', db=db_session)
+    assert res['outcome'] == 'UPTICK_VIOLATION' and res['success'] is False
+    card = service.pushes[-1][0]
+    assert card['type'] == 'flex' and 'ผิดกฎ Uptick' in card['altText']
+
+
+@pytest.mark.asyncio
+async def test_negotiate_dry_run_card_never_claims_a_live_submission(service, db_session, monkeypatch):
+    """Anti-Mock: a staged DRY-RUN amendment must read `จัดเตรียมไว้`, never `ส่งเข้าตลาดแล้ว`.
+
+    `submitted` is deliberately absent at the top level — the handler must read it from
+    `amendment`, and the card must never infer a live submission from `success`.
+    """
+    _patch_negotiate(monkeypatch, {
+        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'BUY',
+        'outcome': 'OK', 'current_price': 29.00, 'target_price': 29.25, 'volume': 100,
+        'reason': '', 'amendment': {'success': True, 'submitted': False, 'dry_run': True,
+                                    'status': 'STAGED_DRY_RUN'},
+    })
+
+    res = await _run(service, '/negotiate 11008198', db=db_session)
+    assert res['status'] == 'CLI_NEGOTIATE' and res['outcome'] == 'OK'
+    card = service.pushes[-1][0]
+    assert 'จัดเตรียมไว้ (TEST/DRY-RUN)' in str(card)
+    assert 'ส่งเข้าตลาดแล้ว' not in str(card)
+

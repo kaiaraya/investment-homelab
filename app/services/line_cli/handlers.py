@@ -196,6 +196,7 @@ _HELP_TEXT = (
     "  /orders [kss|lib] [sync] ออเดอร์วันนี้\n"
     "Pillar 3 · Trade\n"
     "  /nego kss|lib [SYM|เลขออเดอร์]  ต่อราคาไป Bid1/Offer1\n"
+    "  /negotiate <order_no>    ต่อราคา Quick Trade แก้ในที่ (ไม่ยกเลิก)\n"
     "ฉุกเฉิน: PANIC · RESET · MODE\n"
     "พิมพ์ /help nego เพื่อดูรายละเอียด"
 )
@@ -214,10 +215,22 @@ _HELP_NEGO = (
     "  G6 SHORT ต้องผ่านกฎ uptick"
 )
 
+_HELP_NEGOTIATE = (
+    "⚡ /negotiate — ต่อราคาออเดอร์ Quick Trade แบบแก้ในที่ (Settrade FastOrder)\n"
+    "รูปแบบ: /negotiate <order_no>   เช่น /negotiate 11008198\n"
+    "• ไม่ยกเลิก/สร้างออเดอร์ใหม่ — แก้ราคาที่ออเดอร์เดิม (จำนวนเดิมเสมอ)\n"
+    "• BUY→Bid1 · SELL→Offer1 · SHORT→Offer1 (ต้องไม่ต่ำกว่าราคาล่าสุด)\n"
+    "• SHORT ที่ Offer1 < LastPrice = ⛔ ผิดกฎ uptick → ไม่ส่ง (fail-closed)\n"
+    "• ใช้ session เดิมเท่านั้น (Zero-OTP) · ไม่ login เอง\n"
+    "Guardrails: G1 kill-switch · G2 LINE_NEGO_WINDOWS · กันกดซ้ำต่อออเดอร์"
+)
+
 
 async def _handle_help(parsed: CliCommand, service: Any, reply_token: Optional[str]) -> Dict[str, Any]:
     if parsed.target == "nego":
         await service._send_reply(reply_token, _text(_HELP_NEGO))
+    elif parsed.target == "negotiate":
+        await service._send_reply(reply_token, _text(_HELP_NEGOTIATE))
     else:
         await service._send_reply(reply_token, _text(_HELP_TEXT, quick=["/status", "/port", "/orders"]))
     return {"status": "CLI_HELP"}
@@ -864,6 +877,86 @@ async def _handle_nego(
 
 
 # --------------------------------------------------------------------------- #
+# /negotiate (Quick Trade in-place price amendment, Pillar 6)
+# --------------------------------------------------------------------------- #
+async def _handle_negotiate(
+    parsed: CliCommand, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
+) -> Dict[str, Any]:
+    """``/negotiate <order_no>`` — re-price ONE Quick Trade order in place.
+
+    Session reuse only (Zero-OTP): the driver reads ``data/session_state.json`` and
+    never logs in. Kill-switch (G1) and the nego window (G2) gate the command, and a
+    per-order lock turns duplicate taps into ``CLI_BUSY``. Anti-Mock: whatever the
+    policy/driver reports (including ``UPTICK_VIOLATION``) is shown verbatim.
+    """
+    from app.services.kill_switch_service import kill_switch_service
+    from app.services.trade_dispatcher import trade_dispatcher
+    from app.services.quicktrade_negotiation_service import negotiate_order_price
+
+    order_no = str(parsed.target or "").strip()
+    if not order_no.isdigit():
+        await service._send_reply(reply_token, _text(
+            "❓ รูปแบบ: /negotiate <order_no> เช่น /negotiate 11008198",
+            quick=["/orders kss"]))
+        return {"status": "CLI_NEGOTIATE_BAD_ARGS"}
+
+    if kill_switch_service.is_active():                       # G1
+        await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
+        return {"status": "CLI_KILL_SWITCH"}
+    if not _in_nego_window():                                 # G2
+        await service._send_reply(reply_token, _text(f"🌙 นอกเวลาที่อนุญาต ({settings.LINE_NEGO_WINDOWS})"))
+        return {"status": "CLI_OUT_OF_HOURS"}
+
+    key = ("negotiate", order_no)
+    lock = _lock_for(*key)
+    if lock.locked():
+        await service._send_reply(reply_token, _text(
+            f"⏳ /negotiate {order_no} กำลังทำงานอยู่ (เริ่ม {_STARTED.get(key, '-')}) — รอผลสักครู่"))
+        return {"status": "CLI_BUSY"}
+
+    result: Dict[str, Any] = {"success": False, "outcome": None}
+    async with lock:
+        _STARTED[key] = _now_bkk().strftime("%H:%M:%S")
+        try:
+            mode = "LIVE" if trade_dispatcher.is_live else "TEST"
+            await service._send_reply(reply_token, _text(
+                f"⚡ [{mode}] กำลังต่อราคา Quick Trade #{order_no}…"))
+            result = await negotiate_order_price(order_no)
+            amendment = result.get("amendment") or {}
+            card = cards.negotiate_card(
+                order_no=order_no,
+                symbol=str(result.get("symbol") or "-"),
+                side=str(result.get("side") or "-"),
+                outcome=str(result.get("outcome") or ("OK" if result.get("success") else "ERROR")),
+                current_price=result.get("current_price"),
+                target_price=result.get("target_price"),
+                volume=result.get("volume"),
+                reason=str(result.get("reason") or result.get("error") or ""),
+                submitted=amendment.get("submitted"),
+                ts=_now_bkk().strftime("%H:%M:%S"),
+                is_test=not trade_dispatcher.is_live,
+            )
+            await service.push_message(card, to_user_id=push_target)
+            await _audit_nego(db, "kss", {
+                "order_no": order_no,
+                "symbol": result.get("symbol"),
+                "side": result.get("side"),
+                "status": str(result.get("outcome") or ("ok" if result.get("success") else "fail")),
+                "reason": str(result.get("error") or result.get("reason") or "")[:60],
+            })
+        except Exception as e:
+            logger.exception(f"LINE CLI /negotiate {order_no} failed")
+            await service.push_message(
+                _text(f"❌ ต่อราคา #{order_no} ไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
+                to_user_id=push_target)
+        finally:
+            _STARTED.pop(key, None)
+
+    return {"status": "CLI_NEGOTIATE", "order_no": order_no,
+            "outcome": result.get("outcome"), "success": bool(result.get("success"))}
+
+
+# --------------------------------------------------------------------------- #
 # Entrypoint (called by line_service)
 # --------------------------------------------------------------------------- #
 async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: Any) -> Dict[str, Any]:
@@ -903,6 +996,8 @@ async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: An
         return await _handle_read(parsed, service, reply_token, push_target, db)
     if cmd == "nego":
         return await _handle_nego(parsed, service, reply_token, push_target, db)
+    if cmd == "negotiate":
+        return await _handle_negotiate(parsed, service, reply_token, push_target, db)
 
     await service._send_reply(reply_token, _text("❓ ไม่รู้จักคำสั่ง · พิมพ์ /help"))
     return {"status": "CLI_UNKNOWN", "cmd": cmd}

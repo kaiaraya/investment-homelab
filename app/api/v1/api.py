@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     admin
 )
 from app.api.v1 import live_probe
+from app.api.v1 import quicktrade
 
 api_router = APIRouter()
 
@@ -24,6 +25,5 @@ api_router.include_router(phase3.router, prefix="/phase3", tags=["Phase 3: 4 Cor
 api_router.include_router(cockpit.router, prefix="/cockpit", tags=["Operations Cockpit SSE"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin Console Control"])
 api_router.include_router(live_probe.router, tags=["Simulation & Live Probes"])
-
-
+api_router.include_router(quicktrade.router, prefix="/krungsri/quicktrade", tags=["Krungsri Quick Trade Passive Negotiation"])
 

@@ -67,6 +67,7 @@ COMMAND_ALIASES: Dict[str, str] = {
     "cash": "cash", "เงิน": "cash", "วงเงิน": "cash",
     "orders": "orders", "order": "orders", "ออเดอร์": "orders", "คำสั่งค้าง": "orders",
     "nego": "nego", "ต่อราคา": "nego",
+    "negotiate": "negotiate", "แก้ราคา": "negotiate",
 }
 
 #: canonical broker -> accepted aliases (lower-cased)
@@ -216,7 +217,7 @@ def parse(text: str) -> Optional[ParseResult]:
         if low in BROKER_ALIASES and broker is None:
             broker = BROKER_ALIASES[low]
             continue
-        if canonical == "nego" and target is None:
+        if canonical in ("nego", "negotiate") and target is None:
             candidate = token.upper()
             if _ORDER_NO_RE.match(candidate) or _SYMBOL_RE.match(candidate):
                 target = candidate
@@ -224,8 +225,9 @@ def parse(text: str) -> Optional[ParseResult]:
             return CliError(
                 code=E_BAD_TARGET,
                 message=f'❓ เป้าหมาย "{token}" ของ /{cmd_token} ไม่ถูกต้อง — ต้องเป็นชื่อหุ้นหรือเลขออเดอร์',
-                hint="ตัวอย่าง: /nego kss PTT · /nego lib 12345",
-                quick_reply=["/help nego"],
+                hint=("ตัวอย่าง: /negotiate 11008198" if canonical == "negotiate"
+                      else "ตัวอย่าง: /nego kss PTT · /nego lib 12345"),
+                quick_reply=[f"/help {canonical}"],
             )
         # a bare token in the broker position of a broker-taking command
         if broker is None:

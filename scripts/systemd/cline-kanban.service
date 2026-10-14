@@ -1,0 +1,16 @@
+[Unit]
+Description=Cline Kanban (InvestmentHomelab)
+Documentation=https://github.com/cline/kanban
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/araya-sawasdichai/Documents/antigravity/InvestmentHomelab
+# nvm-managed Node (kanban requires Node >= 22). Update both paths if you switch Node versions.
+Environment=PATH=/home/araya-sawasdichai/.nvm/versions/node/v24.21.0/bin:/home/araya-sawasdichai/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/araya-sawasdichai/.nvm/versions/node/v24.21.0/bin/kanban --host 127.0.0.1 --port 3484 --no-open
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

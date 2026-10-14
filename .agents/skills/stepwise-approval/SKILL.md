@@ -67,6 +67,49 @@ to code changes, refactors, bug fixes, and any Playwright-driven browser automat
 
 ---
 
+## 6. Handoff Return Protocol (Antigravity Review & Live Acceptance)
+
+When a task card is returned from Cline (`## Cline Report` present in `docs/handoff/TASK-xxx.md`):
+
+1. **Stage A: Automated Audit & Code Review**
+   - Check all modified/created files in git status / report against the allowed scope.
+   - Run targeted verification: `.venv/bin/python scripts/verify_changes.py <changed files>`.
+   - Inspect Diff to verify safety invariants (Anti-Mock, Invariant 9 Zero-OTP, Uptick rule).
+
+2. **Stage B: Plan Live Verification Steps**
+   - Decompose observable browser/hardware checks into atomic steps.
+   - Define exact UI landmarks, tables, or alerts the user should see.
+
+3. **Stage C: Guided Stepwise Headed Check**
+   - Execute exactly 1 observable action on `DISPLAY=:0`.
+   - Prompt user via `ask_question` with recommended options to confirm observable state before proceeding.
+
+4. **Stage D: Antigravity Verdict & Task Closeout**
+   - Update `## Antigravity Review` in `docs/handoff/TASK-xxx.md` to `PASS` or `CHANGES_REQUESTED`.
+
+---
+
+## 7. Fast-Model Execution Protocol (Gemini 3.8 Flash & Lightweight Models)
+
+To achieve consistent, high-fidelity execution parity with reasoning models:
+
+1. **One Question at a Time**:
+   - Always use the `ask_question` tool for user decisions.
+   - Never combine multiple forks into one prompt.
+
+2. **Always Provide `(Recommended)` Options**:
+   - The first option must be prefixed with `(Recommended)` and accompanied by a 1-line rationale based on repository invariants.
+
+3. **Strict Single-Step Invariant**:
+   - Execute strictly 1 atomic action per model turn. Never batch edits or commands that require separate validation.
+
+4. **Response Style (Token Lean)**:
+   - Chat with user: Thai, concise, lead with the direct answer.
+   - No conversational filler, no repeating unchanged context.
+   - Show only diffs and concrete evidence.
+
+---
+
 ## Cross-references
 
 - `watch-and-learn` — 4-Tier Self-Annealing Playwright protocol + PDCA broker

@@ -162,3 +162,25 @@ Status: **code + unit verified (PASS)**. The live `/cash kss sync` re-test on a 
   - Status: `🟢 live 11:10`
 - **CLI-RCA-011 CLOSED.**
 
+
+---
+
+## Proven fix P3 — 2026-10-14 (Cline, TASK-krungsri-quicktrade-passive-negotiate)
+
+Status: **code + unit verified (PASS)**; the live `/negotiate` re-test on a real Quick Trade session is
+**Antigravity** (this task ran no browser, no login, no OTP, no order).
+
+| ID | Change (code) | Evidence |
+|---|---|---|
+| CLI-RCA-012 (P3) | **New commands must be registered in two places.** `/negotiate <order_no>` (Krungsri Quick Trade passive price amendment) needed `parser.COMMAND_ALIASES` → `"negotiate"` / `"แก้ราคา"` **and** the `canonical in ("nego", "negotiate")` target-validation branch (it takes one order no, **no broker token**), **plus** the dispatch in `handlers.handle()`. A command present only in `handlers` is rejected earlier as `E_UNKNOWN_CMD` and never reaches the handler. Card = `cards.negotiate_card` (`_NEGOTIATE_OUTCOME` + `_px()`), flow = `handlers._handle_negotiate` (G1 kill-switch → G2 `_in_nego_window` (`LINE_NEGO_WINDOWS`) → per-order lock → `CLI_BUSY`), audit action `LINE_CLI_NEGO`. | `tests/test_line_cli_parser.py` (target/alias/bad-target), `tests/test_line_cli_flow.py` (bad args · kill-switch · out-of-hours · OK card + audit · uptick violation) |
+
+### Invariants preserved (P3)
+- **Anti-Mock**: `submitted` is `True` / `False` / `None` — never rendered as a success when the broker result
+  is unknown; unreadable fields render `—`; `UPTICK_VIOLATION` is shown verbatim (fail-closed for SHORT when
+  `Best Offer 1 < Last`). No fabricated prices or order ids.
+- **Zero-OTP**: the driver only reads `data/session_state.json`; no login, no SMS trigger (Invariant 9).
+- **Broker isolation**: the whole path is Quick Trade only (`app/brokers/krungsri/quicktrade_driver.py`);
+  TradeMan / Liberator / Click2Win untouched.
+- Handoff correction: the task doc pointed step 4 at `tests/test_line_cli_handlers.py`, which **does not exist** —
+  the real mapping is `tests/test_line_cli_flow.py` (handlers + cards) + `tests/test_line_cli_parser.py`.
+

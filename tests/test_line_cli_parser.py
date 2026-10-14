@@ -127,3 +127,19 @@ def test_extra_parameter_is_rejected():
     err = p.parse("/status kss extra")
     assert isinstance(err, p.CliError)
     assert err.code == p.E_UNKNOWN_CMD
+
+
+def test_negotiate_targets_one_order_no_without_a_broker():
+    parsed = p.parse('/negotiate 11008198')
+    assert isinstance(parsed, p.CliCommand), parsed
+    assert parsed.cmd == 'negotiate'
+    assert parsed.target == '11008198'
+    assert parsed.broker is None
+    assert p.parse('／negotiate 11008198') == parsed      # full-width slash is normalised
+
+
+def test_negotiate_rejects_a_bad_target():
+    err = p.parse('/negotiate !!bad!!')
+    assert isinstance(err, p.CliError)
+    assert err.code == p.E_BAD_TARGET
+    assert '11008198' in err.hint

@@ -398,6 +398,73 @@ def nego_card(
 
 
 # --------------------------------------------------------------------------- #
+# /negotiate (Quick Trade in-place price amendment)
+# --------------------------------------------------------------------------- #
+#: outcome -> (emoji, label, colour)
+_NEGOTIATE_OUTCOME: Dict[str, tuple] = {
+    "OK": ("✅", "ต่อราคาสำเร็จ", UP),
+    "NO_CHANGE": ("⏭️", "อยู่ที่เป้าหมายแล้ว", WARN),
+    "UPTICK_VIOLATION": ("⛔", "ผิดกฎ Uptick (SHORT)", DOWN),
+    "NO_QUOTE": ("🚫", "อ่านราคาตลาดไม่ได้", DOWN),
+    "UNSUPPORTED_SIDE": ("❓", "ไม่รู้จักประเภทคำสั่ง", DOWN),
+}
+
+
+def _px(value: Optional[float]) -> str:
+    """Price cell — ``None`` renders ``—`` (Anti-Mock: never a fabricated price)."""
+    return "—" if value is None else f"{float(value):.2f}"
+
+
+def negotiate_card(
+    *,
+    order_no: str,
+    symbol: str,
+    side: str,
+    outcome: str,
+    current_price: Optional[float],
+    target_price: Optional[float],
+    volume: Optional[int],
+    reason: str,
+    submitted: Optional[bool],
+    ts: str,
+    is_test: bool,
+) -> Dict[str, Any]:
+    """One-order result card for ``/negotiate`` (Quick Trade in-place amendment).
+
+    ``submitted`` — ``True`` the broker accepted the amendment, ``False`` it was
+    staged only (TEST / DRY-RUN), ``None`` nothing was sent (Anti-Mock: never imply
+    a submission that did not happen).
+    """
+    emoji, label, colour = _NEGOTIATE_OUTCOME.get(outcome, ("ℹ️", outcome or "ไม่ทราบผล", MUTED))
+    if submitted is True:
+        send_text, send_colour = "ส่งเข้าตลาดแล้ว", UP
+    elif submitted is False:
+        send_text, send_colour = "จัดเตรียมไว้ (TEST/DRY-RUN)", WARN
+    else:
+        send_text, send_colour = "—", MUTED
+
+    body: List[Dict[str, Any]] = [
+        _kv("ออเดอร์", f"#{order_no} {side} {symbol}"),
+        _kv("ราคาเดิม → เป้าหมาย", f"{_px(current_price)} → {_px(target_price)}"),
+        _kv("จำนวน", f"{int(volume):,}" if volume is not None else "—"),
+        _kv("สถานะการส่ง", send_text, send_colour),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell(f"{emoji} {label}", colour, weight="bold", wrap=True),
+    ]
+    if reason:
+        body.append(_cell(reason[:160], MUTED, wrap=True))
+    body.append(_cell(f"🕒 {ts}", MUTED, align="end"))
+    footer = [
+        _msg_button(f"⚡ /negotiate {order_no}", f"/negotiate {order_no}", color="#b45309"),
+        _msg_button("📋 /orders kss sync", "/orders kss sync"),
+    ]
+    return _flex(f"⚡ ต่อราคา #{order_no}: {label}",
+                 _bubble(title=f"⚡ Quick Trade #{order_no}",
+                         badge="TEST" if is_test else None, badge_bg=TEST_COLOR,
+                         body=body, footer=footer))
+
+
+# --------------------------------------------------------------------------- #
 # carousel
 # --------------------------------------------------------------------------- #
 def carousel(bubbles: List[Dict[str, Any]], alt: str) -> Dict[str, Any]:
@@ -411,6 +478,7 @@ __all__ = [
     "cash_card",
     "orders_card",
     "nego_card",
+    "negotiate_card",
     "carousel",
 ]
 

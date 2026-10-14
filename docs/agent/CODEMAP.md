@@ -118,6 +118,9 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `get_daily_schedule()` L284-286
   - `probe_set_summary()` L290-294
   - `trigger_random_point_now()` L298-301
+- **app/api/v1/quicktrade.py** (45 lines)
+  - `class NegotiatePriceRequest` L16-24
+  - `negotiate_price()` L28-44
 - **app/api/v1/endpoints/admin.py** (283 lines)
   - `class ComponentToggleRequest` L129-130
   - `get_feature_matrix()` L135-137
@@ -284,6 +287,34 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `return_sbl` L181
     - `switch_account_type` L184
     - `close` L188
+- **app/brokers/krungsri/quicktrade_driver.py** (471 lines)
+  - `class KrungsriQuickTradeDriver` L93-467
+    - `__init__` L96
+    - `_num` L104
+    - `_int` L116
+    - `_norm_header` L121
+    - `_as_order_no` L125
+    - `_norm_side` L130
+    - `parse_bid_offer` L137
+    - `parse_market_info` L154
+    - `_header_map` L170
+    - `parse_order_ledger` L180
+    - `_row_from_map` L205
+    - `_row_positional` L225
+    - `find_order` L248
+    - `_fmt_price` L256
+    - `_select_account` L262
+    - `_fetch_quote` L278
+    - `_read_order_ledger` L298
+    - `_open_order_detail` L305
+    - `_fill_amendment` L316
+    - `_submit` L331
+    - `_session_file` L342
+    - `_launch` L349
+    - `get_quote` L363
+    - `candidate_accounts` L390
+    - `get_order` L401
+    - `amend_price` L433
 - **app/brokers/krungsri/sbl_realtime_driver.py** (380 lines)
   - `class KrungsriSBLRealtimeDriver` L37-376
     - `__init__` L40
@@ -306,33 +337,35 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `cmd_negotiate()` L117-135
   - `cmd_change()` L138-163
   - `main()` L166-208
-- **app/brokers/liberator/driver.py** (1412 lines)
-  - `_safe_otp_source()` L44-57
-  - `class LiberatorDriver` L60-1407
-    - `__init__` L61
-    - `is_authenticated` L73
-    - `current_url` L77
-    - `launch_browser` L80
-    - `_session_token_expiry` L129
-    - `_saved_session_expired` L142
-    - `verify_saved_session` L164
-    - `_log_event` L202
-    - `login` L218
-    - `save_session_state` L621
-    - `_extract_portfolio_from_page` L638
-    - `scrape_portfolio` L749
-    - `execute_order` L832
-    - `execute_action_exit` L948
-    - `_parse_order_row_cells` L1002
-    - `_amend_guard` L1025
-    - `_order_action_locator` L1036
-    - `cancel_order` L1058
-    - `change_order` L1101
-    - `_amend_order_in_place` L1163
-    - `negotiate_price` L1281
-    - `close` L1391
-- **app/brokers/liberator/plugin.py** (300 lines)
-  - `class LiberatorBrokerPlugin` L21-295
+- **app/brokers/liberator/driver.py** (1525 lines)
+  - `_safe_otp_source()` L45-58
+  - `class LiberatorDriver` L61-1520
+    - `__init__` L62
+    - `is_authenticated` L74
+    - `current_url` L78
+    - `launch_browser` L81
+    - `_session_token_expiry` L130
+    - `_saved_session_expired` L143
+    - `verify_saved_session` L165
+    - `_log_event` L203
+    - `login` L219
+    - `save_session_state` L622
+    - `_extract_portfolio_from_page` L639
+    - `_unknown_quote` L751
+    - `get_market_bid_offer` L766
+    - `scrape_portfolio` L862
+    - `execute_order` L945
+    - `execute_action_exit` L1061
+    - `_parse_order_row_cells` L1115
+    - `_amend_guard` L1138
+    - `_order_action_locator` L1149
+    - `cancel_order` L1171
+    - `change_order` L1214
+    - `_amend_order_in_place` L1276
+    - `negotiate_price` L1394
+    - `close` L1504
+- **app/brokers/liberator/plugin.py** (309 lines)
+  - `class LiberatorBrokerPlugin` L21-304
     - `is_configured` L38
     - `get_health` L41
     - `authenticate` L63
@@ -347,7 +380,8 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `execute_action_exit` L248
     - `change_order` L263
     - `negotiate_price` L277
-    - `close` L291
+    - `get_market_bid_offer` L291
+    - `close` L300
 - **app/brokers/liberator/session_health.py** (112 lines)
   - `read_session_token_expiry()` L23-59
   - `session_expired()` L62-77
@@ -368,26 +402,28 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `place_order` L81
     - `cancel_order` L91
     - `close` L94
-- **app/browser/auth_driver.py** (1092 lines)
-  - `_safe_otp_source()` L38-51
-  - `class KrungsriAuthDriver` L55-1087
-    - `__init__` L61
-    - `is_authenticated` L75
-    - `current_url` L79
-    - `_log_event` L82
-    - `_handle_dialog` L92
-    - `launch_browser` L99
-    - `validate_preflight_session` L150
-    - `verify_saved_session` L166
-    - `_quarantine_session_file` L242
-    - `login` L262
-    - `_detect_otp_prompt` L532
-    - `_wait_for_otp_multi_channel` L588
-    - `_click_otp_submit` L750
-    - `_verify_post_login` L777
-    - `smart_keepalive` L1027
-    - `take_diagnostic_snapshot` L1050
-    - `close` L1069
+- **app/browser/auth_driver.py** (1127 lines)
+  - `_safe_otp_source()` L39-52
+  - `class KrungsriAuthDriver` L56-1122
+    - `__init__` L62
+    - `is_authenticated` L76
+    - `current_url` L80
+    - `_log_event` L83
+    - `_handle_dialog` L93
+    - `launch_browser` L100
+    - `validate_preflight_session` L151
+    - `_url_is_signin` L168
+    - `_account_no_visible` L174
+    - `verify_saved_session` L193
+    - `_quarantine_session_file` L277
+    - `login` L297
+    - `_detect_otp_prompt` L567
+    - `_wait_for_otp_multi_channel` L623
+    - `_click_otp_submit` L785
+    - `_verify_post_login` L812
+    - `smart_keepalive` L1062
+    - `take_diagnostic_snapshot` L1085
+    - `close` L1104
 - **app/browser/broker_factory.py** (36 lines)
   - `get_broker_driver()` L14-23
   - `get_auth_driver()` L26-35
@@ -481,44 +517,58 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `get_or_open_trademan` L132
     - `get_or_open_sbl` L171
     - `ping_keepalive` L194
-- **app/browser/trademan_driver.py** (2152 lines)
-  - `class PriorityLock` L96-120
-    - `__init__` L102
-    - `acquire` L106
-    - `release` L111
-    - `__aenter__` L115
-    - `__aexit__` L119
-  - `class TradeManDriver` L123-2147
-    - `__init__` L136
-    - `page` L144
-    - `ensure_browser_ready` L153
-    - `_log_event` L177
-    - `switch_tab` L190
-    - `ensure_authenticated_trademan` L270
-    - `switch_account` L294
-    - `scrape_portfolio` L418
-    - `scrape_sbl_lots` L511
-    - `execute_order` L566
-    - `_clean_int` L877
-    - `_clean_float` L884
-    - `_scrape_view_order_rows` L890
-    - `scrape_unmatched_orders` L932
-    - `scrape_all_orders` L960
-    - `get_market_bid_offer` L987
-    - `_unknown_quote` L1015
-    - `_fetch_quote_unlocked` L1034
-    - `_find_ledger_row` L1129
-    - `_scrape_new_order_no` L1145
-    - `_dismiss_cancel_modal` L1187
-    - `cancel_order` L1202
-    - `modify_order_price` L1370
-    - `scrape_sbl_inventory` L1558
-    - `scrape_sbl_available_inventory` L1641
-    - `scrape_sbl_all_tabs` L1648
-    - `return_sbl_shares` L1775
-    - `execute_sbl_borrow` L1819
-    - `scrape_account_summary` L1957
-    - `scrape_set_index_summary` L2050
+- **app/browser/trademan_driver.py** (2659 lines)
+  - `_extract_account_no()` L22-30
+  - `_parse_float()` L33-38
+  - `_parse_int()` L41-46
+  - `_parse_float_or_none()` L49-61
+  - `_hkey()` L109-111
+  - `_map_holdings_columns()` L114-135
+  - `_is_placeholder_or_totals_row()` L138-146
+  - `_find_totals_row()` L149-185
+  - `_pair_holdings_tables()` L188-224
+  - `class PriorityLock` L301-325
+    - `__init__` L307
+    - `acquire` L311
+    - `release` L316
+    - `__aenter__` L320
+    - `__aexit__` L324
+  - `class TradeManDriver` L328-2654
+    - `__init__` L341
+    - `page` L357
+    - `ensure_browser_ready` L366
+    - `_log_event` L390
+    - `switch_tab` L403
+    - `ensure_authenticated_trademan` L483
+    - `_read_current_account_no` L507
+    - `switch_account` L538
+    - `_select_account_on_page` L578
+    - `scrape_portfolio` L723
+    - `scrape_sbl_lots` L904
+    - `execute_order` L959
+    - `_clean_int` L1270
+    - `_clean_float` L1277
+    - `_scrape_view_order_rows` L1283
+    - `scrape_unmatched_orders` L1325
+    - `scrape_all_orders` L1353
+    - `get_market_bid_offer` L1380
+    - `_unknown_quote` L1408
+    - `_fetch_quote_unlocked` L1427
+    - `_find_ledger_row` L1522
+    - `_scrape_new_order_no` L1538
+    - `_dismiss_cancel_modal` L1580
+    - `cancel_order` L1595
+    - `modify_order_price` L1763
+    - `scrape_sbl_inventory` L1951
+    - `scrape_sbl_available_inventory` L2034
+    - `scrape_sbl_all_tabs` L2041
+    - `return_sbl_shares` L2168
+    - `execute_sbl_borrow` L2212
+    - `_unreadable_summary` L2351
+    - `_fmt_baht` L2366
+    - `_is_authenticated_page` L2370
+    - `scrape_account_summary` L2391
+    - `scrape_set_index_summary` L2557
 - **app/browser/trademan_simulator.py** (500 lines)
   - `class VirtualTradeManSimulator` L22-494
     - `__init__` L28
@@ -533,8 +583,8 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `get_portfolio_snapshot` L484
     - `get_sbl_lots_snapshot` L488
     - `get_open_orders` L492
-- **app/core/config.py** (128 lines)
-  - `class Settings` L5-124
+- **app/core/config.py** (135 lines)
+  - `class Settings` L5-131
 - **app/core/events.py** (93 lines)
   - `class InternalEventBus` L9-88
     - `__init__` L15
@@ -627,23 +677,23 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `get_modular_sse_app()` L45-55
 - **app/mcp/pillars/overview.py** (147 lines)
   - `mcp_get_6pillars_overview()` L13-146
-- **app/mcp/pillars/pillar1_session.py** (273 lines)
-  - `session_get_health()` L23-114
-  - `session_login_broker()` L117-174
-  - `session_submit_otp()` L177-197
-  - `session_logout_all()` L200-206
-  - `session_connect_all()` L209-262
-  - `register_session_pillar()` L265-271
-- **app/mcp/pillars/pillar2_portfolio.py** (692 lines)
+- **app/mcp/pillars/pillar1_session.py** (274 lines)
+  - `session_get_health()` L24-115
+  - `session_login_broker()` L118-175
+  - `session_submit_otp()` L178-198
+  - `session_logout_all()` L201-207
+  - `session_connect_all()` L210-263
+  - `register_session_pillar()` L266-272
+- **app/mcp/pillars/pillar2_portfolio.py** (729 lines)
   - `_classify_order_category()` L40-82
   - `portfolio_list_accounts()` L85-220
   - `switch_account()` L223-347
-  - `portfolio_get_balances()` L350-461
-  - `portfolio_holdings()` L464-521
-  - `current_open_orders()` L524-562
-  - `current_orders()` L565-668
-  - `portfolio_sync_db()` L671-680
-  - `register_portfolio_pillar()` L683-691
+  - `portfolio_get_balances()` L350-498
+  - `portfolio_holdings()` L501-558
+  - `current_open_orders()` L561-599
+  - `current_orders()` L602-705
+  - `portfolio_sync_db()` L708-717
+  - `register_portfolio_pillar()` L720-728
 - **app/mcp/pillars/pillar3_trade.py** (258 lines)
   - `_get_settrade_investor()` L32-45
   - `trade_place_order()` L48-202
@@ -843,26 +893,26 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `activate` L29
     - `reset` L97
     - `get_status` L138
-- **app/services/line_service.py** (1857 lines)
-  - `class LineMessagingService` L33-1848
+- **app/services/line_service.py** (1869 lines)
+  - `class LineMessagingService` L33-1860
     - `process_webhook_events` L44
     - `_handle_text_message` L69
-    - `_handle_conversation_turn` L412
-    - `_start_conversation_flow` L506
-    - `_execute_conversation_terminal` L532
-    - `_execute_symbol_query` L562
-    - `_handle_postback` L670
-    - `_reconcile_daily_orders_with_portfolio` L880
-    - `_build_batch_flex_message` L921
-    - `build_trade_approval_card` L1130
-    - `build_order_carousel_card` L1273
-    - `_send_reply` L1680
-    - `push_message` L1717
-    - `push_otp_request` L1768
-    - `push_progress_update` L1818
-    - `send_alert` L1826
-    - `send_system_notification` L1830
-  - `uuid_hex()` L1851-1853
+    - `_handle_conversation_turn` L424
+    - `_start_conversation_flow` L518
+    - `_execute_conversation_terminal` L544
+    - `_execute_symbol_query` L574
+    - `_handle_postback` L682
+    - `_reconcile_daily_orders_with_portfolio` L892
+    - `_build_batch_flex_message` L933
+    - `build_trade_approval_card` L1142
+    - `build_order_carousel_card` L1285
+    - `_send_reply` L1692
+    - `push_message` L1729
+    - `push_otp_request` L1780
+    - `push_progress_update` L1830
+    - `send_alert` L1838
+    - `send_system_notification` L1842
+  - `uuid_hex()` L1863-1865
 - **app/services/market_monitor_service.py** (105 lines)
   - `class MarketMonitorService` L14-101
     - `capture_and_report` L29
@@ -889,19 +939,19 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `class OtpRelayReadinessService` L179-307
     - `check` L182
     - `is_ready` L305
-- **app/services/otp_relay_registry.py** (271 lines)
-  - `broker_label()` L68-75
-  - `format_request_details()` L78-87
-  - `format_otp_details()` L90-104
-  - `parse_request_broker()` L107-110
-  - `parse_request_ref()` L113-119
-  - `parse_otp_broker()` L122-130
-  - `broker_matches()` L143-154
-  - `class PendingOtpRequest` L160-166
-  - `_primary_session()` L169-173
-  - `record_request()` L176-197
-  - `resolve_pending_request()` L200-245
-  - `record_otp_received()` L248-269
+- **app/services/otp_relay_registry.py** (272 lines)
+  - `broker_label()` L69-76
+  - `format_request_details()` L79-88
+  - `format_otp_details()` L91-105
+  - `parse_request_broker()` L108-111
+  - `parse_request_ref()` L114-120
+  - `parse_otp_broker()` L123-131
+  - `broker_matches()` L144-155
+  - `class PendingOtpRequest` L161-167
+  - `_primary_session()` L170-174
+  - `record_request()` L177-198
+  - `resolve_pending_request()` L201-246
+  - `record_otp_received()` L249-270
 - **app/services/parser.py** (520 lines)
   - `class SignalIntelligenceParser` L23-516
     - `parse_strategy_with_ai` L31
@@ -944,6 +994,20 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `execute_price_adjustment` L223
     - `scan_and_evaluate_live_orders` L284
     - `dispatch_single_order_card` L315
+- **app/services/quicktrade_negotiation_service.py** (239 lines)
+  - `class Side` L24-30
+  - `class NegotiationOutcome` L33-38
+  - `class Quote` L41-45
+  - `class OrderSnapshot` L48-55
+  - `class NegotiationDecision` L58-64
+  - `_normalise_side()` L74-80
+  - `compute_passive_price()` L83-125
+  - `plan_negotiation()` L128-141
+  - `negotiate_order_price()` L146-238
+- **app/services/redaction.py** (43 lines)
+  - `redact_otp()` L23-25
+  - `redact_url()` L28-32
+  - `redact_otp_details()` L35-39
 - **app/services/sbl_intelligence_service.py** (358 lines)
   - `class SBLIntelligenceService` L17-354
     - `analyze_sbl_decision` L22
@@ -1012,6 +1076,76 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
     - `record_anomaly` L420
     - `get_active_anomalies` L440
     - `resolve_anomaly` L459
+- **app/services/line_cli/cards.py** (486 lines)
+  - `quick_reply()` L27-34
+  - `_badge()` L37-43
+  - `_kv()` L46-54
+  - `_row()` L57-58
+  - `_cell()` L61-67
+  - `_money()` L70-75
+  - `_footer()` L78-79
+  - `_msg_button()` L82-86
+  - `_bubble()` L89-112
+  - `_flex()` L115-121
+  - `status_card()` L127-173
+  - `_port_header_row()` L182-188
+  - `_port_row()` L191-211
+  - `port_card()` L214-278
+  - `cash_card()` L284-291
+  - `unavailable_card()` L300-310
+  - `orders_card()` L321-355
+  - `nego_card()` L361-397
+  - `_px()` L413-415
+  - `negotiate_card()` L418-464
+  - `carousel()` L470-471
+- **app/services/line_cli/handlers.py** (1007 lines)
+  - `_text()` L42-46
+  - `_lock_for()` L49-55
+  - `_now_bkk()` L58-59
+  - `_in_nego_window()` L62-78
+  - `_fmt_hhmm()` L81-87
+  - `_source_of()` L90-95
+  - `_broker_platform()` L101-102
+  - `_broker_session_alive()` L105-112
+  - `_broker_health()` L115-130
+  - `_broker_quote()` L133-139
+  - `_broker_open_orders()` L142-156
+  - `_broker_modify()` L159-181
+  - `_handle_help()` L229-236
+  - `_handle_status()` L242-273
+  - `_handle_login()` L279-341
+  - `_handle_logout()` L347-362
+  - `_read_db_positions()` L368-384
+  - `_read_db_orders()` L387-415
+  - `_position_type()` L421-430
+  - `_holding_pnl_pct()` L433-444
+  - `_normalise_holdings()` L447-462
+  - `_portfolio_totals()` L465-488
+  - `_portfolio_amount()` L491-502
+  - `_split_borrowed()` L505-526
+  - `_account_type_label()` L537-539
+  - `_is_stale()` L548-554
+  - `_broker_label()` L557-558
+  - `_live_card()` L561-663
+  - `_handle_read()` L666-730
+  - `_tick_distance_exceeds()` L736-743
+  - `_audit_nego()` L746-756
+  - `_plan_nego()` L759-798
+  - `_handle_nego()` L801-876
+  - `_handle_negotiate()` L882-956
+  - `handle()` L962-1003
+- **app/services/line_cli/parser.py** (276 lines)
+  - `class CliCommand` L31-40
+    - `has` L39
+  - `class CliError` L44-51
+  - `_normalise()` L99-102
+  - `is_command()` L105-107
+  - `_levenshtein()` L110-124
+  - `suggest_command()` L127-141
+  - `_unknown_command()` L144-153
+  - `_bad_broker()` L156-162
+  - `_broker_required()` L165-171
+  - `parse()` L177-258
 - **scripts/__init__.py** (50 lines)
   - `class _ScriptsLegacyFinder` L16-36
     - `find_spec` L17
@@ -1087,7 +1221,7 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `run_services_status()` L737-740
   - `main()` L743-831
   - `argparse_helper()` L834-851
-- **scripts/token_report.py** (196 lines)
+- **scripts/token_report.py** (235 lines)
   - `est_tokens()` L34-36
   - `load_session()` L39-44
   - `usage_rows()` L47-55
@@ -1095,16 +1229,17 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `analyse()` L67-109
   - `fmt()` L112-115
   - `report_context()` L118-126
-  - `main()` L129-191
-- **scripts/verify_changes.py** (310 lines)
-  - `_rel()` L148-154
-  - `_pytest_already_running()` L157-176
-  - `_py_files()` L179-184
-  - `_guard_blocked()` L187-195
-  - `resolve_tests()` L199-226
-  - `compile_changed()` L229-240
-  - `run_pytest()` L243-252
-  - `main()` L255-305
+  - `main()` L129-203
+  - `report_guard()` L206-230
+- **scripts/verify_changes.py** (329 lines)
+  - `_rel()` L167-173
+  - `_pytest_already_running()` L176-195
+  - `_py_files()` L198-203
+  - `_guard_blocked()` L206-214
+  - `resolve_tests()` L218-245
+  - `compile_changed()` L248-259
+  - `run_pytest()` L262-271
+  - `main()` L274-324
 - **scripts/click2win/click2win_studio.py** (244 lines)
   - `run_studio()` L48-231
   - `main()` L234-239
@@ -1127,6 +1262,17 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
 - **scripts/click2win/watch_and_learn_c2w_derivatives.py** (431 lines)
   - `highlight()` L41-54
   - `run_copilot()` L57-426
+- **scripts/hooks/token_guard.py** (190 lines)
+  - `_as_obj()` L40-47
+  - `_ext()` L50-55
+  - `_line_count()` L58-66
+  - `_int()` L69-73
+  - `check_read()` L76-98
+  - `check_search()` L101-117
+  - `decide_cline()` L121-145
+  - `decide_antigravity()` L148-153
+  - `_log()` L156-162
+  - `main()` L165-185
 - **scripts/krungsri/debug_krungsri_portfolio_typesafe.py** (276 lines)
   - `run_portfolio_typesafe_debug()` L55-254
   - `main()` L257-271
@@ -1142,15 +1288,50 @@ Regenerate: `.venv/bin/python scripts/gen_codemap.py`. Use: find the symbol here
   - `execute_action_exit()` L13-213
 - **scripts/krungsri/execute_live_sawad_sell.py** (233 lines)
   - `execute_live_sawad_sell()` L12-227
+- **scripts/krungsri/open_krungsri_products.py** (70 lines)
+  - `main()` L20-65
+- **scripts/krungsri/open_quicktrade_only.py** (53 lines)
+  - `main()` L17-49
+- **scripts/krungsri/probe_account_info.py** (245 lines)
+  - `_redact()` L51-62
+  - `_is_value_like()` L65-71
+  - `_value_shape()` L74-83
+  - `sanitize()` L86-108
+  - `_wait_enter()` L154-155
+  - `main()` L158-238
+- **scripts/krungsri/probe_krungsri_products.py** (346 lines)
+  - `redact_url()` L85-96
+  - `is_blocked_request()` L99-113
+  - `json_shape()` L116-124
+  - `classify_menu_link()` L127-132
+  - `class Probe` L173-256
+    - `__init__` L174
+    - `guard` L183
+    - `on_response` L194
+    - `on_websocket` L210
+    - `attach` L229
+    - `snapshot` L235
+    - `dump` L249
+  - `_read_line()` L259-260
+  - `run()` L263-331
+  - `main()` L334-341
 - **scripts/krungsri/probe_order_actions_ui.py** (269 lines)
   - `main()` L136-193
   - `_maybe_click_cancel()` L196-264
+- **scripts/krungsri/probe_quicktrade_creditbalance.py** (137 lines)
+  - `check_order_actions()` L27-133
+- **scripts/krungsri/probe_quicktrade_headed.py** (235 lines)
+  - `probe_quicktrade()` L34-230
 - **scripts/krungsri/probe_quote_api.py** (148 lines)
   - `main()` L93-143
 - **scripts/krungsri/probe_quote_source.py** (197 lines)
   - `main()` L80-192
 - **scripts/krungsri/probe_sbl_pagination.py** (102 lines)
   - `main()` L7-98
+- **scripts/krungsri/probe_streaming_headed.py** (207 lines)
+  - `probe_streaming()` L30-203
+- **scripts/krungsri/probe_streaming_interact.py** (139 lines)
+  - `probe_streaming_live()` L27-135
 - **scripts/krungsri/run_phase2_login.py** (160 lines)
   - `main()` L34-155
 - **scripts/krungsri/run_phase3_dryrun.py** (124 lines)

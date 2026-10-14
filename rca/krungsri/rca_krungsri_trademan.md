@@ -2,7 +2,7 @@
 **Broker Platform:** `KRUNGSRI` (TradeMan Pro & Member Portal)  
 **Main URL:** `https://www.krungsrisecurities.com` | `https://trademan.in.th`  
 **Target Accounts:** Cash Balance (`3024952`), Margin Credit Balance / SBL (`3024959`)  
-**Last Updated:** 2026-10-07  
+**Last Updated:** 2026-10-14  
 **Lifecycle Methodology:** PDCA (Plan - Do - Check - Act) Continuous Annealing  
 
 ---
@@ -12,6 +12,10 @@
 1. บันทึก Root Cause, Edge Cases, และวิธีแก้ปัญหาที่ผ่านการพิสูจน์แล้ว (Verified Solutions) จากการทดสอบจริง
 2. ป้องกันไม่ให้ Agent หรือ Developer ต้องแก้ปัญหาเดิมซ้ำๆ ในวันพรุ่งนี้ ช่วยประหยัดเวลาและลดการใช้ Token
 3. รวบรวม User Guidance และ Feedback เพื่อให้ระบบปรับตัวแบบ Self-Annealing ได้อย่างต่อเนื่อง
+
+> 🔗 **Quick Trade (`fastorder.jsp`) แยกเอกสารโดยเจตนา** — Quick Trade เป็นคนละแอปพลิเคชัน (SSO `Put_SSO_Settrade.aspx?Page=place_order` + Settrade order-detail) มี DOM/URL/กลไก amend ของตัวเอง:
+> ดู `rca/krungsri/rca_krungsri_quicktrade.md` (ID space `KSS-QT-RCA-###`) และ runbook `learned_workflows/krungsri/quicktrade_native_change_order.md`
+> **ห้ามนำ selector/เส้นทาง amend ของ Quick Trade มาใช้กับ TradeMan (หรือกลับกัน)** — Broker/Application Isolation
 
 ---
 
