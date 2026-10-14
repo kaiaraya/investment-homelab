@@ -121,3 +121,23 @@ this DOM: 15 rows; the legacy scan returns 16).
   absent → `None` / stale cleared / class-vs-token selection) and `tests/test_line_cli_flow.py`
   (DOM-preferred totals, labels, `—`, `_money`, BORROWED excluded, unclipped symbol).
 
+## Summary keys — `cash_balance` is really Line Available (CLI-RCA-011, P2a 2026-10-14)
+
+- ⚠️ `scrape_account_summary()["cash_balance"]` does **not** hold a cash balance on TradeMan: the step-2
+  selector list tries `Line Available` **first**, then `Cash Balance` / `เงินสดคงเหลือ` / `PP`, so the value
+  returned is the **Line Available** of the account the page is showing. The key name is kept (5 other
+  callers) and the selector order is a **P2b** decision — do not reorder it in isolation.
+- Since P2a the summary also carries `account_no`, read from
+  `#dropDownAccountPort > div.flex.w-full.justify-between > div` via `_read_current_account_no()`, and is
+  `None` when unreadable; `_unreadable_summary()` returns `account_no: None` too.
+- `pillar2_portfolio.portfolio_get_balances` (KRUNGSRI) binds each figure **only** to the account whose
+  number matches (`values_bound=True`); every other account gets `None`, and its `cash_balance` stays
+  `None` until P2b scrapes a real cash/P&L selector. The KSS `/cash` card therefore shows
+  `Line Available` (plus `Excess Equity` for MARGIN) under the account it could actually read; nothing
+  readable → `อ่านไม่ได้` (never 🟢 live).
+- Still unknown (P2b): the Account Info panel's labels/values (Trading A/C, Credit Limit, Excess Equity,
+  Margin Required, %MM, Cash Balance) and the expand chevron. Probe them with
+  `scripts/krungsri/probe_account_info.py` — read-only, shape-only output in `data/probe_out/`.
+- Evidence: `tests/test_sbl_account_driver.py`, `tests/test_remote_mcp.py`, `tests/test_line_cli_flow.py`,
+  `tests/test_probe_account_info.py`.
+

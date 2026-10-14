@@ -402,14 +402,17 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
         # RCA-009: scrape_account_summary returns None (not 0.0) for an unreadable value
         # and sets authenticated=False when the page is a SignIn/expired session.
         auth_ok = bool(balances.get("authenticated", True)) if isinstance(balances, dict) else False
+        # CLI-RCA-011 (P2a): bind the scraped figures to the account number the driver
+        # actually read off the dropdown (``account_no``). A mismatch — or an unreadable
+        # number — leaves BOTH accounts with ``None``, so a value can never be rendered
+        # under the wrong account header (money-movement safety).
+        scraped_no = balances.get("account_no") if isinstance(balances, dict) else None
         # Anti-Mock (CLI-RCA-003): do NOT fabricate a 500k balance when the scraper
         # returned no value — leave it None so callers can say "อ่านไม่ได้" honestly.
         cash_acc = {
             "account_no": settings.TRADEMAN_ACCOUNT_NO_CASH or "3024952",
             "account_type": AccountType.CASH.value,
             "description": "Krungsri Cash Balance Account (Pre-funded Stocks)",
-            "line_available": balances.get("cash_balance"),
-            "cash_balance": balances.get("cash_balance"),
             "is_active": (account_context.krungsri_active == AccountType.CASH),
             "capabilities": [c.value for c in ACCOUNT_CAPABILITY_MATRIX.get(("KRUNGSRI", AccountType.CASH.value), [])]
         }
@@ -417,16 +420,25 @@ async def portfolio_get_balances(platform: Optional[str] = None, account_type: O
             "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN or "3024959",
             "account_type": AccountType.MARGIN.value,
             "description": "Krungsri Credit Balance / Margin Account (SBL Exclusive)",
-            "excess_equity": balances.get("excess_equity"),
-            "line_available": balances.get("excess_equity"),
-            "cash_balance": balances.get("cash_balance"),
             "is_active": (account_context.krungsri_active == AccountType.MARGIN),
             "capabilities": [c.value for c in ACCOUNT_CAPABILITY_MATRIX.get(("KRUNGSRI", AccountType.MARGIN.value), [])]
         }
+
+        def _bind(acc: Dict[str, Any]) -> Dict[str, Any]:
+            bound = scraped_no is not None and str(scraped_no) == str(acc["account_no"])
+            acc["values_bound"] = bound
+            # Driver key ``cash_balance`` is really Line Available (selector order, CLI-RCA-011).
+            acc["line_available"] = balances.get("cash_balance") if bound else None
+            acc["cash_balance"] = None          # not scraped honestly yet -> P2b
+            acc["excess_equity"] = balances.get("excess_equity") if bound else None
+            return acc
+
+        cash_acc, margin_acc = _bind(cash_acc), _bind(margin_acc)
         return {
             "platform": "KRUNGSRI",
             "authenticated": auth_ok,
             "active_account_type": account_context.krungsri_active.value,
+            "scraped_account_no": scraped_no,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "accounts": [cash_acc, margin_acc]
         }

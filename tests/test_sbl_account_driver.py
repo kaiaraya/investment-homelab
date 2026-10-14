@@ -83,6 +83,37 @@ async def test_scrape_account_summary_live_dom():
                         assert summary["cash_balance"] == 120500.00
                         assert summary["realized_pnl_today"] == 3450.50
                         assert summary["authenticated"] is True
+                        # CLI-RCA-011 (P2a): the account number comes from the dropdown DOM.
+                        assert summary["account_no"] == "3024959"
+
+
+@pytest.mark.asyncio
+async def test_scrape_account_summary_account_no_none_when_dropdown_unreadable():
+    """CLI-RCA-011 (P2a): if the dropdown number cannot be read the driver returns None —
+    never a guessed/remembered account number (Anti-Mock)."""
+    mock_page = AsyncMock()
+    mock_page.url = "https://trademan.in.th/Portfolio"
+
+    mock_acc = AsyncMock()
+    mock_acc.inner_text.return_value = "3024959"     # 7 digits -> page authenticates
+
+    async def mock_query_selector(selector):
+        if "dropDownAccountPort" in selector:
+            return mock_acc
+        return None
+
+    mock_page.query_selector.side_effect = mock_query_selector
+
+    with patch.object(settings, "DRY_RUN_MODE", False):
+        with patch.object(type(trademan_driver), "page", new_callable=PropertyMock, return_value=mock_page):
+            with patch.object(trademan_driver, "ensure_browser_ready", new_callable=AsyncMock):
+                with patch.object(trademan_driver, "switch_tab", new_callable=AsyncMock):
+                    with patch.object(trademan_driver, "_log_event", new_callable=AsyncMock):
+                        with patch.object(trademan_driver, "_read_current_account_no",
+                                          new_callable=AsyncMock, return_value=None):
+                            summary = await trademan_driver.scrape_account_summary()
+    assert summary["authenticated"] is True
+    assert summary["account_no"] is None
 
 
 @pytest.mark.asyncio
@@ -102,6 +133,7 @@ async def test_scrape_account_summary_signin_page_returns_none():
                         assert summary["cash_balance"] is None
                         assert summary["realized_pnl_today"] is None
                         assert summary["total_equity"] is None
+                        assert summary["account_no"] is None      # CLI-RCA-011 (P2a)
 
 
 @pytest.mark.asyncio
@@ -131,6 +163,7 @@ async def test_scrape_account_summary_missing_selectors_returns_none():
                         assert summary["excess_equity"] is None
                         assert summary["cash_balance"] is None
                         assert summary["total_equity"] is None
+                        assert summary["account_no"] == "3024952"   # CLI-RCA-011 (P2a)
 
 
 @pytest.mark.asyncio

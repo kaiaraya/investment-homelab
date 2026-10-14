@@ -852,3 +852,80 @@ def test_account_type_label_maps_raw_codes():
     assert _account_type_label("WEIRD_CODE") == "WEIRD_CODE"   # unknown → pass through honestly
 
 
+# --------------------------------------------------------------------------- #
+# CLI-RCA-011 (P2a) — /cash kss binds each figure to the account read off the dropdown
+# --------------------------------------------------------------------------- #
+def _kss_balances(account_type, *, values_bound=True, line_available=None,
+                  excess_equity=None, authenticated=True):
+    """``portfolio_get_balances()`` payload for one bound (or unbound) KSS account."""
+    return {
+        "platform": "KRUNGSRI", "authenticated": authenticated,
+        "scraped_account_no": "3024959" if values_bound else None,
+        "accounts": [{"account_type": account_type, "values_bound": values_bound,
+                      "line_available": line_available, "cash_balance": None,
+                      "excess_equity": excess_equity, "is_active": True}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_kss_margin_shows_ee_or_dash(monkeypatch):
+    """(a) MARGIN bound + EE unreadable -> ``Excess Equity`` with ``—``; header is Margin and
+    the old ``Cash balance`` / ``Buying power`` rows are gone (CLI-RCA-011 D3)."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
+        "MARGIN", line_available=250_000.0, excess_equity=None)))
+
+    text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
+
+    assert "Line Available" in text and "250,000.00" in text
+    assert "Excess Equity" in text and "—" in text
+    assert "Margin" in text
+    assert "Buying power" not in text
+    assert "Cash balance" not in text
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_kss_margin_shows_ee_value_when_readable(monkeypatch):
+    """(a cont.) a readable EE renders as a figure, not the ``—`` placeholder."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
+        "MARGIN", line_available=250_000.0, excess_equity=900_000.0)))
+
+    text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
+
+    assert "Excess Equity" in text and "900,000.00" in text
+    assert "—" not in text
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_kss_cash_has_no_ee_row(monkeypatch):
+    """(c) CASH bound -> a single Line Available row, never an Excess Equity row."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
+        "CASH", line_available=42_000.0)))
+
+    text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
+
+    assert "42,000.00" in text
+    assert "Excess Equity" not in text
+    assert "Margin" not in text
+
+
+@pytest.mark.asyncio
+async def test_live_cash_card_kss_unbound_account_is_unavailable(monkeypatch):
+    """(b) no account bound to the dropdown number -> honest ``อ่านไม่ได้``, never 🟢 live."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
+        "MARGIN", values_bound=False, line_available=None)))
+
+    text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
+
+    assert "อ่านไม่ได้" in text and "/login kss" in text
+    assert "🟢 live" not in text
+    assert "Line Available" not in text
+
+

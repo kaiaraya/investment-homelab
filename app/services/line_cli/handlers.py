@@ -607,8 +607,28 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
     from app.mcp.pillars.pillar2_portfolio import portfolio_get_balances
     res = await portfolio_get_balances(platform=plat)
     accounts = res.get("accounts", []) or []
+
+    if plat in ("KRUNGSRI", "TRADEMAN"):
+        # CLI-RCA-011 (P2a): render ONLY the account whose values were bound to the account
+        # number read off the dropdown — a figure must never sit under another account's
+        # header (money-movement safety). "—" alone never counts as readable (RCA-009).
+        acc = next((a for a in accounts if a.get("values_bound") is True), None)
+        if res.get("authenticated") is False or acc is None or acc.get("line_available") is None:
+            return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
+        rows: List[Dict[str, str]] = [
+            {"label": "Line Available", "value": f"{float(acc['line_available']):,.2f}"},
+        ]
+        if str(acc.get("account_type") or "").upper() == "MARGIN":
+            ee = acc.get("excess_equity")
+            rows.append({"label": "Excess Equity",
+                         "value": f"{float(ee):,.2f}" if ee is not None else "—"})
+        return cards.cash_card(broker=BROKER_LABEL[broker],
+                               account=_account_type_label(acc.get("account_type")),
+                               rows=rows, snapshot_label=now_label, live=True)
+
+    # LIB / other platforms: legacy behaviour kept verbatim (broker isolation, RCA-007).
     acc = next((a for a in accounts if a.get("is_active")), accounts[0] if accounts else {})
-    rows: List[Dict[str, str]] = []
+    rows = []
     if acc.get("cash_balance") is not None:
         rows.append({"label": "เงินสด / Cash balance", "value": f"{float(acc['cash_balance']):,.2f}"})
     if acc.get("line_available") is not None:

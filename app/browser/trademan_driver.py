@@ -2355,6 +2355,7 @@ class TradeManDriver:
             "cash_balance": None,
             "realized_pnl_today": None,
             "total_equity": None,
+            "account_no": None,
             "authenticated": False,
         }
 
@@ -2427,8 +2428,13 @@ class TradeManDriver:
                 "excess_equity": None,
                 "cash_balance": None,
                 "realized_pnl_today": None,
-                "total_equity": None
+                "total_equity": None,
+                "account_no": None,
             }
+
+            # CLI-RCA-011 (P2a): bind values to the account actually shown in the dropdown.
+            # ``None`` is an honest "cannot read" — callers must not guess (RCA-006a/RCA-009).
+            summary["account_no"] = await self._read_current_account_no(page)
 
             def _to_float(txt: Any) -> Optional[float]:
                 clean = re.sub(r"[^\d.-]", "", str(txt or ""))
@@ -2448,6 +2454,9 @@ class TradeManDriver:
                     logger.warning("scrape_account_summary: EE selector not found -> excess_equity=None")
 
                 # 2. Cash Balance / Line Available / PP
+                # CLI-RCA-011: selector ORDER matters — ``Line Available`` is tried first, so
+                # the returned ``cash_balance`` value is really **Line Available** on TradeMan.
+                # Do NOT rename the key (5 other callers) nor reorder (selectors = P2b).
                 cash_el = await page.query_selector(".cash-balance, td:has-text('Line Available') + td, td:has-text('Cash Balance') + td, td:has-text('เงินสดคงเหลือ') + td, td:has-text('PP') + td")
                 if cash_el:
                     summary["cash_balance"] = _to_float(await cash_el.inner_text())

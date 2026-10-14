@@ -299,6 +299,59 @@ async def test_pillar2_portfolio_risk():
     assert all(a["environment"] == "LIVE" for a in kss_acc_res["accounts"])
 
 
+@pytest.mark.asyncio
+async def test_pillar2_kss_balances_bind_only_to_scraped_account():
+    """CLI-RCA-011 (P2a): scraped figures attach ONLY to the account whose number was read.
+
+    (a) the dropdown read the MARGIN account -> MARGIN carries the values and CASH is all-None.
+    (c) the driver key ``cash_balance`` is really Line Available (selector order), so no
+        account may ever expose a ``cash_balance`` figure.
+    """
+    from app.core.config import settings
+
+    margin_no = settings.TRADEMAN_ACCOUNT_NO_MARGIN or "3024959"
+    with patch("app.browser.trademan_driver.trademan_driver.scrape_account_summary", new_callable=AsyncMock) as m_sum:
+        m_sum.return_value = {
+            "account_no": margin_no,
+            "cash_balance": 250_000.0,      # really Line Available (CLI-RCA-011)
+            "excess_equity": 900_000.0,
+            "authenticated": True,
+        }
+        res = await portfolio_get_balances(platform="KRUNGSRI")
+
+    by_type = {a["account_type"]: a for a in res["accounts"]}
+    assert res["scraped_account_no"] == margin_no
+    margin, cash = by_type["MARGIN"], by_type["CASH"]
+    assert margin["values_bound"] is True
+    assert cash["values_bound"] is False
+    # (a) values live ONLY under MARGIN
+    assert margin["line_available"] == 250_000.0
+    assert margin["excess_equity"] == 900_000.0
+    assert cash["line_available"] is None and cash["excess_equity"] is None
+    # (c) driver ``cash_balance`` is Line Available -> never surfaced as a cash balance
+    assert all(a["cash_balance"] is None for a in res["accounts"])
+
+
+@pytest.mark.asyncio
+async def test_pillar2_kss_balances_unbound_when_account_no_missing():
+    """(b) an unreadable/absent account number binds NONE of the values (Anti-Mock)."""
+    with patch("app.browser.trademan_driver.trademan_driver.scrape_account_summary", new_callable=AsyncMock) as m_sum:
+        m_sum.return_value = {          # no ``account_no`` -> nothing may be bound
+            "cash_balance": 250_000.0,
+            "excess_equity": 900_000.0,
+            "authenticated": True,
+        }
+        res = await portfolio_get_balances(platform="KRUNGSRI")
+
+    assert res["scraped_account_no"] is None
+    assert len(res["accounts"]) == 2
+    for acc in res["accounts"]:
+        assert acc["values_bound"] is False
+        assert acc["line_available"] is None
+        assert acc["cash_balance"] is None
+        assert acc["excess_equity"] is None
+
+
 # ==============================================================================
 # 7. Pillar 6: Tactical Strategy Center
 # ==============================================================================
