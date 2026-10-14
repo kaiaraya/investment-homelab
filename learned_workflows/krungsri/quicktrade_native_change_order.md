@@ -114,7 +114,15 @@ renders `True → ส่งเข้าตลาดแล้ว` · `False → �
 `test_negotiate_order_price_dry_run_reports_unsubmitted_amendment` + `..._reports_amendment_failure` (service),
 `test_negotiate_dry_run_card_never_claims_a_live_submission` (LINE flow).
 
-### 4.4 Still open (live)
-1. DRY-RUN live probe of `amend_price` (price + PIN filled, Submit **not** clicked) on the real session.
-2. LIVE `/negotiate <order_no>` re-test in the LINE group → then record the observable card output here.
+### 4.4 Live Verification Status
+1. **DRY-RUN live probe of `amend_price`**:
+   - ✅ **VERIFIED (2026-10-14 17:08)**: Live headed probe completed successfully on order `11008198` (Credit Balance `3024959`).
+   - Ground-truth DOM: Settrade order detail uses Angular Reactive Forms without `name`/`id` on inputs:
+     - Price: `input[formcontrolname='price']`
+     - Volume: `input[formcontrolname='vol']`
+     - PIN: `input[placeholder='PIN']` / `input[type='password']`
+   - Verified on modal: Price staged to `29.50`, volume preserved at `1,700`, PIN filled, Submit untouched (`DRY-RUN` guaranteed).
+   - Screenshot logged: `data/screenshots/quicktrade_amend_dryrun.png`.
+2. **LIVE `/negotiate <order_no>` in LINE group**:
+   - Staging test available via `/negotiate 11008198`. Submission remains gated by `settings.DRY_RUN_MODE` until live market trading window.
 
