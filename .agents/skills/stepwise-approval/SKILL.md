@@ -2,9 +2,9 @@
 name: stepwise-approval
 description: Co-pilot execution protocol — decompose work into small AI↔user steps,
   state the expected outcome before each step, capture a screenshot at each stage
-  when a headed browser is in use, verify with real human interaction at every step
-  (e.g. ping the phone and ask), and require human interaction whenever the agent
-  cannot confidently proceed.
+  when a headed browser is in use, and require real human interaction at every
+  high-risk (T2) step — order/OTP/account/live-login/merge — per the risk-tiered
+  gate in `docs/agent/github_handoff.md` §5. Lower-risk work (T0/T1) reports at unit end.
 ---
 
 # Stepwise-Approval Co-Pilot Skill
@@ -15,13 +15,18 @@ to code changes, refactors, bug fixes, and any Playwright-driven browser automat
 
 ---
 
-## 1. Decompose into small steps (AI ↔ user, every step)
+## 1. Decompose into small steps (risk-tiered check-in)
 
 - Split each task into the smallest independently-verifiable steps
   (one function, one call-site edit, one browser action).
-- Execute **EXACTLY one step**, then **STOP** and hand control back to the user.
-- **Check in between every step.** Never batch unrelated changes and report only
-  at the end — the user is involved between each step.
+- **Risk-tiered check-in** (see `docs/agent/github_handoff.md` §5) — do NOT hand control
+  back at every micro-step, or the user becomes the bottleneck:
+  - 🟢 **T0** (code/docs/unit test/headless scrape): execute the whole unit, report at unit end.
+  - 🟡 **T1** (logic not touching order/OTP/tick): batch within the unit, report diff + evidence.
+  - 🔴 **T2** (order / OTP / account switch / SBL / live login / merge main): **STOP before
+    each action** and let the user confirm.
+- Never batch **unrelated** changes, and never proceed past a **T2** gate without explicit
+  human OK. A unit = one atomic unit from `## Steps / Task Decomposition` in the handoff.
 
 ## 2. State what to expect (before each step)
 
@@ -51,7 +56,7 @@ to code changes, refactors, bug fixes, and any Playwright-driven browser automat
 
 ---
 
-## 5. Verify with real human interaction at every step (not just unit tests)
+## 5. Verify with real human interaction at every T2 step (not just unit tests)
 
 - A passing unit test is **NOT** sufficient to declare a hardware/browser step
   verified. Do the real thing and ask the user to confirm the observable result.
@@ -62,7 +67,7 @@ to code changes, refactors, bug fixes, and any Playwright-driven browser automat
     bring the KDE Connect app to the foreground first, then retry the ping.
 - **Headed browser**: capture the screenshot (§3) **and** ask the user to confirm
   what they see on screen.
-- Apply this at **every** step — never declare "verified" on an automated test alone
+- Apply this at **every T2 step** — never declare "verified" on an automated test alone
   when the step touched real hardware or a visible browser.
 
 ---
@@ -112,6 +117,7 @@ To achieve consistent, high-fidelity execution parity with reasoning models:
 
 ## Cross-references
 
+- `docs/agent/github_handoff.md` — Phase 0–5 loop + Risk-Tier (T0/T1/T2) + Human gates.
 - `watch-and-learn` — 4-Tier Self-Annealing Playwright protocol + PDCA broker
   knowledge loop.
 - `playwright-studio` — MCP tools for headed browser co-piloting and screenshot capture.

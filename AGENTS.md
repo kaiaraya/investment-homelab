@@ -52,6 +52,8 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 | Daily readiness | `docs/agent/daily_readiness.md`, `.agents/skills/daily-readiness/SKILL.md` |
 | Handoff / Cline report format | `docs/agent/handoff_protocol.md` |
 | Token workflow (planning vs implementation split) | `docs/agent/token_workflow.md` |
+| Workflow SOP (AGY + Cline + Kanban) | `docs/agent/workflow_playbook.md` |
+| Argon loop / GitHub handoff (Phase 0–5, Human gates, Risk-tier) | `docs/agent/github_handoff.md` |
 | Finding code | `docs/agent/CODEMAP.md` (regenerate: `.venv/bin/python scripts/gen_codemap.py`) |
 | Broker RCA / runbooks | `rca/<broker>/`, `learned_workflows/<broker>/` |
 | Token usage report | `.venv/bin/python scripts/token_report.py [--session <id>]` |

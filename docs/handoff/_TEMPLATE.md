@@ -2,9 +2,16 @@
 
 - Created: YYYY-MM-DD by Antigravity
 - Broker: <Krungsri / Click2Win / Liberator / N/A>
-- Status: TODO | IN_PROGRESS | REVIEW | DONE
+- Git Branch: `task/<task-slug>`
+- Worktree: `~/.cline/worktrees/<task-slug>`
+- Status: DRAFT | READY | IN_PROGRESS | REVIEW | DONE  (state machine: `docs/agent/github_handoff.md` §6)
 
-## Context (Antigravity เขียน)
+## Directive delta (Argon เขียน — PHASE 0)
+> Argon อัปเดต directive จาก learning ของ loop ที่แล้ว ก่อน Flash ร่างแผน
+- ไฟล์ directive ที่ปรับ: `directive/<file>.md` — <สรุปสิ่งที่เปลี่ยน>
+- เหตุผล: <learning จาก §Argon Analysis ของ loop ก่อน / RCA / Open question ที่ปิด>
+
+## Context (Antigravity เขียน — PHASE 1)
 <ปัญหา / เป้าหมาย / RCA ที่เกี่ยวข้อง>
 
 ## Scope — ไฟล์ที่อนุญาตให้แก้
@@ -27,6 +34,7 @@
 | 1 | ...                        | ...                                | `.venv/bin/python -m pytest tests/<...> -q` | ⬜ |
 
 ## Acceptance / Tests ที่ต้องผ่าน
+- `.venv/bin/python scripts/verify_changes.py <files>`
 - `.venv/bin/python -m pytest tests/<...> -q`
 
 ## Out of scope / ห้ามแตะ
@@ -34,14 +42,47 @@
 
 ---
 
-## Cline Report (Cline เขียน)
+## Cline Report (Cline เขียนเมื่อส่งงานกลับ [Review / Approval] — PHASE 4)
+- Git Commit(s): `TASK-xxx: <type>(<scope>): <summary>`
 - Files changed:
 - Summary:
 - Tests run + result:
-- Open questions:
+- Open questions (สิ่งที่ไม่แน่ใจ / ปัญหานอก Scope ที่พบ -> ห้ามแก้เอง ให้จดเพื่อแตกเป็น Child Card):
 
 ---
 
-## Antigravity Review
+## Antigravity Review & Stepwise Approval (PHASE 4b)
+- [ ] **Stage A (Code Audit)**: Diffs match scope, Invariants verified (Anti-Mock, Zero-OTP, Uptick)
+- [ ] **Stage B (Verify)**: `.venv/bin/python scripts/verify_changes.py <changed files>` = PASS
+- [ ] **Stage C (Visual / HITL)**: Observable state / screenshot checked via `ask_question`
+- [ ] **Stage D (Merge)**: Squash merge into `main` and clean worktree
+- Spawned Child Cards (ถ้ามีประเด็นแตกย่อย):
+  - `TASK-xxx_1-...` -> ย้ายลง `[Backlog]`
 - Verdict: PASS / CHANGES_REQUESTED
 - Notes:
+
+---
+
+## Argon Analysis (Argon เขียน — PHASE 5 · เห็นแค่ "แผน + ผล")
+> Input = แผน (§Context / §Scope / §Steps / §Acceptance) + ผล (§Cline Report + §Antigravity Review) เท่านั้น
+> ข้อ 2–3 ที่ Argon พบเป็น "สมมติฐาน" → ต้อง live-verify (broker + LINE, headed) ก่อน merge (Anti-Mock)
+
+### 1. Direction alignment
+- Verdict: ✅ ALIGNED / ⚠️ DRIFT / ❌ OFF-DIRECTION
+- เหตุผล + อ้างอิง `directive/idea.md` / roadmap:
+
+### 2. Directive consistency (findings)
+- [ ] <แผน/ผล ขัดกับ `directive/*.md` อะไรบ้าง>
+
+### 3. Code vulnerability scan (findings)
+- [ ] <ไฟล์ใน §Cline Report ที่มีช่องโหว่ / เสี่ยงเทียบ RCA pattern>
+
+### 4. Next loop improvement
+- ปัญหาที่ loop นี้เจอ:
+- สิ่งที่ loop ถัดไปต้องทำ (→ ป้อนเป็น `## Context` ของการ์ดถัดไป):
+- Child cards: `TASK-xxx_n-...` → `[Backlog]`
+
+- Direction verdict: ...
+- Next loop focus: ...
+
+
