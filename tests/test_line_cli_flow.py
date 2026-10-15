@@ -967,6 +967,138 @@ async def test_live_cash_card_kss_unbound_account_is_unavailable(monkeypatch):
     assert "Line Available" not in text
 
 
+# --------------------------------------------------------------------------- #
+# C4 / C2 / A3 (TASK-loop1-1) — honest /orders auth flag, /port lib account no,
+# and no silent `else: CLICK2WIN` fallback for an unknown platform
+# --------------------------------------------------------------------------- #
+def _iter_dicts(node):
+    """Every ``dict`` inside a (possibly nested) card structure, in document order."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _iter_dicts(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _iter_dicts(value)
+
+
+def _orders_payload(*, authenticated=True, orders=None):
+    """``current_orders()`` payload exactly as Pillar 2 now returns it (C4 auth flag)."""
+    rows = orders if orders is not None else []
+    return {
+        "success": True, "status": "SUCCESS", "platform": "KRUNGSRI",
+        "account_type": "MARGIN", "authenticated": authenticated,
+        "total": len(rows), "unmatched_count": 0, "orders": rows,
+    }
+
+
+def _one_order():
+    return {"broker_order_no": "11012916", "symbol": "AAV", "side": "SELL",
+            "volume": 57000, "matched_volume": 0, "balance": 57000, "price": 0.84,
+            "status_raw": "O", "status_category": "UNMATCHED", "time": "10:01:02"}
+
+
+@pytest.mark.asyncio
+async def test_live_orders_card_is_unavailable_when_not_authenticated(monkeypatch):
+    """C4: an unreadable ledger must never render as an empty day with a 🟢 live badge."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    orders = AsyncMock(return_value=_orders_payload(authenticated=False))
+    monkeypatch.setattr(pillar2, "current_orders", orders)
+
+    card = await REAL_LIVE_CARD("orders", "kss")
+
+    orders.assert_awaited_with(platform="TRADEMAN")
+    text = _flex_text(card)
+    assert "อ่านไม่ได้" in text and "session หมดอายุ" in text
+    assert "/login kss" in text
+    assert "🟢 live" not in text
+    assert "ยังไม่มีออเดอร์ในระบบ" not in text   # never a fabricated "no orders today"
+
+
+@pytest.mark.asyncio
+async def test_live_orders_card_renders_two_line_rows_with_bold_symbol(monkeypatch):
+    """CLI-RCA-004: symbol gets its own bold ``md`` line; qty/price/status on line 2."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "current_orders",
+                        AsyncMock(return_value=_orders_payload(orders=[_one_order()])))
+
+    card = await REAL_LIVE_CARD("orders", "kss")
+    text = _flex_text(card)
+
+    assert "AAV" in text and "SELL" in text
+    assert "57,000 @0.84" in text and "ค้าง 57,000" in text
+    assert "🟢 live" in text                    # authenticated → the live badge is honest
+
+    texts = [n["text"] for n in _iter_dicts(card) if n.get("type") == "text"]
+    symbol_idx = texts.index("⏳ AAV")
+    assert symbol_idx < texts.index("57,000 @0.84")   # symbol on line 1, details on line 2
+    symbol_cell = next(n for n in _iter_dicts(card)
+                       if n.get("type") == "text" and n.get("text") == "⏳ AAV")
+    assert symbol_cell["weight"] == "bold" and symbol_cell["size"] == "md"
+    assert symbol_cell["wrap"] is True
+
+
+@pytest.mark.asyncio
+async def test_live_port_card_lib_shows_account_number(monkeypatch):
+    """C2: the LIB header shows the account number the pillar read, not the word LIVE."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    holdings = AsyncMock(return_value={
+        "platform": "LIBERATOR", "account_no": "7055938", "authenticated": True,
+        "account_type": "CASH", "count": 1,
+        "holdings": [{"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0}],
+    })
+    monkeypatch.setattr(pillar2, "portfolio_holdings", holdings)
+
+    card = await REAL_LIVE_CARD("port", "lib")
+
+    holdings.assert_awaited_with(platform="LIBERATOR")
+    text = _flex_text(card)
+    assert "7055938" in text
+    assert "· LIVE" not in text
+    assert "🟢 live" in text
+
+
+@pytest.mark.asyncio
+async def test_trademan_switch_account_without_browser_is_not_a_fake_success(monkeypatch):
+    """Anti-Mock (TASK-cli-p0 Open Q1): no browser page -> BROWSER_NOT_ACTIVE, no fake id."""
+    from app.browser import auth_driver as auth_mod
+    from app.browser.trademan_driver import trademan_driver
+
+    monkeypatch.setattr(trademan_driver, "ensure_authenticated_trademan",
+                        AsyncMock(return_value=None), raising=False)
+    monkeypatch.setattr(auth_mod.auth_driver, "status", "DISCONNECTED", raising=False)
+
+    res = await trademan_driver.switch_account("MARGIN")
+
+    assert res["success"] is False
+    assert res["status"] == "BROWSER_NOT_ACTIVE"
+    assert res["account_no"] is None
+    assert "SIMULATED" not in res["status"]
+
+
+@pytest.mark.asyncio
+async def test_pillar2_unknown_platform_raises_instead_of_click2win_fallback():
+    """A3: an unknown platform name must raise — never silently return Click2Win data."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    for read in (pillar2.portfolio_holdings, pillar2.current_open_orders, pillar2.current_orders):
+        with pytest.raises(ValueError):
+            await read(platform="NOT_A_BROKER")
+
+
+@pytest.mark.asyncio
+async def test_pillar2_known_platforms_do_not_raise_on_normalisation():
+    """A3 guard: KSS (MARGIN lock) and LIB keep their explicit branches (no fallback)."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    assert pillar2._classify_order_category(1000, 1000, 0, "Matched") == "MATCHED"
+    # current_orders(CLICK2WIN) stays a truthful guardrail rejection, not CLICK2WIN data.
+    res = await pillar2.current_orders(platform="CLICK2WIN")
+    assert res["success"] is False
+    assert res["platform"] == "CLICK2WIN"
 
 
 # --------------------------------------------------------------------------- #

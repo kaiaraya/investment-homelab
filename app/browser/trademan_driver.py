@@ -346,6 +346,10 @@ class TradeManDriver:
         # RCA-006b: True only when the last portfolio scrape ran on a verified,
         # authenticated TradeMan page + account. Callers must not show 🟢 live otherwise.
         self.portfolio_scrape_authenticated: bool = False
+        # Cline loop1-1 (C4): True only when the last order-ledger read ran on an
+        # authenticated TradeMan View Order tab (no SignIn/expired page). The /orders card
+        # must render "อ่านไม่ได้" instead of a fake 🟢 live when this is False.
+        self.orders_scrape_authenticated: bool = False
         # RCA-013: the on-page summary-table totals, keyed
         # ``{"amount", "market_value", "unrealized_pnl", "account_no"}``. ``None`` while
         # the summary table is absent; individual fields stay ``None`` (never 0.0) when a
@@ -544,8 +548,10 @@ class TradeManDriver:
         2. Delegates the DOM-level switch to ``_select_account_on_page()`` (RCA-006a), which
            clicks ``#dropDownAccountPort div.absolute span:text-is("<acc_no>")`` and verifies
            that the current-account div really shows the target before reporting success.
-        Returns ``success=False`` with status ``ACCOUNT_SWITCH_FAILED`` when the switch cannot
-        be confirmed (Anti-Mock: no fabricated account_no).
+        Returns ``success=False`` with status ``BROWSER_NOT_ACTIVE`` when there is no
+        authenticated TradeMan page at all, and with status ``ACCOUNT_SWITCH_FAILED`` when
+        the switch cannot be confirmed (Anti-Mock: no fabricated account_no / no fake
+        success — Cline loop1-1).
         """
         async with self.lock:
             target = account_type.upper().strip()
@@ -564,14 +570,19 @@ class TradeManDriver:
                             "KDE Connect is listening on D-Bus or submit via session_submit_otp('123456')."
                         )
                     }
-                # If in dry-run or testing mode without active display/credentials
+                # Anti-Mock (loop1-1 / TASK-cli-p0 Open Q1): no browser page means NO switch
+                # happened. Never report a fabricated success with a settings-derived
+                # account_no — callers must /login kss and retry (Broker Isolation).
                 return {
-                    "success": True,
+                    "success": False,
+                    "status": "BROWSER_NOT_ACTIVE",
                     "platform": "KRUNGSRI",
                     "account_type": target,
-                    "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN if target == "MARGIN" else (settings.TRADEMAN_ACCOUNT_NO_CASH or "3024959-CASH"),
-                    "status": "SIMULATED_SWITCH",
-                    "message": f"Switched Krungsri account context to {target} (Browser not active)."
+                    "account_no": None,
+                    "message": (
+                        f"Cannot switch Krungsri account to {target}: no active authenticated "
+                        "TradeMan browser page (run /login kss first)."
+                    ),
                 }
             return await self._select_account_on_page(page, target)
 
@@ -1368,12 +1379,29 @@ class TradeManDriver:
         async with self.lock:
             page = self.page
             if not page:
+                # C4 / Anti-Mock: no page == no ledger read -> the /orders card must say
+                # "อ่านไม่ได้", never render a 🟢 live empty list.
+                self.orders_scrape_authenticated = False
                 return []
 
-            await self.switch_tab("order_status")
+            # RCA-008: a SignIn / expired page has no View Order ledger. Bail out honestly
+            # instead of letting the empty table masquerade as "no orders today".
+            url = (getattr(page, "url", "") or "").lower()
+            if "trademan.in.th" not in url or "signin" in url or "login" in url:
+                logger.warning(
+                    "TradeManDriver: order ledger blocked — TradeMan session is not "
+                    f"authenticated (URL: {url or '?'}). Returning [] (Anti-Mock)."
+                )
+                self.orders_scrape_authenticated = False
+                return []
+
+            # An authenticated TradeMan SPA always renders the `div#order_btn` View Order
+            # tab; failing to reach it means we are NOT on a signed-in ledger page.
+            tab_ok = await self.switch_tab("order_status")
             await page.wait_for_timeout(1000)
 
             orders = await self._scrape_view_order_rows(page)
+            self.orders_scrape_authenticated = bool(tab_ok)
             logger.info(f"Found {len(orders)} total orders on TradeMan.")
             return orders
 

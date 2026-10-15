@@ -600,6 +600,10 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
                 return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
             account_label = getattr(trademan_driver, "active_account_no", None) or "LIVE"
             summary = getattr(trademan_driver, "portfolio_totals", None) or {}
+        elif res.get("account_no"):
+            # C2 (loop1-1): the LIB header shows the account number the pillar read from the
+            # Liberator session (never another broker's number, never a fake "LIVE").
+            account_label = str(res["account_no"])
         rows = _normalise_holdings(res.get("holdings", []))
         # D2/D3: (B) rows leave the main table and render as their own
         # "หุ้นยืมคงเหลือ (B)" section. Market Value is no longer shown (D1) — the page's
@@ -623,6 +627,11 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
     if kind == "orders":
         from app.mcp.pillars.pillar2_portfolio import current_orders
         res = await current_orders(platform=plat)
+        # C4 / RCA-006b (loop1-1): an order ledger is 🟢 live ONLY when the broker page was
+        # signed in. Otherwise the card must say "อ่านไม่ได้" — never an empty ledger with a
+        # live badge (Anti-Mock: an unreadable day must not look like "no orders today").
+        if res.get("authenticated") is False:
+            return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
         ledger = res.get("orders", []) or []
         rows = [{"kind": _CAT_KIND.get(str(o.get("status_category", "")).upper(), "unknown"),
                  "side": o.get("side", ""), "symbol": o.get("symbol", ""), "volume": o.get("volume", 0),

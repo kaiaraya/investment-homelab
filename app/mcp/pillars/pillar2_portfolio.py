@@ -506,10 +506,17 @@ async def portfolio_holdings(platform: Optional[str] = None, account_type: Optio
     plat_raw = (platform or settings.TRADING_PLATFORM).upper().strip()
     if plat_raw in ["KRUNGSRI", "TRADEMAN"]:
         plat = "KRUNGSRI"
-    elif plat_raw in ["LIBERATOR"]:
+    elif plat_raw in ["LIBERATOR", "LIB"]:
         plat = "LIBERATOR"
-    else:
+    elif plat_raw in ["CLICK2WIN", "C2W"]:
         plat = "CLICK2WIN"
+    else:
+        # Anti-Mock + Broker Isolation (A3, loop1-1): an unknown broker name must raise,
+        # never silently fall back to Click2Win (would return wrong-broker holdings).
+        raise ValueError(
+            f"Unknown trading platform: {platform!r}. "
+            "Expected one of: KRUNGSRI/TRADEMAN, LIBERATOR/LIB, CLICK2WIN/C2W."
+        )
     target_acc = account_guardrail.normalize_account_type(plat, account_type)
 
     try:
@@ -525,8 +532,19 @@ async def portfolio_holdings(platform: Optional[str] = None, account_type: Optio
             from app.brokers import liberator_plugin
             port = await liberator_plugin.get_portfolio()
             holdings = [p.model_dump() for p in port.positions]
+            # C2 (loop1-1 / TASK-cli-p0 Open Q3): return the REAL account number the
+            # Liberator session reported (same source as `/cash lib`) so the `/port lib`
+            # header shows the number instead of the word "LIVE". `get_health()` only reads
+            # tab state — it never logs in (Invariant 7/9).
+            try:
+                health = await liberator_plugin.get_health()
+                authenticated = bool(health.get("is_authenticated"))
+            except Exception:
+                authenticated = False
             return {
                 "platform": "LIBERATOR",
+                "account_no": getattr(port, "account_no", None),
+                "authenticated": authenticated,
                 "account_type": target_acc.value,
                 "count": len(holdings),
                 "holdings": holdings
@@ -567,10 +585,17 @@ async def current_open_orders(platform: Optional[str] = None, account_type: Opti
     plat_raw = (platform or settings.TRADING_PLATFORM).upper().strip()
     if plat_raw in ["KRUNGSRI", "TRADEMAN"]:
         plat = "KRUNGSRI"
-    elif plat_raw in ["LIBERATOR"]:
+    elif plat_raw in ["LIBERATOR", "LIB"]:
         plat = "LIBERATOR"
-    else:
+    elif plat_raw in ["CLICK2WIN", "C2W"]:
         plat = "CLICK2WIN"
+    else:
+        # Anti-Mock + Broker Isolation (A3, loop1-1): an unknown broker name must raise,
+        # never silently fall back to Click2Win (would return wrong-broker orders).
+        raise ValueError(
+            f"Unknown trading platform: {platform!r}. "
+            "Expected one of: KRUNGSRI/TRADEMAN, LIBERATOR/LIB, CLICK2WIN/C2W."
+        )
     target_acc = account_guardrail.normalize_account_type(plat, account_type)
 
     try:
@@ -623,10 +648,17 @@ async def current_orders(
     plat_raw = (platform or settings.TRADING_PLATFORM).upper().strip()
     if plat_raw in ["KRUNGSRI", "TRADEMAN"]:
         plat = "KRUNGSRI"
-    elif plat_raw == "LIBERATOR":
+    elif plat_raw in ["LIBERATOR", "LIB"]:
         plat = "LIBERATOR"
-    else:
+    elif plat_raw in ["CLICK2WIN", "C2W"]:
+        # Click2Win has no full ledger (see the guardrail below) but IS a known platform —
+        # an unknown name must raise instead of masquerading as Click2Win (A3, loop1-1).
         plat = "CLICK2WIN"
+    else:
+        raise ValueError(
+            f"Unknown trading platform: {platform!r}. "
+            "Expected one of: KRUNGSRI/TRADEMAN, LIBERATOR/LIB, CLICK2WIN/C2W."
+        )
 
     if plat not in ("KRUNGSRI", "LIBERATOR"):
         return {
@@ -644,9 +676,19 @@ async def current_orders(
     try:
         if plat == "KRUNGSRI":
             raw_orders = await trademan_driver.scrape_all_orders()
+            # C4 (loop1-1): honesty flag for the /orders card — True only when the ledger
+            # read ran on an authenticated TradeMan View Order tab (no SignIn page).
+            authenticated = bool(getattr(trademan_driver, "orders_scrape_authenticated", False))
         else:
             from app.brokers import liberator_plugin
             raw_orders = await liberator_plugin.get_all_orders()
+            # LIBERATOR: single-account web session — trust the plugin's own health flag
+            # (the same source `handlers._broker_session_alive` uses), never guess.
+            try:
+                health = await liberator_plugin.get_health()
+                authenticated = bool(health.get("is_authenticated"))
+            except Exception:
+                authenticated = False
     except Exception as e:
         logger.error(f"Pillar 2: Failed to fetch order ledger ({e}). Escalating...")
         try:
@@ -692,6 +734,9 @@ async def current_orders(
         "status": MCPToolStatus.SUCCESS.value,
         "platform": plat,
         "account_type": target_acc.value,
+        # C4 (loop1-1): the /orders card renders "อ่านไม่ได้" instead of a fake 🟢 live
+        # whenever this flag is False (handlers._live_card → cards.unavailable_card).
+        "authenticated": authenticated,
         "total": len(ledger),
         "matched_count": counts["MATCHED"],
         "partially_matched_count": counts["PARTIALLY_MATCHED"],
