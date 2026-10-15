@@ -52,7 +52,9 @@ Status: **code + unit verified**; live re-test (`/port kss sync` sign check + lo
 
 ### Notes / couplings
 - `scrape_portfolio` deliberately does **not** call `switch_account()`: that path authenticates and could fire an SMS OTP from a background scrape (Invariant 9). Both now share `_select_account_on_page()`.
-- Still open (out of handoff scope, reported): `switch_account`'s "browser not active" branch returns `success=True` with a settings-derived `account_no` (`SIMULATED_SWITCH`); `portfolio_holdings`/`current_orders` still contain their own `else: CLICK2WIN` fallbacks and propagate no auth flag (orders card cannot report "อ่านไม่ได้" yet).
+- **Closed by `TASK-loop1-1` (2026-10-15, interactive)** — the three gaps reported here are fixed:
+  `switch_account`'s "browser not active" branch now returns `{"success": False, "status": "BROWSER_NOT_ACTIVE"}` (no settings-derived `account_no`, no fake success); the remaining `else: CLICK2WIN` fallbacks in `portfolio_holdings` / `current_open_orders` / `current_orders` were replaced by an explicit `CLICK2WIN/C2W` branch plus `raise ValueError` for unknown names; `current_orders` now returns `"authenticated"` (from the new `trademan_driver.is_page_authenticated()` RCA-008/009 check, or Liberator `get_health()`) and `portfolio_holdings` (LIBERATOR) returns the real `account_no` — `_live_card("orders")` turns `authenticated is False` into `unavailable_card()` instead of an empty ledger badged 🟢 live.
+  Evidence: `.venv/bin/python scripts/verify_changes.py app/mcp/pillars/pillar2_portfolio.py app/browser/trademan_driver.py app/services/line_cli/handlers.py app/services/line_cli/cards.py` → **PASS (134 tests)** on 2026-10-15, including the A3 Account Scope Lock (an omitted `account_type` on a Krungsri read resolves to MARGIN, not to `account_context`'s CASH default). Live witness still pending in `TASK-loop1-4`.
 
 ## Live re-test P1 — 2026-10-14 05:34 (Antigravity)
 - RCA-002 ✅ live: Unrealized P/L sign + value match the app; (S)/(B) tags shown. **Q1 resolved:** the web holdings Symbol cell carries `(S)`/`(B)` as text suffix.
@@ -184,3 +186,36 @@ Status: **code + unit verified (PASS)**; the live `/negotiate` re-test on a real
 - Handoff correction: the task doc pointed step 4 at `tests/test_line_cli_handlers.py`, which **does not exist** —
   the real mapping is `tests/test_line_cli_flow.py` (handlers + cards) + `tests/test_line_cli_parser.py`.
 
+
+## Proven fix P4 — 2026-10-15 (Cline, TASK-loop1-1 · interactive room)
+
+*(PDCA entry for the Pillar 2 gaps previously listed as "still open" in `TASK-cli-p0`. No selector or
+DOM change — nothing in `learned_workflows/` needed rewriting; this records the semantics.)*
+
+**Symptom** — `/orders kss|lib` could render an empty ledger badged 🟢 live; `/port lib sync` showed
+`LIVE` instead of the account number; `switch_account()` reported success with a settings-derived
+account number while no browser session existed; an unknown / other-broker platform name silently
+returned Click2Win data.
+
+**Root cause** — the read paths still carried `else: CLICK2WIN` fallbacks, `current_orders()` exposed
+no auth signal, and the driver's "browser not active" branch returned a fabricated `success=True`.
+
+**Edge cases covered** — unknown platform (`SETTRADE`, `IBKR`, …) → `ValueError`; expired session →
+`authenticated: False` → `unavailable_card()`; alias forms `LIB` / `C2W`; a genuinely empty ledger on
+a valid session still renders a normal (non-`อ่านไม่ได้`) card.
+
+**Proven solution** — `trademan_driver.is_page_authenticated()` (RCA-008/009: TradeMan URL + real
+7-digit account in `#dropDownAccountPort`) feeds `current_orders()["authenticated"]`; Liberator uses
+`liberator_plugin.get_health()["is_authenticated"]`; `portfolio_holdings` (LIBERATOR) returns the real
+`account_no` (card header shows it instead of `LIVE`); `switch_account()` returns
+`{"success": False, "status": "BROWSER_NOT_ACTIVE"}`; `orders_card` renders 2 lines per order with a
+bold `md` symbol (CLI-RCA-004); **A3 Account Scope Lock** — `pillar2_portfolio._resolve_read_account_type()`
+returns `AccountType.MARGIN` for a Krungsri read that omits `account_type` (the driver's own DOM default
+is MARGIN too), while `account_context` / `trademan_driver.active_account_type` keep reporting what the
+screen really shows (no global state is faked).
+
+**Verification** — `scripts/verify_changes.py app/mcp/pillars/pillar2_portfolio.py app/browser/trademan_driver.py app/services/line_cli/handlers.py app/services/line_cli/cards.py` = **PASS (134 tests)**;
+targeted: `test_sbl_account_driver.py` 16 passed · `test_pillar2_order_ledger.py` 16 passed ·
+`test_line_cli_flow.py` 68 passed. Live witness pending in `TASK-loop1-4`.
+
+**User feedback** — _pending (Loop 1 live round B)_
