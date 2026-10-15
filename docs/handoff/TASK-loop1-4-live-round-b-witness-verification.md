@@ -2,7 +2,7 @@
 
 - Created: 2026-10-15 by Argon (Complex Task Owner)
 - Broker: KSS (MARGIN 3024959) + LIB (CASH) — ของจริง ตลาดเปิด
-- Status: BLOCKED (2026-10-15 15:42, Cline) — gate ไม่ครบ 2 ข้อ, หยุดก่อนขั้น 1 (ดู Cline Report)
+- Status: BLOCKED (อัปเดต 2026-10-15 16:05, Cline) — gate ผ่าน 1/4 (Card 3 ปิดแล้ว `a666015`); ยังติด Gateway ไม่รัน (ต้อง Admin start เอง) + หน้าต่างตลาดไม่พอ
 - Depends on: TASK-loop1-1, TASK-loop1-2, TASK-loop1-3
 - Unblocks: — (ปิด Loop 1 → ป้อนผลเข้า Argon Analysis)
 - Closes Acceptance (`loop_acceptance_and_tasks.md` §1): D5
@@ -14,10 +14,10 @@
 ## Context
 การ์ด 1–3 พิสูจน์แค่ระดับ unit/mock ยังไม่ยืนยันว่าของจริงทำงาน การ์ดนี้ต้องรันกับตลาดจริง โดยมี Admin เฝ้าหน้าจอ (witness) ทุกขั้น ห้ามเชื่อ log อย่างเดียว
 
-## Gate เงื่อนไขก่อนเริ่ม (ต้องครบทุกข้อ) — **ผลเช็ค 2026-10-15 15:42 (Cline): 2 FAIL → หยุด**
-- [ ] การ์ด 1–3 merge + `verify_changes.py` PASS แล้ว → **FAIL**: Card 1 ✅ `1fe7cf8` · Card 2 ✅ `6c6819b` (`MAX_TICKS_EXCEEDED` G5 present) · **Card 3 ❌ ยังไม่ implement** (0 hits `QUOTE_UNAVAILABLE`, handoff DRAFT, steps ⬜)
-- [ ] Gateway รันอยู่ที่ `app.main:app` → **FAIL**: ไม่มี process uvicorn, ไม่มีพอร์ต 8000, `curl /health` (localhost + Tailscale `100.88.217.33:8000`) = connection refused
-- [ ] ตลาดเปิด (KSS/LIB) มี volume จริง → ⚠️ เปิดอยู่แต่เหลือ ~45 นาที (SET บ่ายปิด ~16:30)
+## Gate เงื่อนไขก่อนเริ่ม (ต้องครบทุกข้อ) — **ผลเช็คล่าสุด 2026-10-15 16:05 (Cline): 1 PASS / 2 FAIL / 1 UNVERIFIABLE → ยังหยุด**
+- [x] การ์ด 1–3 merge + `verify_changes.py` PASS แล้ว → **PASS (16:05)**: Card 1 `1fe7cf8` · Card 2 `6c6819b` · **Card 3 `a666015`** = `fix(liberator): fail-closed quote + symbol-confirmed amend` — `verify_changes.py` (5 ไฟล์) → `164 passed in 49.82s` · compileall OK · targeted PASS (54.5s) *(15:42 ยัง FAIL เพราะ Card 3 ยังไม่ implement — ปิดแล้ว)*
+- [ ] Gateway รันอยู่ที่ `app.main:app` → **FAIL (ยัง)**: `pgrep -af "uvicorn|app.main"` = ว่าง · `curl http://127.0.0.1:8000/health` = ไม่ตอบ — **ต้องให้ Admin start เองจาก main checkout** (`scripts/start_homelab.py`) ตาม Open question #1 · ห้าม agent start เพราะเสี่ยง trigger login/2FA (Invariant 7/9) และห้าม restart ระหว่างทดลอง (LINE-RCA-011)
+- [ ] ตลาดเปิด (KSS/LIB) มี volume จริง → **FAIL (ไม่พอเวลา)**: เช็ค 16:05 → เหลือ ~25 นาทีก่อน SET บ่ายปิด ~16:30 ไม่พอทำ 6 ขั้น witness
 - [ ] Account: KSS = MARGIN 3024959 · LIB = CASH → UNVERIFIABLE (ต้อง gateway รันก่อน)
 
 ## Steps / Task Decomposition (Runbook — 1 ขั้น/รอบ, มีพยาน)
@@ -31,6 +31,10 @@
 | 6 | `/nego lib <sym ผิด>` | fail-closed — ไม่กดเปลี่ยนราคา | 👁 | ⬜ |
 
 > ⛔ **2026-10-15 15:42 — ขั้น 1–6 = NOT RUN / SKIPPED ที่ Gate** (ไม่ใช่ "ผ่าน"): การ์ดหยุดก่อนแตะ broker เพราะ gate ไม่ครบ 2 ข้อ ห้ามตีความ `⬜` เป็นผลบวก · ต้องผ่าน Gate ใหม่ทั้ง 4 ข้อก่อนเริ่มขั้น 1
+>
+> 🔁 **2026-10-15 16:05 — re-check Gate หลัง Card 3 ปิด** (`a666015` บน main, verify PASS): ข้อ 1 ผ่านแล้ว · ยังหยุดที่ข้อ 2 (gateway ไม่รัน — Admin ต้อง start เอง) + ข้อ 3 (window) ⇒ **เลื่อน witness ไปรอบตลาดถัดไป 2026-10-16 10:00** โดย Admin start gateway จาก main checkout ก่อน
+>
+> 📌 **Infra note (Cline, 15:20–16:00):** session ของการ์ดที่สั่งผ่าน `kanban task start` ถูก `cancel` แบบ flaky (5–16 วิ) 2/3 ครั้งแรก แล้วครั้งถัดไปสำเร็จ (`3dc72` completed, 178 msgs) — **ไม่เกี่ยวกับ concurrency cap** (`Scheduler concurrency = 2`, `kanban/dist/cli.js:190588`) เพราะช่วงเวลานั้นรันการ์ดเดียว ไม่มี overlap · `hub-daemon.log` ไม่มี entry cancel/abort/limit เลย → ตัวการ cancel ยังไม่ทราบ ⇒ ถ้า loop1-4 ถูก cancel ให้ start ซ้ำได้ทันที (ไม่ต้องแก้โค้ด)
 
 ## Acceptance / Tests ที่ต้องผ่าน
 - ทุกข้อ #1–#6 ตรง Expected Outcome **และ** พยาน (Admin) ยืนยันด้วยตาทุกข้อ
@@ -44,6 +48,7 @@
 ---
 
 ## Cline Report
+> ⏱ เนื้อหาในหัวข้อนี้เป็นผล ณ **2026-10-15 15:42** (ก่อนปิด Card 3) — สถานะล่าสุดดู "Gate เงื่อนไขก่อนเริ่ม" ด้านบน (re-check 16:05: ข้อ 1 ผ่านแล้ว)
 - Files changed: (none — runbook only; gate check documented here)
 - Summary:
   - Gate check run FIRST (per runbook "Gate เงื่อนไขก่อนเริ่ม") → **2 of 4 gate items FAIL → no runbook step executed**, no broker page touched, gateway not started/restarted, no OTP, no orders.
