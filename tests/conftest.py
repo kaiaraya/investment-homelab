@@ -1,4 +1,9 @@
+import hashlib
 import os
+import shutil
+from pathlib import Path
+from typing import Dict
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -10,6 +15,19 @@ from app.core.config import settings
 
 TEST_DB_PATH = "./test_homelab.db"
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{TEST_DB_PATH}"
+
+#: Tracked runbook tree — tests must never write here (F-11 / annealing test pollution).
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_LEARNED_WORKFLOWS = REPO_ROOT / "learned_workflows"
+
+
+def snapshot_runbook_hashes(root: Path = REPO_LEARNED_WORKFLOWS) -> Dict[str, str]:
+    """Map of runbook path → sha256 digest, used to prove the tracked tree is untouched."""
+    return {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
 
 test_engine = create_async_engine(
     TEST_DATABASE_URL,
@@ -121,3 +139,43 @@ def isolate_external_side_effects(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "LINE_SIMULATION_MODE", True)
     monkeypatch.setattr(kdeconnect_service, "send_critical_alert", AsyncMock(return_value=True))
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_learned_workflow_writes(monkeypatch, tmp_path):
+    """
+    Safety net for ALL tests (F-11 / annealing test pollution):
+    ``WorkflowEngine.save_workflow_spec()`` and ``update_workflow_step()`` resolve their target
+    file through the module-level ``workflow_engine.WORKFLOWS_DIR``. Redirect that constant to a
+    throwaway copy of the runbook tree, so annealing tests still parse the real runbooks but every
+    write lands in ``tmp_path`` instead of the git-tracked ``learned_workflows/`` directory.
+    """
+    from app.services import workflow_engine
+
+    sandbox = (tmp_path / "learned_workflows").resolve()
+    if sandbox.is_relative_to(REPO_LEARNED_WORKFLOWS.resolve()):  # pragma: no cover - guard rail
+        raise RuntimeError(f"refusing to sandbox runbook writes inside the repo: {sandbox}")
+
+    shutil.copytree(REPO_LEARNED_WORKFLOWS, sandbox)
+    monkeypatch.setattr(workflow_engine, "WORKFLOWS_DIR", str(sandbox))
+    yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def guard_tracked_runbooks():
+    """
+    Session-level leak guard (F-11): fail the session if ANY test wrote into the git-tracked
+    ``learned_workflows/`` tree — even a test that bypassed the per-test sandbox above.
+    """
+    before = snapshot_runbook_hashes()
+    yield
+    after = snapshot_runbook_hashes()
+    if before != after:
+        leaked = sorted(set(before) ^ set(after)) + sorted(
+            p for p in set(before) & set(after) if before[p] != after[p]
+        )
+        raise AssertionError(
+            "tests wrote into the tracked runbook tree (learned_workflows/) — "
+            f"offending files: {leaked}. Route writes through the "
+            "isolate_learned_workflow_writes sandbox instead."
+        )

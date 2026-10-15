@@ -24,6 +24,7 @@
 | 2026-09-28 | `C2W-RCA-003` | สั่ง `LONG SPALIU26 @ 16.05` ถูกปฏิเสธจากโบรกเกอร์ | ผิดกฎ Tick Size สเปรดราคาช่วง ฿10-25 ต้องลงท้ายด้วย 0.10 เสมอ | 🟢 RESOLVED |
 | 2026-09-28 | `C2W-RCA-004` | ส่งคำสั่ง TFEX ผิดพลาด / Radio Button หลุด | การสลับบัญชีไป TFEX จะล้างค่า Radio (Long/Short) ต้องเลือกข้างใหม่อีกครั้งเสมอ | 🟢 RESOLVED |
 | 2026-09-28 | `C2W-RCA-005` | Settrade Open API ส่งคืน `403 Forbidden` ไม่ส่ง Market Data | Developer Account หมดอายุเนื่องจากไม่มีกิจกรรม | 🟢 RESOLVED (Switch to Streaming Favourite Polling) |
+| 2026-10-15 | `C2W-RCA-006` | รัน `scripts/verify_changes.py --full` แล้ว runbook ที่ git track ถูกเขียนทับทุกครั้ง (`click2win_order_submit.md`, `shared/test_anneal_wf.md`) — `Recorded At` เปลี่ยน + ข้อความ "(Self-Annealed: …)" ต่อท้ายซ้ำ (F-11 ×75) | เทสต์ annealing เรียก `WorkflowEngine.save_workflow_spec()`/`update_workflow_step()` ขณะที่ `workflow_engine.WORKFLOWS_DIR` ชี้ที่ repo `learned_workflows/` จริง | 🟢 RESOLVED (test isolation) |
 
 ---
 
@@ -102,6 +103,56 @@
   - สร้าง Background Worker ([app/monitoring/click2win_polling_worker.py](file:///home/araya-sawasdichai/Documents/antigravity/InvestmentHomelab/app/monitoring/click2win_polling_worker.py)) ดึงราคาแบบสลับรอบ (Odd=Fav 1, Even=Fav 2) ส่งเข้า `AlertEngine` และสตรีม SSE ขึ้นหน้าจอ Cockpit ได้อย่างเสถียร 100%
   - **UPDATE (2026-10-06):** worker นี้, `AlertEngine` และทั้งโฟลเดอร์ `app/monitoring/` ถูก **ลบออกทั้งหมด** พร้อมการถอดฟีเจอร์ Pillar 2 "Monitor & Alert" — การ polling Favourite และ SSE market/alert stream ถูกยกเลิกแล้ว
   - **หมายเหตุ:** SSE bus ยังคงอยู่ที่ `app/core/sse_broadcaster.py` และให้บริการผ่าน `GET /api/v1/cockpit/stream` สำหรับเหตุการณ์ HITL order pending / action-exit เท่านั้น
+
+---
+
+### 📌 Incident `C2W-RCA-006`: Annealing Tests Overwriting Tracked Runbooks (F-11)
+
+* **วันและเวลา:** 2026-10-15 22:47 น.
+* **อาการ (Symptom):**  
+  หลังรัน `scripts/verify_changes.py --full` ทุกครั้ง `git status` แสดง 2 runbook ที่ git track ถูกแก้:
+  `learned_workflows/click2win/click2win_order_submit.md` (`Recorded At` เปลี่ยนเป็นเวลาที่รัน + ต่อท้ายข้อความ
+  `(Self-Annealed: …)` เพิ่มอีก 1 ชุด → สะสมถึง ×75) และ `learned_workflows/shared/test_anneal_wf.md`
+  (เปลี่ยน `Recorded At` อย่างเดียว) → ต้อง `git checkout --` 2 ไฟล์นี้ทุกครั้งเป็น workaround
+* **การสืบหาต้นตอ (Root Cause Analysis):**  
+  `WorkflowEngine.save_workflow_spec()` / `update_workflow_step()` หา path ปลายทางจาก constant ระดับโมดูล
+  `workflow_engine.WORKFLOWS_DIR` ซึ่งชี้ที่ repo `learned_workflows/` จริง (ไม่มีการแยก read/write) ทำให้:
+  - `tests/test_click2win_driver.py::test_workflow_engine_self_annealing` — parse runbook จริง แล้วเรียก
+    `update_workflow_step("click2win_order_submit", step_num=6, …)` → เขียนทับ runbook จริง (F-11 ×75)
+  - `tests/test_escalation_and_annealing.py::test_workflow_engine_4step_self_annealing_and_escalation` —
+    รับ `tmp_path` มาแล้ว **ไม่ได้ใช้เลย** → `save_workflow_spec("test_anneal_wf", …)` เขียน
+    `learned_workflows/shared/test_anneal_wf.md` ใหม่ทุก run
+  - (กลไกเดียวกัน) `tests/test_mcp_and_workflow_engine.py::test_mcp_handle_tool_call_buffered_recording`
+    เขียน `learned_workflows/shared/tmp_test_workflow.md` ลง tree จริงแล้วลบท้ายเทสต์ (leak ถ้าเทสต์ fail กลางทาง)
+* **ขอบเขตที่พบเพิ่ม (Edge cases):**
+  - `app/services/self_annealing_engine.py` มี `WORKFLOWS_DIR` ของตัวเอง แต่ **อ่านเท่านั้น** (`rglob`/`read_text`)
+    → ไม่ใช่ตัวเขียนไฟล์ (ไม่ต้อง patch)
+  - เทสต์ที่ **อ่าน** runbook จริงต้องยังทำงานได้ (assert ว่า `click2win_order_submit` มี ≥6 steps)
+    → sandbox ต้องเป็น **สำเนา** ของ tree ไม่ใช่โฟลเดอร์ว่าง
+  - `workflow_list` ต้องเห็นไฟล์ที่เพิ่งเซฟในเทสต์ → ต้อง patch constant ที่ใช้ร่วมกัน ไม่ใช่ patch แค่ instance
+* **วิธีแก้ปัญหาที่ผ่านการพิสูจน์แล้ว (Proven Working Solution):**
+  1. `tests/conftest.py` — autouse fixture `isolate_learned_workflow_writes`: `shutil.copytree()` tree จริงไปที่
+     `tmp_path/learned_workflows` แล้ว `monkeypatch.setattr(workflow_engine, "WORKFLOWS_DIR", str(sandbox))`
+     → อ่าน runbook จริงได้ แต่ทุก write ลง tmp
+  2. `tests/conftest.py` — session-scoped autouse fixture `guard_tracked_runbooks`: sha256 ทุกไฟล์ใต้
+     `learned_workflows/` เทียบก่อน/หลัง session → fail ถ้ามี write หลุด (กันเทสต์ใหม่ในอนาคต)
+  3. Regression test `tests/test_annealing_runbook_isolation.py` — รัน save + update + execute_workflow แล้ว
+     assert hash ของ tracked runbooks ไม่เปลี่ยน และ write target อยู่ใต้ sandbox
+  4. `scripts/verify_changes.py` — `conftest.py` ไม่ถูกใช้เป็น test target (เป็น fixture module) + mapping
+     `tests/conftest.py` → 4 test files ที่เกี่ยวข้อง
+* **หลักฐาน (Evidence):**
+  - baseline (ก่อนแก้): รัน 3 ไฟล์เทสต์ที่เกี่ยวข้อง → `learned_workflows/click2win/click2win_order_submit.md`
+    ถูกแก้ทันที (reproduce bug ได้)
+  - mutation check: ปิด fixture → `tests/test_annealing_runbook_isolation.py` fail 2 เทสต์ และ runbook ทั้ง 2
+    ถูกเขียนจริง (เทสต์ไม่ vacuous)
+  - `.venv/bin/python scripts/verify_changes.py tests/conftest.py tests/test_annealing_runbook_isolation.py`
+    → PASS (17 tests) และ `git status --porcelain` ว่างหลังรัน
+* **⚠️ ความเสียหายที่ยังค้างอยู่ (Open item — ต้องใช้ live DOM/HITL):**
+  เนื้อหาที่ commit ไปแล้ว (`9ed1f5a`) ถูก pollute: `## Description` ของ `click2win_order_submit.md` ถูกแทนด้วย
+  `Self-annealed on …`, step 2 selector = `button.btn-buy-tailscale-test` (ค่าจาก MCP live),
+  step 6 selector = `button.btn-submit-click2win-new` (ค่าจากเทสต์) — **ห้ามเดา selector กลับด้วย assumption**
+  ต้องยืนยันจากจอจริงแล้วแก้ในงานแยก (Zero-Contradiction: runbook ต้องไม่ขัดกับ DOM จริง)
+  `learned_workflows/shared/test_anneal_wf.md` เป็น test artifact ล้วน (ยัง track ใน git) → รอการตัดสินใจย้าย/ลบ
 
 ---
 

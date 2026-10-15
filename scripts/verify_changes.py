@@ -161,6 +161,14 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/kanban/__init__.py": ["tests/test_install_entry_shim.py"],
     "scripts/krungsri/probe_account_info.py": ["tests/test_probe_account_info.py"],
     "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
+    # Shared test harness — conftest.py holds fixtures (no tests of its own). Changed fixtures
+    # affect the annealing/runbook suites (F-11 write-isolation), so map it to them explicitly.
+    "tests/conftest.py": [
+        "tests/test_annealing_runbook_isolation.py",
+        "tests/test_escalation_and_annealing.py",
+        "tests/test_click2win_driver.py",
+        "tests/test_mcp_and_workflow_engine.py",
+    ],
 }
 
 DOC_SUFFIXES = (".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".env")
@@ -232,8 +240,8 @@ def resolve_tests(changed: Sequence[str], explicit: Sequence[str]) -> Tuple[List
 
     for raw in changed:
         rel = _rel(raw)
-        if rel.startswith(FULL_SUITE_TARGET) and rel.endswith(".py"):
-            add(rel)  # editing a test → run that test
+        if rel.startswith(FULL_SUITE_TARGET) and rel.endswith(".py") and not rel.endswith("conftest.py"):
+            add(rel)  # editing a test → run that test (conftest.py holds fixtures → MODULE_TEST_MAP)
         elif rel in MODULE_TEST_MAP:
             for target in MODULE_TEST_MAP[rel]:
                 add(target)
