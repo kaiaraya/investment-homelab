@@ -1,23 +1,25 @@
 # TASK-xxx: <ชื่องาน>
 
-- Created: YYYY-MM-DD by Antigravity
+- Created: YYYY-MM-DD by Argon (Complex Task Owner)
 - Broker: <Krungsri / Click2Win / Liberator / N/A>
 - Git Branch: `task/<task-slug>`
 - Worktree: `~/.cline/worktrees/<task-slug>`
-- Status: DRAFT | READY | IN_PROGRESS | REVIEW | DONE  (state machine: `docs/agent/github_handoff.md` §6)
+- Status: DRAFT | READY | IN_PROGRESS | REVIEW | DONE  (state machine: `docs/agent/github_handoff.md` §7)
+- Plan PR: <GitHub PR url> · Issue: #<n>   (Argon เปิดตอน PHASE 1 — human merge = gate #1)
+- Result PR: <GitHub PR url>                (Cline เปิดตอน PHASE 4b — human merge = gate #2)
 
 ## Directive delta (Argon เขียน — PHASE 0)
-> Argon อัปเดต directive จาก learning ของ loop ที่แล้ว ก่อน Flash ร่างแผน
+> Argon อัปเดต directive จาก learning ของ loop ที่แล้ว ก่อนร่างแผนเอง
 - ไฟล์ directive ที่ปรับ: `directive/<file>.md` — <สรุปสิ่งที่เปลี่ยน>
 - เหตุผล: <learning จาก §Argon Analysis ของ loop ก่อน / RCA / Open question ที่ปิด>
 
-## Context (Antigravity เขียน — PHASE 1)
+## Context (Argon เขียน — PHASE 1)
 <ปัญหา / เป้าหมาย / RCA ที่เกี่ยวข้อง>
 
 ## Scope — ไฟล์ที่อนุญาตให้แก้
 - `app/...`
 
-## Context map (Antigravity เขียน — ลด token: Cline เริ่มจากตรงนี้ ไม่ต้อง search ทั้ง repo)
+## Context map (Argon เขียน — ลด token: Cline เริ่มจากตรงนี้ ไม่ต้อง search ทั้ง repo)
 | File | Symbol / Lines | Why (read / edit) |
 |------|----------------|-------------------|
 | `app/services/...py` | `func_name` L120-180 | edit |
@@ -51,11 +53,11 @@
 
 ---
 
-## Antigravity Review & Stepwise Approval (PHASE 4b)
+## Cline Verification & Stepwise Approval (Cline เขียน — PHASE 4b · model: DeepSeek Pro)
 - [ ] **Stage A (Code Audit)**: Diffs match scope, Invariants verified (Anti-Mock, Zero-OTP, Uptick)
 - [ ] **Stage B (Verify)**: `.venv/bin/python scripts/verify_changes.py <changed files>` = PASS
-- [ ] **Stage C (Visual / HITL)**: Observable state / screenshot checked via `ask_question`
-- [ ] **Stage D (Merge)**: Squash merge into `main` and clean worktree
+- [ ] **Stage C (Visual / HITL)**: Observable state checked (screenshot → vision tool → text) via `ask_question`
+- [ ] **Stage D (Verdict + Merge)**: PASS → เปิด PR ผล → ผู้ใช้ merge `main` (gate #2) → clean worktree
 - Spawned Child Cards (ถ้ามีประเด็นแตกย่อย):
   - `TASK-xxx_1-...` -> ย้ายลง `[Backlog]`
 - Verdict: PASS / CHANGES_REQUESTED
@@ -64,7 +66,7 @@
 ---
 
 ## Argon Analysis (Argon เขียน — PHASE 5 · เห็นแค่ "แผน + ผล")
-> Input = แผน (§Context / §Scope / §Steps / §Acceptance) + ผล (§Cline Report + §Antigravity Review) เท่านั้น
+> Input = แผน (§Context / §Scope / §Steps / §Acceptance) + ผล (§Cline Report + §Cline Verification) เท่านั้น
 > ข้อ 2–3 ที่ Argon พบเป็น "สมมติฐาน" → ต้อง live-verify (broker + LINE, headed) ก่อน merge (Anti-Mock)
 
 ### 1. Direction alignment

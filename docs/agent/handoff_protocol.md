@@ -1,4 +1,4 @@
-# Handoff protocol (Antigravity → Cline → Antigravity)
+# Handoff protocol (Argon → Cline → Argon)
 
 > ย้ายมาจาก AGENTS.md (คำต่อคำ) เมื่อ 2026-10-12 — ต้นฉบับเต็ม: `docs/agent/full/AGENTS_full.md`
 
@@ -11,8 +11,10 @@
   - คำสั่งเทสต์ที่รัน + ผลลัพธ์
   - Open questions / สิ่งที่ไม่แน่ใจ
 - ถ้าเจอปัญหานอก scope ให้บันทึกใน Open questions แทนการแก้เอง
+- ส่วน `## Cline Verification` (Stage A–D) เขียนโดย **Cline เอง** (model `deepseek-v4-pro`) — verdict `PASS` / `CHANGES_REQUESTED`
+- กลไก handoff ผ่าน GitHub: แผน/ผลส่งกันด้วย **PR** (merge = human gate) + แจ้งเตือนด้วย **GitHub Issue** (ดู `docs/agent/github_handoff.md` §4)
 
 ## Token-saving additions (2026-10-12)
-- Antigravity ต้องเขียนส่วน **`## Context map`** ในไฟล์ handoff: ไฟล์ + ช่วงบรรทัด/ชื่อ symbol ที่ต้องแก้หรืออ่าน + verify command
+- Argon ต้องเขียนส่วน **`## Context map`** ในไฟล์ handoff: ไฟล์ + ช่วงบรรทัด/ชื่อ symbol ที่ต้องแก้หรืออ่าน + verify command
   → Cline เริ่มงานจาก map นี้ทันที **ไม่ต้อง search ทั้ง repo ใหม่**
 - Cline: ถ้า Context map ไม่พอ ให้ค้นแบบเจาะจง (ดู Token budget ใน AGENTS.md) และเติม map กลับลงไฟล์ handoff

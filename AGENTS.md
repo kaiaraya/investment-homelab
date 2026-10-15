@@ -42,7 +42,7 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 
 ## Workflow
 - Loop every unit: DECOMPOSE → EXECUTE → VERIFY → REFLECT → REPEAT (`.agents/rules/loop_engineering.md`).
-- Handoff (Antigravity → Cline → Antigravity): work only the scope in `docs/handoff/TASK-xxx.md`; out-of-scope findings go to Open questions. Details: `docs/agent/handoff_protocol.md`.
+- Handoff (Argon → Cline → Argon): work only the scope in `docs/handoff/TASK-xxx.md`; out-of-scope findings go to Open questions. Details: `docs/agent/handoff_protocol.md`.
 
 ## Read-when-relevant index
 | Task touches | Read first |
@@ -53,7 +53,7 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 | Handoff / Cline report format | `docs/agent/handoff_protocol.md` |
 | Token workflow (planning vs implementation split) | `docs/agent/token_workflow.md` |
 | Workflow SOP (AGY + Cline + Kanban) | `docs/agent/workflow_playbook.md` |
-| Argon loop / GitHub handoff (Phase 0–5, Human gates, Risk-tier) | `docs/agent/github_handoff.md` |
+| Argon ↔ Cline loop / GitHub handoff (PHASE 0–5, PR+Issue handoff, Human gates, Risk-tier) | `docs/agent/github_handoff.md` |
 | Finding code | `docs/agent/CODEMAP.md` (regenerate: `.venv/bin/python scripts/gen_codemap.py`) |
 | Broker RCA / runbooks | `rca/<broker>/`, `learned_workflows/<broker>/` |
 | Token usage report | `.venv/bin/python scripts/token_report.py [--session <id>]` |
