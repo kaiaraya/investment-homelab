@@ -9,12 +9,17 @@ Safety invariants (``TASK-krungsri-quicktrade-passive-negotiate``):
 2. **SET UPTICK RULE for SHORT** - ``target = max(Best Offer 1, LastPrice)``; if
    ``Best Offer 1 < LastPrice`` (down-tick) the amendment is FAIL-CLOSED with
    ``UPTICK_VIOLATION`` - a short may never be amended to a price below last.
+   ``plan_negotiation`` re-checks the final target with
+   ``validator.validate_short_uptick`` (strict: strictly above LastPrice, the
+   zero-plus tick on the last price is rejected) so the unified ``/nego kss`` path is
+   never weaker than the pre-trade rule.
 3. **VOLUME INTEGRITY** - only the price is amended; the volume stays equal to the
    order's remaining balance.
 4. **ANTI-MOCK** - an unreadable quote yields a failure, never a guessed price.
 """
 from __future__ import annotations
 
+from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -34,6 +39,8 @@ class NegotiationOutcome(str, Enum):
     OK = "OK"
     NO_CHANGE = "NO_CHANGE"
     UPTICK_VIOLATION = "UPTICK_VIOLATION"
+    TICK_SIZE_VIOLATION = "TICK_SIZE_VIOLATION"   # G4 (SET tick size) - TASK-loop1-2
+    MAX_TICKS_EXCEEDED = "MAX_TICKS_EXCEEDED"     # G5 (max tick distance) - TASK-loop1-2
     NO_QUOTE = "NO_QUOTE"
     UNSUPPORTED_SIDE = "UNSUPPORTED_SIDE"
 
@@ -125,19 +132,94 @@ def compute_passive_price(
     return NegotiationDecision(outcome=NegotiationOutcome.OK, target_price=max(best_offer, last))
 
 
-def plan_negotiation(order: OrderSnapshot, quote: Quote) -> NegotiationDecision:
+def tick_distance(old: float, new: float) -> int:
+    """How many SET ticks separate ``old`` from ``new`` (0 when they are equal).
+
+    Counted in the bracket of the **higher** price so a move across a tick-bracket
+    boundary is never under-counted; this is the figure the G5 reason and the LINE
+    card report. Browser-free and side-effect free.
+    """
+    delta = abs(float(new) - float(old))
+    if delta < 1e-9:
+        return 0
+    from app.services.validator import validator
+    tick = Decimal(str(validator.get_set_tick_size(max(float(old), float(new)))))
+    if tick <= 0:  # pragma: no cover - the SET tick table is always positive
+        return 0
+    return int((Decimal(str(delta)) / tick).to_integral_value(rounding=ROUND_HALF_UP))
+
+
+def tick_distance_exceeds(old: float, new: float, max_ticks: int) -> bool:
+    """G5 - is ``new`` more than ``max_ticks`` SET ticks away from ``old``?
+
+    Walks the validator's tick table so a bracket boundary behaves exactly like SET
+    (this is the single implementation; the LINE handlers import it instead of keeping
+    their own copy).
+    """
+    from app.services.validator import validator
+    if abs(float(new) - float(old)) < 1e-9:
+        return False
+    if new > old:
+        return new > validator.get_next_tick(old, max_ticks) + 1e-6
+    return new < validator.get_next_tick(old, -max_ticks) - 1e-6
+
+
+def plan_negotiation(order: OrderSnapshot, quote: Quote, *,
+                     max_ticks: Optional[int] = None) -> NegotiationDecision:
     """Bind a live quote to an order and produce the final decision.
 
     Preserves the order's remaining volume (invariant 3) and flips a no-op amendment
     (target == current price) to ``NO_CHANGE`` so the caller never re-submits needlessly.
+
+    Guardrails added by ``TASK-loop1-2`` (D2):
+    - **G4** - the target must pass the SET tick-size validator, else
+      ``TICK_SIZE_VIOLATION``.
+    - **G5** - the target must be within ``settings.LINE_NEGO_MAX_TICKS`` ticks of the
+      order's current price, else ``MAX_TICKS_EXCEEDED`` (the reason states by how many
+      ticks it is away).
+    - **G6** - a SHORT/OPEN_SHORT target must pass ``validator.validate_short_uptick``
+      (strictly above LastPrice), else ``UPTICK_VIOLATION``.
+
+    Every violation clears ``target_price`` so no caller can submit a rejected price.
     """
     d = compute_passive_price(order.side, quote.best_bid, quote.best_offer, quote.last)
     d.side = order.side
     d.current_price = order.price
     d.volume = order.balance
-    if d.outcome is NegotiationOutcome.OK and d.target_price == order.price:
+    if d.outcome is not NegotiationOutcome.OK:
+        return d
+    if d.target_price == order.price:
         d.outcome = NegotiationOutcome.NO_CHANGE
         d.reason = "target price equals the current price - nothing to amend"
+        return d
+
+    from app.services.validator import validator
+
+    ok, err = validator.validate_tick_size(d.target_price)                      # G4
+    if not ok:
+        d.reason = err or (f"target {d.target_price:.2f} does not match the SET tick size")
+        d.target_price = None
+        d.outcome = NegotiationOutcome.TICK_SIZE_VIOLATION
+        return d
+
+    if max_ticks is None:
+        from app.core.config import settings
+        max_ticks = int(getattr(settings, "LINE_NEGO_MAX_TICKS", 3))
+    if tick_distance_exceeds(order.price, d.target_price, max_ticks):           # G5
+        ticks = tick_distance(order.price, d.target_price)
+        d.reason = (f"target {d.target_price:.2f} is {ticks} ticks away from "
+                    f"{order.price:.2f} - more than the allowed {max_ticks}")
+        d.target_price = None
+        d.outcome = NegotiationOutcome.MAX_TICKS_EXCEEDED
+        return d
+
+    if _normalise_side(order.side) in _SHORT_SIDES:                            # G6
+        ok, err = validator.validate_short_uptick(d.target_price, quote.last)
+        if not ok:
+            d.reason = err or "short may not be amended to the last traded price"
+            d.target_price = None
+            d.outcome = NegotiationOutcome.UPTICK_VIOLATION
+            return d
     return d
 
 
@@ -232,7 +314,8 @@ async def negotiate_order_price(
         result["dry_run"] = amendment.get("dry_run")
         if not amendment.get("success"):
             result["error"] = amendment.get("error")
-    elif decision.outcome is NegotiationOutcome.UPTICK_VIOLATION:
+    elif decision.outcome not in (NegotiationOutcome.OK, NegotiationOutcome.NO_CHANGE):
+        # G4/G5/G6 style refusals carry the reason to the caller (REST/LINE show it).
         result["error"] = decision.reason
 
     return result

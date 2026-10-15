@@ -140,10 +140,19 @@ async def _broker_quote(broker: str, symbol: str) -> Dict[str, Any]:
 
 
 async def _broker_open_orders(broker: str) -> List[Dict[str, Any]]:
-    """Unmatched/open orders for ``broker`` only."""
+    """Unmatched/open orders for ``broker`` only.
+
+    ``kss`` reads the Settrade Quick Trade ledger (``#orderBodyEq``): ``/nego kss``
+    amends in place on that platform, so both the order numbers and the remaining
+    volumes must come from there (D1/D4 - TASK-loop1-2). Anti-Mock: a failed ledger
+    read raises, so the command reports an error instead of "no pending orders".
+    """
     if broker == "kss":
-        from app.browser.trademan_driver import trademan_driver
-        orders = await trademan_driver.scrape_unmatched_orders()
+        from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
+        res = await quicktrade_driver.list_open_orders()
+        if not res.get("success"):
+            raise RuntimeError(str(res.get("error") or "อ่านตารางออเดอร์ QuickTrade ไม่ได้"))
+        orders = list(res.get("orders") or [])
     else:
         from app.brokers import liberator_plugin
         orders = await liberator_plugin.get_open_orders()
@@ -160,11 +169,13 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
     """
     Amend an order in place, routed per broker (Broker Isolation).
 
-    TEST -> shared virtual simulator (through the dispatcher); LIVE -> the
-    broker's own driver (KSS cancel+replace per KSS-RCA-016; LIB native in-place
-    ``Change`` per LIB-RCA-016/017). The dispatcher's LIVE route is bound to
-    ``TRADING_PLATFORM`` and cannot address both brokers in one loop, so LIVE
-    goes straight to the owning driver.
+    TEST -> shared virtual simulator (through the dispatcher); LIVE -> the broker's own
+    driver. ``kss`` LIVE goes through the Quick Trade passive policy
+    (``negotiate_order_price``): Settrade's *Change Price& Volume* keeps the order
+    number and the volume, so no cancel+replace is reachable from ``/nego`` any more
+    (D1 - TASK-loop1-2). ``lib`` LIVE keeps the native WebTrade ``Change``
+    (LIB-RCA-016/017). The dispatcher's LIVE route is bound to ``TRADING_PLATFORM`` and
+    cannot address both brokers in one loop, so LIVE goes straight to the owning driver.
     """
     from app.services.trade_dispatcher import trade_dispatcher
     if not trade_dispatcher.is_live:
@@ -172,11 +183,13 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
             broker_order_no=order_no, new_price=new_price, symbol=symbol, side=side, volume=volume
         )
     if broker == "kss":
-        from app.browser.trademan_driver import trademan_driver
-        return await trademan_driver.modify_order_price(
-            broker_order_no=order_no, symbol=symbol, side=side,
-            new_price=new_price, remaining_volume=volume,
-        )
+        from app.services.quicktrade_negotiation_service import negotiate_order_price
+        # ``new_price`` is deliberately ignored: the service re-reads the live quote,
+        # applies G4/G5/G6 itself and amends on the SAME order_no.
+        res = await negotiate_order_price(
+            order_no, symbol=symbol, side=side, balance=int(volume) or None)
+        res["path"] = "QUICKTRADE_INPLACE"
+        return res
     from app.brokers import liberator_plugin
     return await liberator_plugin.change_order(order_no=order_no, new_price=new_price)
 
@@ -205,7 +218,8 @@ _HELP_NEGO = (
     "⚡ /nego — ต่อราคาออเดอร์ค้าง (ทำทันที ไม่ต้องอนุมัติ)\n"
     "รูปแบบ: /nego kss|lib [SYMBOL|order_no]\n"
     "• ไม่ระบุเป้าหมาย = ทุกออเดอร์ค้างของโบรกเกอร์นั้น\n"
-    "• ราคาเป้าหมาย: BUY/COVER→Bid1 · SELL→Offer1 · SHORT→Offer1 (ผ่าน uptick)\n"
+    "• kss = แก้ราคาในที่บนออเดอร์เดิม (QuickTrade Change Price& Volume) ไม่ยกเลิก\n"
+    "• ราคาเป้าหมาย: BUY/COVER→Bid1 · SELL→Offer1 · SHORT→Offer1 (สูงกว่าราคาล่าสุด)\n"
     "Guardrails (ต่อออเดอร์):\n"
     "  G1 kill-switch ไม่ active\n"
     "  G2 ในเวลาที่อนุญาต (LINE_NEGO_WINDOWS)\n"
@@ -219,10 +233,10 @@ _HELP_NEGOTIATE = (
     "⚡ /negotiate — ต่อราคาออเดอร์ Quick Trade แบบแก้ในที่ (Settrade FastOrder)\n"
     "รูปแบบ: /negotiate <order_no>   เช่น /negotiate 11008198\n"
     "• ไม่ยกเลิก/สร้างออเดอร์ใหม่ — แก้ราคาที่ออเดอร์เดิม (จำนวนเดิมเสมอ)\n"
-    "• BUY→Bid1 · SELL→Offer1 · SHORT→Offer1 (ต้องไม่ต่ำกว่าราคาล่าสุด)\n"
-    "• SHORT ที่ Offer1 < LastPrice = ⛔ ผิดกฎ uptick → ไม่ส่ง (fail-closed)\n"
+    "• BUY→Bid1 · SELL→Offer1 · SHORT→Offer1 (ต้องสูงกว่าราคาล่าสุด)\n"
+    "• SHORT ที่ Offer1 ≤ LastPrice = ⛔ ผิดกฎ uptick → ไม่ส่ง (fail-closed)\n"
     "• ใช้ session เดิมเท่านั้น (Zero-OTP) · ไม่ login เอง\n"
-    "Guardrails: G1 kill-switch · G2 LINE_NEGO_WINDOWS · กันกดซ้ำต่อออเดอร์"
+    "Guardrails: G1 kill-switch · G2 LINE_NEGO_WINDOWS · G4 tick-size · G5 ≤ 3 tick · กันกดซ้ำต่อออเดอร์"
 )
 
 
@@ -807,6 +821,42 @@ async def _plan_nego(broker: str, o: Dict[str, Any], max_ticks: int) -> Dict[str
     return row
 
 
+# Quick Trade outcome -> the wording the /nego card shows for a skipped order.
+_QUICKTRADE_SKIP_REASON = {
+    "NO_CHANGE": "อยู่ที่เป้าหมายแล้ว",
+    "UPTICK_VIOLATION": "ผิดกฎ uptick (SHORT ต้องสูงกว่าราคาล่าสุด)",
+    "TICK_SIZE_VIOLATION": "ไม่ผ่าน tick-size",
+    "MAX_TICKS_EXCEEDED": "ห่างเกินจำนวน tick ที่อนุญาต",
+    "NO_QUOTE": "อ่านราคาตลาดไม่ได้ (fail-closed)",
+}
+
+
+def _apply_quicktrade_result(row: Dict[str, Any], res: Dict[str, Any]) -> None:
+    """Fold a Quick Trade in-place result into a ``/nego`` card row (Anti-Mock).
+
+    The service re-reads the ledger + quote and applies G4/G5/G6 itself, so its
+    ``current_price``/``target_price``/``outcome`` are what the card must report: a
+    refusal or ``NO_CHANGE`` is a *skip*, never an ``ok``.
+    """
+    if res.get("current_price") is not None:
+        row["old_price"] = res["current_price"]
+    if res.get("target_price") is not None:
+        row["new_price"] = res["target_price"]
+    outcome = str(res.get("outcome") or "")
+    row["outcome"] = outcome or None
+    row["submitted"] = res.get("submitted")      # the one-order card reads this (Anti-Mock)
+    if outcome in _QUICKTRADE_SKIP_REASON:
+        row["status"] = "skip"
+        row["reason"] = _QUICKTRADE_SKIP_REASON[outcome]
+    elif res.get("success"):
+        row["status"] = "ok"
+        if res.get("submitted") is False and res.get("dry_run"):
+            row["reason"] = "DRY-RUN — ยังไม่กดส่ง"       # honest: staged, not sent
+    else:
+        row["status"] = "fail"
+        row["reason"] = str(res.get("error") or res.get("reason") or "ล้มเหลว")[:40]
+
+
 async def _handle_nego(
     parsed: CliCommand, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
 ) -> Dict[str, Any]:
@@ -859,21 +909,47 @@ async def _handle_nego(
                 if row["status"] == "planned":
                     res = await _broker_modify(broker, order_no=row["order_no"], new_price=row["new_price"],
                                                symbol=row["symbol"], side=row["side"], volume=row["volume"])
-                    if res.get("success"):
+                    if res.get("path") == "QUICKTRADE_INPLACE":
+                        # kss LIVE: report what Quick Trade actually did (its own quote +
+                        # guardrails decide), not the handler's preview.
+                        _apply_quicktrade_result(row, res)
+                    elif res.get("success"):
                         row["status"] = "ok"
-                        ok += 1
                     else:
                         row["status"] = "fail"
                         row["reason"] = str(res.get("error") or res.get("message") or "ล้มเหลว")[:40]
-                        failed += 1
-                else:
+                    row.setdefault("submitted", res.get("submitted"))
+                if row["status"] == "ok":
+                    ok += 1
+                elif row["status"] == "skip":
                     skipped += 1
+                else:
+                    failed += 1
                 results.append(row)
                 await _audit_nego(db, broker, row)
 
-            card = cards.nego_card(broker=BROKER_LABEL[broker], results=results, ok=ok, skipped=skipped,
-                                   failed=failed, ts=_now_bkk().strftime("%H:%M:%S"),
-                                   is_test=not trade_dispatcher.is_live)
+            ts = _now_bkk().strftime("%H:%M:%S")
+            is_test = not trade_dispatcher.is_live
+            single = results[0] if len(results) == 1 else None
+            if single is not None and str(parsed.target or "").isdigit():
+                # One explicit order_no -> the focused one-order card (D2), filled from
+                # the row that mirrors what the broker actually did.
+                card = cards.negotiate_card(
+                    order_no=str(single.get("order_no") or parsed.target),
+                    symbol=str(single.get("symbol") or "-"),
+                    side=str(single.get("side") or "-"),
+                    outcome=str(single.get("outcome") or single.get("status") or ""),
+                    current_price=single.get("old_price"),
+                    target_price=single.get("new_price"),
+                    volume=single.get("volume"),
+                    reason=str(single.get("reason") or ""),
+                    submitted=single.get("submitted"),
+                    ts=ts,
+                    is_test=is_test,
+                )
+            else:
+                card = cards.nego_card(broker=BROKER_LABEL[broker], results=results, ok=ok, skipped=skipped,
+                                       failed=failed, ts=ts, is_test=is_test)
             await service.push_message(card, to_user_id=push_target)
         except Exception as e:
             logger.exception(f"LINE CLI /nego {broker} failed")
@@ -891,17 +967,12 @@ async def _handle_nego(
 async def _handle_negotiate(
     parsed: CliCommand, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
 ) -> Dict[str, Any]:
-    """``/negotiate <order_no>`` — re-price ONE Quick Trade order in place.
+    """``/negotiate <order_no>`` — alias of ``/nego kss <order_no>`` (ONE path).
 
-    Session reuse only (Zero-OTP): the driver reads ``data/session_state.json`` and
-    never logs in. Kill-switch (G1) and the nego window (G2) gate the command, and a
-    per-order lock turns duplicate taps into ``CLI_BUSY``. Anti-Mock: whatever the
-    policy/driver reports (including ``UPTICK_VIOLATION``) is shown verbatim.
+    Kept for muscle memory / older cards: the command is rewritten into the unified
+    ``/nego kss`` flow, so the duplicate G1/G2/lock implementation is gone and the
+    guardrails live in exactly one place (D1/D2 — TASK-loop1-2).
     """
-    from app.services.kill_switch_service import kill_switch_service
-    from app.services.trade_dispatcher import trade_dispatcher
-    from app.services.quicktrade_negotiation_service import negotiate_order_price
-
     order_no = str(parsed.target or "").strip()
     if not order_no.isdigit():
         await service._send_reply(reply_token, _text(
@@ -909,60 +980,10 @@ async def _handle_negotiate(
             quick=["/orders kss"]))
         return {"status": "CLI_NEGOTIATE_BAD_ARGS"}
 
-    if kill_switch_service.is_active():                       # G1
-        await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
-        return {"status": "CLI_KILL_SWITCH"}
-    if not _in_nego_window():                                 # G2
-        await service._send_reply(reply_token, _text(f"🌙 นอกเวลาที่อนุญาต ({settings.LINE_NEGO_WINDOWS})"))
-        return {"status": "CLI_OUT_OF_HOURS"}
-
-    key = ("negotiate", order_no)
-    lock = _lock_for(*key)
-    if lock.locked():
-        await service._send_reply(reply_token, _text(
-            f"⏳ /negotiate {order_no} กำลังทำงานอยู่ (เริ่ม {_STARTED.get(key, '-')}) — รอผลสักครู่"))
-        return {"status": "CLI_BUSY"}
-
-    result: Dict[str, Any] = {"success": False, "outcome": None}
-    async with lock:
-        _STARTED[key] = _now_bkk().strftime("%H:%M:%S")
-        try:
-            mode = "LIVE" if trade_dispatcher.is_live else "TEST"
-            await service._send_reply(reply_token, _text(
-                f"⚡ [{mode}] กำลังต่อราคา Quick Trade #{order_no}…"))
-            result = await negotiate_order_price(order_no)
-            amendment = result.get("amendment") or {}
-            card = cards.negotiate_card(
-                order_no=order_no,
-                symbol=str(result.get("symbol") or "-"),
-                side=str(result.get("side") or "-"),
-                outcome=str(result.get("outcome") or ("OK" if result.get("success") else "ERROR")),
-                current_price=result.get("current_price"),
-                target_price=result.get("target_price"),
-                volume=result.get("volume"),
-                reason=str(result.get("reason") or result.get("error") or ""),
-                submitted=amendment.get("submitted"),
-                ts=_now_bkk().strftime("%H:%M:%S"),
-                is_test=not trade_dispatcher.is_live,
-            )
-            await service.push_message(card, to_user_id=push_target)
-            await _audit_nego(db, "kss", {
-                "order_no": order_no,
-                "symbol": result.get("symbol"),
-                "side": result.get("side"),
-                "status": str(result.get("outcome") or ("ok" if result.get("success") else "fail")),
-                "reason": str(result.get("error") or result.get("reason") or "")[:60],
-            })
-        except Exception as e:
-            logger.exception(f"LINE CLI /negotiate {order_no} failed")
-            await service.push_message(
-                _text(f"❌ ต่อราคา #{order_no} ไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
-                to_user_id=push_target)
-        finally:
-            _STARTED.pop(key, None)
-
-    return {"status": "CLI_NEGOTIATE", "order_no": order_no,
-            "outcome": result.get("outcome"), "success": bool(result.get("success"))}
+    res = await _handle_nego(CliCommand(cmd="nego", broker="kss", target=order_no),
+                             service, reply_token, push_target, db)
+    res["order_no"] = order_no
+    return res
 
 
 # --------------------------------------------------------------------------- #

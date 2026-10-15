@@ -114,6 +114,18 @@ def test_find_order():
     assert KrungsriQuickTradeDriver.find_order(orders, "999") is None
 
 
+def test_pending_orders_keeps_only_unfilled_rows():
+    """balance 0 (matched/cancelled) and unparsed balances are never negotiable."""
+    rows = [
+        {"order_no": "1", "symbol": "MTC", "balance": 500},
+        {"order_no": "2", "symbol": "MTC", "balance": 0},
+        {"order_no": "3", "symbol": "PTT", "balance": 100},
+        {"order_no": "4", "symbol": "PTT", "balance": None},
+    ]
+    assert [o["order_no"] for o in KrungsriQuickTradeDriver.pending_orders(rows)] == ["1", "3"]
+    assert [o["order_no"] for o in KrungsriQuickTradeDriver.pending_orders(rows, "ptt")] == ["3"]
+
+
 # --- page primitives (mock DOM) -------------------------------------------
 
 async def test_fetch_quote_fills_symbol_and_reads_tables():
@@ -208,3 +220,85 @@ async def test_amend_price_result_always_carries_submitted_and_success_keys():
     assert out["submitted"] is False      # nothing was sent (Anti-Mock)
     assert out["dry_run"] in (True, False)
     assert set(out) >= {"success", "order_no", "new_price", "dry_run", "submitted", "error"}
+
+
+# --- list_open_orders (read-only ledger scrape used by /nego kss) -----------
+
+_LEDGER_ROWS = [
+    ["11008198", "MTC", "14/10/2026", "10:15:00", "Short", "29.25", "1,000", "500", "500", "0", "Open"],
+    ["11008199", "PTT", "14/10/2026", "10:16:00", "Buy", "35.00", "100", "100", "0", "0", "Matched"],
+]
+
+
+class _FakeBrowser:
+    async def close(self):
+        pass
+
+
+class _FakePw:
+    async def start(self):
+        return self
+
+    async def stop(self):
+        pass
+
+
+class _FakeLedgerContext:
+    """Context whose single page answers #orderBodyEq reads with the canned rows."""
+
+    def __init__(self, page):
+        self.page = page
+
+    async def new_page(self):
+        return self.page
+
+    async def close(self):
+        pass
+
+
+def _patch_ledger(monkeypatch, d, rows):
+    import app.brokers.krungsri.quicktrade_driver as drv
+
+    page = FakePage(evaluate_result={"selected_account": "3024959", "rows": rows})
+    monkeypatch.setattr(drv.os.path, "exists", lambda p: True)
+    monkeypatch.setattr(drv, "async_playwright", lambda: _FakePw())
+
+    async def _launch(pw):
+        return _FakeBrowser(), _FakeLedgerContext(page)
+
+    monkeypatch.setattr(d, "_launch", _launch)
+    return page
+
+
+async def test_list_open_orders_returns_pending_rows_of_the_margin_account(monkeypatch):
+    d = KrungsriQuickTradeDriver()
+    _patch_ledger(monkeypatch, d, _LEDGER_ROWS)
+
+    res = await d.list_open_orders()
+    assert res["success"] is True
+    assert [o["order_no"] for o in res["orders"]] == ["11008198"]   # Matched row dropped
+    assert res["orders"][0]["balance"] == 500
+    assert res["account_no"] == d.candidate_accounts()[0]           # margin searched first
+    assert res["selected_account"] == "3024959"
+
+
+async def test_list_open_orders_symbol_filter_is_exact(monkeypatch):
+    d = KrungsriQuickTradeDriver()
+    _patch_ledger(monkeypatch, d, _LEDGER_ROWS)
+
+    hit = await d.list_open_orders(symbol="mtc")
+    miss = await d.list_open_orders(symbol="KBANK")
+    assert [o["order_no"] for o in hit["orders"]] == ["11008198"]
+    assert miss["success"] is True and miss["orders"] == []   # honest empty, not an error
+
+
+async def test_list_open_orders_fails_closed_without_a_session(monkeypatch):
+    """Anti-Mock: no session file -> honest failure with no rows, never a fake success."""
+    import app.brokers.krungsri.quicktrade_driver as drv
+
+    d = KrungsriQuickTradeDriver()
+    monkeypatch.setattr(drv.os.path, "exists", lambda p: False)
+
+    res = await d.list_open_orders()
+    assert res["success"] is False and res["orders"] == []
+    assert "Session file not found" in res["error"]

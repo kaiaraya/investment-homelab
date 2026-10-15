@@ -252,6 +252,25 @@ class KrungsriQuickTradeDriver:
                 return o
         return None
 
+    @classmethod
+    def pending_orders(cls, orders: Optional[List[Dict[str, Any]]],
+                       symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Keep the unfilled rows only (``balance > 0``), optionally for one symbol.
+
+        ``/nego kss`` amends the *remaining* volume, so a matched/cancelled row
+        (balance 0) is never a target; a row whose balance could not be parsed is also
+        dropped because the volume invariant (3) cannot be honoured without it.
+        """
+        want = (symbol or "").strip().upper()
+        out: List[Dict[str, Any]] = []
+        for o in orders or []:
+            if int(o.get("balance") or 0) <= 0:
+                continue
+            if want and str(o.get("symbol") or "").strip().upper() != want:
+                continue
+            out.append(o)
+        return out
+
     @staticmethod
     def _fmt_price(price: Any) -> str:
         return f"{float(price):.2f}"
@@ -430,6 +449,53 @@ class KrungsriQuickTradeDriver:
             except Exception as exc:
                 logger.error(f"get_order({order_no}) failed: {exc}")
                 return {"success": False, "error": str(exc)}
+            finally:
+                await context.close()
+                await browser.close()
+                await playwright.stop()
+
+    async def list_open_orders(self, account_no: Optional[str] = None,
+                               symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Read the pending orders of an account from the Quick Trade ledger.
+
+        Read-only sibling of :meth:`get_order` (same session/lock/launch path) that
+        ``/nego kss`` uses to discover what to re-price: every ``#orderBodyEq`` row with
+        ``balance > 0``, searching the configured accounts (margin first) unless one is
+        pinned. Filtering by symbol happens in Python so a single page load serves both
+        ``/nego kss`` and ``/nego kss MTC``. Anti-Mock: a missing session or a failed
+        page read returns ``success=False`` with ``orders=[]`` - never a guessed row.
+        """
+        candidates = [account_no] if account_no else self.candidate_accounts()
+        async with self._lock:
+            session_file = self._session_file()
+            if not os.path.exists(session_file):
+                return {"success": False, "orders": [],
+                        "error": f"Session file not found at {session_file}"}
+            playwright = await async_playwright().start()
+            browser, context = await self._launch(playwright)
+            try:
+                page = await context.new_page()
+                await page.goto(QUICKTRADE_SSO_URL, wait_until="domcontentloaded", timeout=45000)
+                for _ in range(20):
+                    if "fastorder" in page.url:
+                        break
+                    await page.wait_for_timeout(1000)
+                seen = ""
+                for acc in candidates:
+                    await self._select_account(page, acc)
+                    ledger = await self._read_order_ledger(page)
+                    seen = ledger.get("selected_account") or seen
+                    orders = self.pending_orders(ledger.get("orders"), symbol)
+                    if orders:
+                        return {"success": True, "account_no": acc, "orders": orders,
+                                "selected_account": seen}
+                # A real, empty answer: both configured accounts were read and had no
+                # pending row (the handler must not report this as an error).
+                return {"success": True, "account_no": candidates[-1], "orders": [],
+                        "selected_account": seen}
+            except Exception as exc:
+                logger.error(f"list_open_orders failed: {exc}")
+                return {"success": False, "orders": [], "error": str(exc)}
             finally:
                 await context.close()
                 await browser.close()

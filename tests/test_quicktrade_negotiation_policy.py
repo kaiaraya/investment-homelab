@@ -97,6 +97,62 @@ def test_plan_propagates_uptick_violation():
     assert d.target_price is None
 
 
+def test_plan_max_ticks_exceeded_states_the_distance():
+    """G5 (TASK-loop1-2): a target beyond LINE_NEGO_MAX_TICKS ticks is refused."""
+    d = plan_negotiation(_order(side="BUY", price=29.25),
+                         Quote(symbol="MTC", best_bid=30.25, best_offer=30.50, last=30.00))
+    assert d.outcome is NegotiationOutcome.MAX_TICKS_EXCEEDED
+    assert d.target_price is None                      # nothing submittable
+    assert "4 ticks" in d.reason and "allowed 3" in d.reason
+
+
+def test_plan_target_within_max_ticks_is_ok():
+    """3 ticks away is still inside the LINE_NEGO_MAX_TICKS=3 default."""
+    d = plan_negotiation(_order(side="BUY", price=29.25),
+                         Quote(symbol="MTC", best_bid=30.00, best_offer=30.25, last=30.00))
+    assert d.outcome is NegotiationOutcome.OK
+    assert d.target_price == 30.00
+
+
+def test_plan_max_ticks_override_is_honoured():
+    q = Quote(symbol="MTC", best_bid=30.00, best_offer=30.25, last=30.00)
+    assert plan_negotiation(_order(side="BUY", price=29.25), q).outcome is NegotiationOutcome.OK
+
+    d = plan_negotiation(_order(side="BUY", price=29.25), q, max_ticks=1)
+    assert d.outcome is NegotiationOutcome.MAX_TICKS_EXCEEDED
+
+
+def test_plan_tick_size_violation_fails_closed():
+    """G4: a quote price off the SET tick grid is never submitted."""
+    d = plan_negotiation(_order(side="BUY", price=29.25),
+                         Quote(symbol="MTC", best_bid=29.10, best_offer=29.35, last=29.20))
+    assert d.outcome is NegotiationOutcome.TICK_SIZE_VIOLATION
+    assert d.target_price is None
+    assert "tick size" in d.reason
+
+
+def test_tick_distance_counts_in_the_higher_bracket():
+    from app.services.quicktrade_negotiation_service import tick_distance
+    assert tick_distance(29.25, 30.25) == 4           # 1.00 THB / 0.25 tick
+    assert tick_distance(29.25, 29.25) == 0
+
+
+def test_plan_short_at_last_price_is_an_uptick_violation():
+    """G6 strict (TASK-loop1-2): the zero-plus tick on LastPrice is rejected."""
+    d = plan_negotiation(_order(side="SHORT", price=29.25),
+                         Quote(symbol="MTC", best_bid=29.00, best_offer=29.50, last=29.50))
+    assert d.outcome is NegotiationOutcome.UPTICK_VIOLATION
+    assert d.target_price is None                     # nothing submittable
+    assert "zero-plus tick" in d.reason
+
+
+def test_plan_short_strictly_above_last_is_ok():
+    d = plan_negotiation(_order(side="SHORT", price=29.25),
+                         Quote(symbol="MTC", best_bid=29.00, best_offer=29.75, last=29.50))
+    assert d.outcome is NegotiationOutcome.OK
+    assert d.target_price == 29.75
+
+
 # --------------------------------------------------------------------------- #
 # orchestration: negotiate_order_price() binds the policy to the Quick Trade driver
 # --------------------------------------------------------------------------- #
@@ -225,3 +281,19 @@ async def test_negotiate_order_price_reports_amendment_failure(monkeypatch):
     res = await negotiate_order_price('11008198')
     assert res['success'] is False and res['error'] == 'broker rejected price'
     assert res['submitted'] is False
+
+
+@pytest.mark.asyncio
+async def test_negotiate_order_price_refuses_far_target_without_amending(monkeypatch):
+    """G5 end to end: the driver is never asked to amend and the caller gets the reason."""
+    from app.services.quicktrade_negotiation_service import negotiate_order_price
+    stub = _patch_driver(monkeypatch, _StubDriver(
+        order={'success': True, 'symbol': 'MTC', 'side': 'BUY', 'price': 29.25,
+               'balance': 100, 'account_no': '3024959'},
+        quote={'success': True, 'symbol': 'MTC', 'best_bid': 30.25, 'best_offer': 30.50, 'last': 30.00},
+    ))
+
+    res = await negotiate_order_price('11008198')
+    assert res['success'] is False and res['outcome'] == 'MAX_TICKS_EXCEEDED'
+    assert res['amendment'] is None and '4 ticks' in res['error']
+    assert stub.amend_calls == []

@@ -21,6 +21,10 @@ from app.services.line_cli import parser as cli_parser
 #: reference so the card-content tests below exercise the actual builder.
 REAL_LIVE_CARD = handlers._live_card
 
+#: Same idea for the two broker edges that the routing tests must exercise themselves.
+REAL_BROKER_OPEN_ORDERS = handlers._broker_open_orders
+REAL_BROKER_MODIFY = handlers._broker_modify
+
 
 # --------------------------------------------------------------------------- #
 # Fixtures / helpers
@@ -414,6 +418,98 @@ async def test_nego_duplicate_is_busy(service, db_session):
     finally:
         lock.release()
     assert res["status"] == "CLI_BUSY"
+
+
+# --------------------------------------------------------------------------- #
+# /nego kss LIVE -> Quick Trade in-place only (TASK-loop1-2, D1/D4)
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_broker_open_orders_kss_reads_the_quicktrade_ledger(monkeypatch):
+    """The order numbers we amend must come from the platform we amend on."""
+    import app.brokers.krungsri.quicktrade_driver as qtd
+
+    monkeypatch.setattr(handlers, "_broker_open_orders", REAL_BROKER_OPEN_ORDERS)
+    monkeypatch.setattr(qtd.quicktrade_driver, "list_open_orders", AsyncMock(return_value={
+        "success": True, "account_no": "3024959", "orders": [{"order_no": "1", "balance": 100}],
+    }))
+
+    orders = await handlers._broker_open_orders("kss")
+    assert [o["order_no"] for o in orders] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_broker_open_orders_kss_fails_closed_when_the_ledger_is_unreadable(monkeypatch):
+    """Anti-Mock: an unreadable ledger must never look like an empty order book."""
+    import app.brokers.krungsri.quicktrade_driver as qtd
+
+    monkeypatch.setattr(handlers, "_broker_open_orders", REAL_BROKER_OPEN_ORDERS)
+    monkeypatch.setattr(qtd.quicktrade_driver, "list_open_orders", AsyncMock(return_value={
+        "success": False, "orders": [], "error": "Session file not found",
+    }))
+
+    with pytest.raises(RuntimeError):
+        await handlers._broker_open_orders("kss")
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_kss_live_uses_quicktrade_in_place(monkeypatch):
+    """D1: the LIVE kss route never cancel+replaces - it goes through the service."""
+    import app.browser.trademan_driver as tm
+    import app.services.quicktrade_negotiation_service as qt
+    from app.services.trade_dispatcher import trade_dispatcher
+
+    monkeypatch.setattr(handlers, "_broker_modify", REAL_BROKER_MODIFY)
+    monkeypatch.setattr(type(trade_dispatcher), "is_live", property(lambda self: True))
+    service = AsyncMock(return_value={
+        "success": True, "outcome": "OK", "submitted": True,
+        "current_price": 34.00, "target_price": 34.25,
+    })
+    monkeypatch.setattr(qt, "negotiate_order_price", service)
+    cancel_replace = AsyncMock()
+    monkeypatch.setattr(tm.trademan_driver, "modify_order_price", cancel_replace)
+
+    res = await handlers._broker_modify("kss", order_no="12345", new_price=34.25,
+                                        symbol="PTT", side="BUY", volume=1000)
+
+    assert res["path"] == "QUICKTRADE_INPLACE"
+    assert service.await_args.args[0] == "12345"
+    assert service.await_args.kwargs["balance"] == 1000
+    cancel_replace.assert_not_awaited()          # cancel+replace is off the LIVE path
+
+
+def test_quicktrade_refusal_is_a_skip_not_an_ok():
+    row = {"order_no": "12345", "symbol": "PTT", "side": "BUY", "old_price": 34.00, "volume": 1000}
+    handlers._apply_quicktrade_result(row, {
+        "success": False, "outcome": "MAX_TICKS_EXCEEDED", "current_price": 34.00,
+        "target_price": None, "reason": "target 40.00 is 24 ticks away from 34.00",
+    })
+    assert row["status"] == "skip" and "tick" in row["reason"]
+    assert row["old_price"] == 34.00             # card shows the price the ledger reported
+
+
+def test_quicktrade_dry_run_row_is_marked_not_sent():
+    row = {"order_no": "12345", "symbol": "PTT", "side": "BUY", "old_price": 34.00, "volume": 1000}
+    handlers._apply_quicktrade_result(row, {
+        "success": True, "outcome": "OK", "submitted": False, "dry_run": True,
+        "current_price": 34.00, "target_price": 34.25,
+    })
+    assert row["status"] == "ok" and "DRY-RUN" in row["reason"]
+    assert row["new_price"] == 34.25             # the price Quick Trade actually staged
+
+
+@pytest.mark.asyncio
+async def test_nego_kss_live_refusal_is_reported_as_skipped(service, db_session, monkeypatch):
+    """The card/audit counts follow the Quick Trade outcome, not the handler preview."""
+    monkeypatch.setattr(handlers, "_broker_open_orders", AsyncMock(return_value=[_open_order()]))
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_quote(bid_1=34.25)))
+    monkeypatch.setattr(handlers, "_broker_modify", AsyncMock(return_value={
+        "success": False, "outcome": "MAX_TICKS_EXCEEDED", "path": "QUICKTRADE_INPLACE",
+        "current_price": 34.00, "target_price": None, "reason": "too far",
+    }))
+
+    res = await _run(service, "/nego kss", db=db_session)
+    assert res["status"] == "CLI_NEGO"
+    assert res["ok"] == 0 and res["skipped"] == 1 and res["failed"] == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -966,12 +1062,17 @@ async def test_live_cash_card_kss_unbound_account_is_unavailable(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# /negotiate — Quick Trade in-place amendment (Pillar 6)
+# /negotiate — alias of /nego kss (ONE path, TASK-loop1-2 D1/D2)
 # --------------------------------------------------------------------------- #
-def _patch_negotiate(monkeypatch, result):
-    import app.services.quicktrade_negotiation_service as svc
-    monkeypatch.setattr(svc, 'negotiate_order_price', AsyncMock(return_value=result))
-    return svc
+def _patch_live_kss(monkeypatch, result, *, order=None, price=34.00, bid_1=34.25):
+    """Wire the LIVE kss seam: ledger order in, Quick Trade service result out."""
+    monkeypatch.setattr(handlers, "_broker_open_orders", AsyncMock(
+        return_value=[order or _open_order(order_no="11008198", price=price)]))
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_quote(bid_1=bid_1)))
+    res = dict(result)
+    res.setdefault("path", "QUICKTRADE_INPLACE")
+    monkeypatch.setattr(handlers, "_broker_modify", AsyncMock(return_value=res))
+    return res
 
 
 @pytest.mark.asyncio
@@ -999,17 +1100,19 @@ async def test_negotiate_out_of_hours_blocks(service, db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_negotiate_amends_in_place_and_pushes_card(service, db_session, monkeypatch):
+    """The alias runs the unified /nego kss flow (ledger -> Quick Trade in-place)."""
     from app.db.models import SessionLog
     from sqlalchemy import select
-    svc = _patch_negotiate(monkeypatch, {
-        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT',
-        'outcome': 'OK', 'current_price': 29.25, 'target_price': 29.50, 'volume': 500,
-        'reason': '', 'amendment': {'success': True, 'submitted': True, 'dry_run': False},
+    _patch_live_kss(monkeypatch, {
+        'success': True, 'outcome': 'OK', 'submitted': True,
+        'current_price': 34.00, 'target_price': 34.25,
     })
 
     res = await _run(service, '/negotiate 11008198', db=db_session)
-    assert res['status'] == 'CLI_NEGOTIATE' and res['outcome'] == 'OK'
-    svc.negotiate_order_price.assert_awaited_once_with('11008198')
+    assert res['status'] == 'CLI_NEGO' and res['order_no'] == '11008198'
+    assert res['ok'] == 1 and res['failed'] == 0 and res['skipped'] == 0
+    handlers._broker_open_orders.assert_awaited_once_with('kss')     # one path only
+    handlers._broker_modify.assert_awaited_once()
     card, target = service.pushes[-1]
     assert card['type'] == 'flex' and 'ต่อราคา #11008198' in card['altText']
     assert target == 'U_OP'
@@ -1020,15 +1123,17 @@ async def test_negotiate_amends_in_place_and_pushes_card(service, db_session, mo
 
 @pytest.mark.asyncio
 async def test_negotiate_uptick_violation_is_shown_as_failure(service, db_session, monkeypatch):
-    _patch_negotiate(monkeypatch, {
-        'success': False, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT',
-        'outcome': 'UPTICK_VIOLATION', 'current_price': 29.25, 'target_price': None,
-        'volume': 500, 'reason': 'offer_1 29.00 < last 29.25', 'amendment': None,
-        'error': 'offer_1 29.00 < last 29.25',
-    })
+    """The live quote ticked down between preview and amend -> skip, never an ok."""
+    _patch_live_kss(monkeypatch, {
+        'success': False, 'outcome': 'UPTICK_VIOLATION', 'submitted': False,
+        'current_price': 34.00, 'target_price': None,
+        'reason': 'offer_1 33.75 < last 34.00', 'error': 'offer_1 33.75 < last 34.00',
+    }, order=_open_order(order_no="11008198", side="SHORT", price=34.00))
+    monkeypatch.setattr(handlers, "_broker_quote",
+                        AsyncMock(return_value=_quote(offer_1=34.50, last=34.00)))
 
     res = await _run(service, '/negotiate 11008198', db=db_session)
-    assert res['outcome'] == 'UPTICK_VIOLATION' and res['success'] is False
+    assert res['ok'] == 0 and res['skipped'] == 1 and res['failed'] == 0
     card = service.pushes[-1][0]
     assert card['type'] == 'flex' and 'ผิดกฎ Uptick' in card['altText']
 
@@ -1040,15 +1145,13 @@ async def test_negotiate_dry_run_card_never_claims_a_live_submission(service, db
     `submitted` is deliberately absent at the top level — the handler must read it from
     `amendment`, and the card must never infer a live submission from `success`.
     """
-    _patch_negotiate(monkeypatch, {
-        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'BUY',
-        'outcome': 'OK', 'current_price': 29.00, 'target_price': 29.25, 'volume': 100,
-        'reason': '', 'amendment': {'success': True, 'submitted': False, 'dry_run': True,
-                                    'status': 'STAGED_DRY_RUN'},
+    _patch_live_kss(monkeypatch, {
+        'success': True, 'outcome': 'OK', 'submitted': False, 'dry_run': True,
+        'current_price': 34.00, 'target_price': 34.25,
     })
 
     res = await _run(service, '/negotiate 11008198', db=db_session)
-    assert res['status'] == 'CLI_NEGOTIATE' and res['outcome'] == 'OK'
+    assert res['status'] == 'CLI_NEGO' and res['ok'] == 1
     card = service.pushes[-1][0]
     assert 'จัดเตรียมไว้ (TEST/DRY-RUN)' in str(card)
     assert 'ส่งเข้าตลาดแล้ว' not in str(card)
