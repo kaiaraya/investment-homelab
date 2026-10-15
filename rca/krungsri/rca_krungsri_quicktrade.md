@@ -10,7 +10,8 @@ TradeMan cancel+resend amendment path here.
 
 - Runbook: `learned_workflows/krungsri/quicktrade_native_change_order.md`
 - Code: `app/brokers/krungsri/quicktrade_driver.py`, `app/services/quicktrade_negotiation_service.py`,
-  `app/api/v1/quicktrade.py`, LINE `/negotiate` (`app/services/line_cli/handlers.py`)
+  `app/api/v1/quicktrade.py`, LINE `/nego kss <order_no>` (`app/services/line_cli/handlers.py::_nego_quicktrade`,
+  alias `/negotiate <order_no>`)
 - ID space: `KSS-QT-RCA-###` (the TradeMan `KSS-RCA-###` sequence in `rca_krungsri_trademan.md` is untouched)
 
 ---
@@ -94,4 +95,42 @@ state at its top level, so `success=True` was the only signal a non-UI caller co
   `test_negotiate_dry_run_card_never_claims_a_live_submission` (LINE flow).
 
 **User feedback**: pending the live `/negotiate <order_no>` re-test (runbook §4.4).
+
+---
+
+## KSS-QT-RCA-004 (2026-10-15) — KSS had two nego routes and the "main" one was cancel+replace
+
+**Symptom / risk**: `/nego kss [SYM|order_no]` (the documented KSS command) reached the LIVE amendment through
+`handlers._broker_modify` → `trademan_driver.modify_order_price`, i.e. **cancel + re-submit** — forbidden by the
+directive (Pillar 3 §3.3 in-place only / acceptance D1). The correct in-place path existed but only behind the
+separate `/negotiate <order_no>` spelling, so the two routes could drift and the queue that `/nego kss` listed
+(TradeMan `scrape_unmatched_orders`) was not the ledger it amended.
+
+**Root cause**: two parallel implementations of the same intent (batch planner in `handlers._plan_nego` +
+`_broker_modify` vs. `quicktrade_negotiation_service.negotiate_order_price`), plus the tick guardrails (G4/G5)
+living only in the handler layer.
+
+**Edge cases**
+- The TradeMan route also risks an order gap / losing queue position in a live market (see KSS-RCA-016).
+- Two quote sources for the same symbol (TradeMan for the batch plan, Quick Trade for the single-order flow).
+- A CLI tap could hit both spellings concurrently → different lock keys.
+- Tick guardrails absent from the policy layer would not protect a non-LINE caller (REST).
+
+**Proven solution**
+- `_broker_modify(… "kss" …)` LIVE now calls `quicktrade_negotiation_service.negotiate_order_price(…,
+  price=current_price, balance=volume, execute=True)`; `trademan_driver.modify_order_price` is no longer reachable
+  from the LINE CLI (locked by `test_nego_kss_order_no_never_calls_trademan_modify` +
+  `test_broker_modify_kss_live_amends_in_place_on_quicktrade`).
+- `/nego kss <order_no>` → `_nego_quicktrade()` (single-order `negotiate_card`); `/nego kss` / `/nego kss SYMBOL`
+  → batch planner over the Quick Trade ledger; `/negotiate <order_no>` is a thin alias with its own lock key.
+- KSS queue source = `quicktrade_driver.list_open_orders()` (MARGIN `#orderBodyEq`, `balance > 0`); an unreadable
+  ledger raises instead of returning an empty queue (Anti-Mock).
+- **G4** `INVALID_TICK_SIZE` (SET tick size) + **G5** `MAX_TICKS_EXCEEDED` (`tick_distance()` vs
+  `LINE_NEGO_MAX_TICKS`, reason carries the tick count) moved into `plan_negotiation()`, so every caller gets them.
+- `negotiate_order_price()` pins `settings.TRADEMAN_ACCOUNT_NO_MARGIN` (3024959) — no per-call account discovery.
+- Tests: `tests/test_quicktrade_negotiation_policy.py`, `tests/test_quicktrade_driver.py`,
+  `tests/test_line_cli_flow.py` (runbook §4.5). Verify: `scripts/verify_changes.py` on the 3 changed modules → PASS
+  (124 targeted tests, compileall OK).
+
+**User feedback**: pending the live `/nego kss <order_no>` card re-test on a real Quick Trade session (card 4).
 

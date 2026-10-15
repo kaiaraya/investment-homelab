@@ -11,7 +11,10 @@ Safety invariants (``TASK-krungsri-quicktrade-passive-negotiate``):
    ``UPTICK_VIOLATION`` - a short may never be amended to a price below last.
 3. **VOLUME INTEGRITY** - only the price is amended; the volume stays equal to the
    order's remaining balance.
-4. **ANTI-MOCK** - an unreadable quote yields a failure, never a guessed price.
+4. **G4 tick-size** - the target must be a legal SET price for its bracket.
+5. **G5 tick distance** - ``|new - old|`` may never exceed ``settings.LINE_NEGO_MAX_TICKS``
+   ticks; further away fails closed with ``MAX_TICKS_EXCEEDED``.
+6. **ANTI-MOCK** - an unreadable quote yields a failure, never a guessed price.
 """
 from __future__ import annotations
 
@@ -19,6 +22,9 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
+
+from app.core.config import settings
+from app.services.validator import validator
 
 
 class Side(str, Enum):
@@ -34,6 +40,8 @@ class NegotiationOutcome(str, Enum):
     OK = "OK"
     NO_CHANGE = "NO_CHANGE"
     UPTICK_VIOLATION = "UPTICK_VIOLATION"
+    MAX_TICKS_EXCEEDED = "MAX_TICKS_EXCEEDED"      # G5
+    INVALID_TICK_SIZE = "INVALID_TICK_SIZE"        # G4
     NO_QUOTE = "NO_QUOTE"
     UNSUPPORTED_SIDE = "UNSUPPORTED_SIDE"
 
@@ -125,19 +133,87 @@ def compute_passive_price(
     return NegotiationDecision(outcome=NegotiationOutcome.OK, target_price=max(best_offer, last))
 
 
-def plan_negotiation(order: OrderSnapshot, quote: Quote) -> NegotiationDecision:
+#: hard cap for the G5 tick walk — far above any sane ``LINE_NEGO_MAX_TICKS``
+_MAX_TICK_WALK = 200
+
+
+def _to_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f          # NaN guard
+
+
+def tick_distance(old_price: Any, new_price: Any) -> Optional[int]:
+    """Count the SET ticks between ``old_price`` and ``new_price`` (G5).
+
+    Returns ``None`` when the distance cannot be established - non-numeric input, a
+    stalled walk, or more than :data:`_MAX_TICK_WALK` ticks - so the caller fails
+    closed. Anti-Mock: a tick count is never guessed.
+    """
+    old, new = _to_float(old_price), _to_float(new_price)
+    if old is None or new is None:
+        return None
+    if abs(new - old) < 1e-9:
+        return 0
+    step = 1 if new > old else -1
+    price = old
+    for n in range(1, _MAX_TICK_WALK + 1):
+        nxt = validator.get_next_tick(price, step)
+        if nxt == price:                  # walk stalled (bottom of a tick bracket)
+            return None
+        price = nxt
+        if (step > 0 and price >= new - 1e-6) or (step < 0 and price <= new + 1e-6):
+            return n
+    return None
+
+
+def plan_negotiation(
+    order: OrderSnapshot,
+    quote: Quote,
+    *,
+    max_ticks: Optional[int] = None,
+) -> NegotiationDecision:
     """Bind a live quote to an order and produce the final decision.
 
-    Preserves the order's remaining volume (invariant 3) and flips a no-op amendment
-    (target == current price) to ``NO_CHANGE`` so the caller never re-submits needlessly.
+    Applied in order: the passive price rule (invariants 1-2), then **G4** (the target
+    must pass the SET tick-size check) and **G5** (``|new - old|`` may not exceed
+    ``max_ticks`` ticks, defaulting to ``settings.LINE_NEGO_MAX_TICKS``). A violation is
+    FAIL-CLOSED with ``INVALID_TICK_SIZE`` / ``MAX_TICKS_EXCEEDED`` - never a silent
+    amendment. Preserves the order's remaining volume (invariant 3) and flips a no-op
+    amendment (target == current price) to ``NO_CHANGE`` so the caller never re-submits
+    needlessly.
     """
+    if max_ticks is None:
+        max_ticks = int(getattr(settings, "LINE_NEGO_MAX_TICKS", 3) or 3)
     d = compute_passive_price(order.side, quote.best_bid, quote.best_offer, quote.last)
     d.side = order.side
     d.current_price = order.price
     d.volume = order.balance
-    if d.outcome is NegotiationOutcome.OK and d.target_price == order.price:
+    if d.outcome is not NegotiationOutcome.OK:
+        return d
+    if d.target_price == order.price:
         d.outcome = NegotiationOutcome.NO_CHANGE
         d.reason = "target price equals the current price - nothing to amend"
+        return d
+
+    # G4 - the target must be a legal SET price for its bracket.
+    tick_ok, tick_err = validator.validate_tick_size(d.target_price)
+    if not tick_ok:
+        d.outcome = NegotiationOutcome.INVALID_TICK_SIZE
+        d.reason = f"ไม่ผ่าน SET tick-size: {tick_err}"
+        return d
+
+    # G5 - never walk the price more than ``max_ticks`` SET ticks away from the order.
+    n = tick_distance(order.price, d.target_price)
+    if n is None or n > max_ticks:
+        d.outcome = NegotiationOutcome.MAX_TICKS_EXCEEDED
+        d.reason = (f"ราคาเป้าหมายห่าง {n} tick เกิน LINE_NEGO_MAX_TICKS={max_ticks}"
+                    if n is not None
+                    else f"ราคาเป้าหมายห่างเกิน {max_ticks} tick (นับ tick ไม่ได้ = fail-closed)")
     return d
 
 
@@ -159,9 +235,10 @@ async def negotiate_order_price(
     """Passively re-price an existing Krungsri Quick Trade order.
 
     Resolves the order snapshot from the driver when fields are missing, reads the
-    live quote, applies the policy, and (on ``OK`` + ``execute``) amends the price
-    in place via the driver. Never fabricates a result: unreadable quote/order, an
-    uptick violation or a driver error are all reported as failures.
+    live quote, applies the policy (invariants 1-3 + G4/G5), and (on ``OK`` + ``execute``)
+    amends the price in place via the driver. Never fabricates a result: unreadable
+    quote/order, an uptick/tick-size/tick-distance violation or a driver error are all
+    reported as failures.
     """
     # Lazy import keeps this module browser-free at import time.
     from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
@@ -171,6 +248,10 @@ async def negotiate_order_price(
         return {"success": False, "order_no": order_no,
                 "outcome": NegotiationOutcome.UNSUPPORTED_SIDE.value,
                 "error": "order_no is required"}
+
+    # Loop 1 (D1): the in-place Quick Trade amendment is MARGIN-only (KSS-QT-RCA-001) -
+    # the account is pinned, never discovered per call and never borrowed from another broker.
+    account_no = str(account_no or getattr(settings, "TRADEMAN_ACCOUNT_NO_MARGIN", "") or "").strip() or None
 
     # 1. Resolve the order snapshot (fill any missing field from the ledger).
     if None in (symbol, side, price, balance):
@@ -232,7 +313,9 @@ async def negotiate_order_price(
         result["dry_run"] = amendment.get("dry_run")
         if not amendment.get("success"):
             result["error"] = amendment.get("error")
-    elif decision.outcome is NegotiationOutcome.UPTICK_VIOLATION:
+    elif decision.outcome not in (NegotiationOutcome.OK, NegotiationOutcome.NO_CHANGE):
+        # Anti-Mock: any fail-closed guardrail (uptick / tick size / tick distance /
+        # no quote / unsupported side) is reported with its own reason.
         result["error"] = decision.reason
 
     return result

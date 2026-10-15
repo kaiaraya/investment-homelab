@@ -20,6 +20,10 @@ from app.services.line_cli import parser as cli_parser
 #: The autouse `_broker_edges` fixture stubs ``handlers._live_card`` — keep a real
 #: reference so the card-content tests below exercise the actual builder.
 REAL_LIVE_CARD = handlers._live_card
+#: Same idea for the broker edges themselves: the Loop-1 tests below drive the REAL
+#: ``_broker_open_orders`` / ``_broker_modify`` (the fixture replaces the module attributes).
+REAL_BROKER_OPEN_ORDERS = handlers._broker_open_orders
+REAL_BROKER_MODIFY = handlers._broker_modify
 
 
 # --------------------------------------------------------------------------- #
@@ -975,6 +979,76 @@ def _patch_negotiate(monkeypatch, result):
 
 
 @pytest.mark.asyncio
+async def test_nego_kss_with_an_order_no_runs_the_quicktrade_inplace_flow(service, db_session, monkeypatch):
+    """Loop 1 D1: `/nego kss <order_no>` IS the Quick Trade in-place path (one card)."""
+    svc = _patch_negotiate(monkeypatch, {
+        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT',
+        'outcome': 'OK', 'current_price': 29.25, 'target_price': 29.50, 'volume': 500,
+        'reason': '', 'amendment': {'success': True, 'submitted': True, 'dry_run': False},
+    })
+
+    res = await _run(service, '/nego kss 11008198', db=db_session)
+
+    assert res['status'] == 'CLI_NEGOTIATE' and res['outcome'] == 'OK'
+    svc.negotiate_order_price.assert_awaited_once_with('11008198')
+    handlers._broker_open_orders.assert_not_awaited()          # the ledger is not needed
+    handlers._broker_modify.assert_not_awaited()               # ...nor the batch amend path
+    card = service.pushes[-1][0]
+    assert card['type'] == 'flex' and 'ต่อราคา #11008198' in card['altText']
+
+
+@pytest.mark.asyncio
+async def test_nego_kss_order_no_never_calls_trademan_modify(service, db_session, monkeypatch):
+    """Anti-regression: the LIVE KSS route must not reach TradeMan's cancel+replace."""
+    import app.browser.trademan_driver as td
+    svc = _patch_negotiate(monkeypatch, {
+        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT',
+        'outcome': 'OK', 'current_price': 29.25, 'target_price': 29.50, 'volume': 500,
+        'reason': '', 'amendment': {'success': True, 'submitted': True, 'dry_run': False},
+    })
+    trademan_spy = AsyncMock()
+    monkeypatch.setattr(td.trademan_driver, 'modify_order_price', trademan_spy)
+
+    await _run(service, '/nego kss 11008198', db=db_session)
+
+    svc.negotiate_order_price.assert_awaited_once_with('11008198')
+    trademan_spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_negotiate_is_an_alias_of_nego_kss(service, db_session, monkeypatch):
+    """Both spellings must produce the same status/outcome for the same order."""
+    _patch_negotiate(monkeypatch, {
+        'success': True, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'BUY',
+        'outcome': 'OK', 'current_price': 29.00, 'target_price': 29.25, 'volume': 100,
+        'reason': '', 'amendment': {'success': True, 'submitted': True, 'dry_run': False},
+    })
+
+    via_nego = await _run(service, '/nego kss 11008198', db=db_session)
+    via_alias = await _run(service, '/negotiate 11008198', db=db_session)
+
+    assert (via_nego['status'], via_nego['outcome'], via_nego['order_no']) == \
+           (via_alias['status'], via_alias['outcome'], via_alias['order_no'])
+
+
+@pytest.mark.asyncio
+async def test_nego_kss_max_ticks_exceeded_is_reported_not_hidden(service, db_session, monkeypatch):
+    """G5 in the single-order flow: fail-closed, no claim of a live submission."""
+    _patch_negotiate(monkeypatch, {
+        'success': False, 'order_no': '11008198', 'symbol': 'MTC', 'side': 'BUY',
+        'outcome': 'MAX_TICKS_EXCEEDED', 'current_price': 29.00, 'target_price': 36.00,
+        'volume': 500, 'reason': 'ราคาเป้าหมายห่าง 28 tick เกิน LINE_NEGO_MAX_TICKS=3',
+        'amendment': None, 'error': 'ราคาเป้าหมายห่าง 28 tick เกิน LINE_NEGO_MAX_TICKS=3',
+    })
+
+    res = await _run(service, '/nego kss 11008198', db=db_session)
+
+    assert res['outcome'] == 'MAX_TICKS_EXCEEDED' and res['success'] is False
+    card = str(service.pushes[-1][0])
+    assert 'MAX_TICKS_EXCEEDED' in card and 'ส่งเข้าตลาดแล้ว' not in card
+
+
+@pytest.mark.asyncio
 async def test_negotiate_requires_an_order_no(service, db_session):
     res = await _run(service, '/negotiate', db=db_session)
     assert res['status'] == 'CLI_NEGOTIATE_BAD_ARGS'
@@ -1052,4 +1126,83 @@ async def test_negotiate_dry_run_card_never_claims_a_live_submission(service, db
     card = service.pushes[-1][0]
     assert 'จัดเตรียมไว้ (TEST/DRY-RUN)' in str(card)
     assert 'ส่งเข้าตลาดแล้ว' not in str(card)
+
+# --------------------------------------------------------------------------- #
+# Loop 1 D1 — the KSS broker edges (ledger source + LIVE in-place amend)
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_broker_open_orders_kss_reads_the_quicktrade_ledger(monkeypatch):
+    """`/nego kss` must list the ledger the amendment acts on (Quick Trade, MARGIN)."""
+    import app.brokers.krungsri.quicktrade_driver as qdrv
+
+    ledger = {'success': True, 'account_no': '3024959', 'orders': [
+        {'order_no': '11008198', 'symbol': 'MTC', 'side': 'SHORT', 'price': 29.25,
+         'balance': 500, 'status': 'Open'},
+        {'order_no': '11008199', 'symbol': 'PTT', 'side': 'BUY', 'price': 34.00,
+         'balance': 0, 'status': 'Matched'},
+    ]}
+    monkeypatch.setattr(qdrv.quicktrade_driver, 'list_open_orders', AsyncMock(return_value=ledger))
+
+    out = await REAL_BROKER_OPEN_ORDERS('kss')
+
+    assert [o['order_no'] for o in out] == ['11008198']       # the filled order is not offered
+
+
+@pytest.mark.asyncio
+async def test_broker_open_orders_kss_fails_closed_when_the_ledger_is_unreadable(monkeypatch):
+    """Anti-Mock: an unreadable Quick Trade ledger raises, never an empty ("nothing to do") queue."""
+    import app.brokers.krungsri.quicktrade_driver as qdrv
+
+    monkeypatch.setattr(qdrv.quicktrade_driver, 'list_open_orders', AsyncMock(
+        return_value={'success': False, 'error': 'Session file not found at data/session_state.json'}))
+
+    with pytest.raises(RuntimeError, match='Session file not found'):
+        await REAL_BROKER_OPEN_ORDERS('kss')
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_kss_live_amends_in_place_on_quicktrade(monkeypatch):
+    """LIVE KSS ⇒ Quick Trade in-place; TradeMan's cancel+replace must never fire."""
+    from unittest.mock import PropertyMock, patch
+
+    import app.browser.trademan_driver as td
+    from app.services.trade_dispatcher import trade_dispatcher
+
+    svc = _patch_negotiate(monkeypatch, {'success': True, 'submitted': True, 'dry_run': False})
+    trademan_spy = AsyncMock()
+    monkeypatch.setattr(td.trademan_driver, 'modify_order_price', trademan_spy)
+
+    with patch.object(type(trade_dispatcher), 'is_live', new_callable=PropertyMock, return_value=True):
+        res = await REAL_BROKER_MODIFY(
+            'kss', order_no='11008198', new_price=29.50, symbol='MTC', side='SHORT',
+            volume=500, current_price=29.25)
+
+    assert res['success'] is True
+    svc.negotiate_order_price.assert_awaited_once()
+    assert svc.negotiate_order_price.await_args.args == ('11008198',)
+    kwargs = svc.negotiate_order_price.await_args.kwargs
+    assert (kwargs['symbol'], kwargs['side'], kwargs['price'], kwargs['balance']) == \
+           ('MTC', 'SHORT', 29.25, 500)              # the order's own price, not the target
+    assert kwargs['execute'] is True
+    trademan_spy.assert_not_awaited()                # Loop 1 D1: no cancel+replace
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_kss_test_mode_still_uses_the_virtual_dispatcher(monkeypatch):
+    """TEST mode keeps the shared simulator — only the LIVE KSS route changed."""
+    from app.services.trade_dispatcher import trade_dispatcher
+
+    dispatched = {}
+
+    async def _fake_dispatch(**kw):
+        dispatched.update(kw)
+        return {'success': True}
+
+    monkeypatch.setattr(trade_dispatcher, 'dispatch_price_modification', _fake_dispatch)
+
+    res = await REAL_BROKER_MODIFY('kss', order_no='1', new_price=29.50,
+                                   symbol='MTC', side='SHORT', volume=500,
+                                   current_price=29.25)
+
+    assert res['success'] is True and dispatched['broker_order_no'] == '1'
 

@@ -97,6 +97,49 @@ def test_plan_propagates_uptick_violation():
     assert d.target_price is None
 
 
+# --- G4 tick-size / G5 tick distance (loop 1) ------------------------------ #
+
+def test_plan_rejects_a_price_that_is_not_a_legal_set_tick():
+    """Above 25 THB the SET tick is 0.25, so 29.37 can never be amended to (G4)."""
+    d = plan_negotiation(_order(side="BUY", price=29.25),
+                         Quote(symbol="MTC", best_bid=29.37, best_offer=29.50, last=29.25))
+    assert d.outcome is NegotiationOutcome.INVALID_TICK_SIZE
+    assert d.target_price == 29.37            # the computed price is shown, never hidden
+    assert "tick" in d.reason.lower()
+
+
+def test_plan_rejects_more_than_the_configured_tick_distance():
+    """29.00 -> 30.00 is 4 SET ticks (> LINE_NEGO_MAX_TICKS=3) -> fail closed (G5)."""
+    d = plan_negotiation(_order(side="BUY", price=29.00),
+                         Quote(symbol="MTC", best_bid=30.00, best_offer=30.25, last=29.00))
+    assert d.outcome is NegotiationOutcome.MAX_TICKS_EXCEEDED
+    assert "4 tick" in d.reason and "LINE_NEGO_MAX_TICKS=3" in d.reason
+
+
+def test_plan_allows_exactly_the_configured_tick_distance():
+    d = plan_negotiation(_order(side="BUY", price=29.00),
+                         Quote(symbol="MTC", best_bid=29.75, best_offer=30.00, last=29.00))
+    assert d.outcome is NegotiationOutcome.OK
+    assert d.target_price == 29.75
+
+
+def test_plan_honours_an_explicit_max_ticks():
+    d = plan_negotiation(_order(side="BUY", price=29.00),
+                         Quote(symbol="MTC", best_bid=30.00, best_offer=30.25, last=29.00),
+                         max_ticks=4)
+    assert d.outcome is NegotiationOutcome.OK
+
+
+def test_tick_distance_counts_set_ticks_and_fails_closed():
+    from app.services.quicktrade_negotiation_service import tick_distance
+    assert tick_distance(29.00, 29.75) == 3
+    assert tick_distance(29.75, 29.00) == 3
+    assert tick_distance(29.25, 29.25) == 0
+    assert tick_distance(None, 29.00) is None
+    assert tick_distance(29.00, None) is None
+    assert tick_distance("bad", 29.00) is None
+
+
 # --------------------------------------------------------------------------- #
 # orchestration: negotiate_order_price() binds the policy to the Quick Trade driver
 # --------------------------------------------------------------------------- #
@@ -109,8 +152,10 @@ class _StubDriver:
         self._amend = amend or {'success': True, 'submitted': True, 'dry_run': False}
         self.amend_calls = []
         self.quote_calls = []
+        self.order_calls = []
 
     async def get_order(self, order_no, account_no=None):
+        self.order_calls.append((order_no, account_no))
         return dict(self._order)
 
     async def get_quote(self, symbol, account_no=None):
@@ -143,6 +188,41 @@ async def test_negotiate_order_price_resolves_snapshot_and_amends(monkeypatch):
     assert res['target_price'] == 29.50 and res['volume'] == 500
     assert stub.amend_calls[0]['account_no'] == '3024959'      # account discovered by get_order
     assert stub.amend_calls[0]['new_price'] == 29.50
+
+
+@pytest.mark.asyncio
+async def test_negotiate_order_price_pins_the_margin_account(monkeypatch):
+    """Loop 1: the in-place amendment is MARGIN-only — never a discovered/foreign account."""
+    from app.core.config import settings
+    from app.services.quicktrade_negotiation_service import negotiate_order_price
+    margin = str(settings.TRADEMAN_ACCOUNT_NO_MARGIN).strip()
+    stub = _patch_driver(monkeypatch, _StubDriver(
+        order={'success': True, 'symbol': 'MTC', 'side': 'BUY', 'price': 29.00,
+               'balance': 100, 'account_no': '9999999'},      # a foreign account must be ignored
+        quote={'success': True, 'symbol': 'MTC', 'best_bid': 29.25, 'best_offer': 29.50, 'last': 29.00},
+    ))
+
+    res = await negotiate_order_price('11008198')
+
+    assert res['success'] is True
+    assert stub.order_calls == [('11008198', margin)]         # ledger read is pinned to MARGIN
+    assert stub.amend_calls[0]['account_no'] == margin
+
+
+@pytest.mark.asyncio
+async def test_negotiate_order_price_fails_closed_when_the_market_is_too_far(monkeypatch):
+    """G5 end-to-end: a target further than LINE_NEGO_MAX_TICKS never reaches the broker."""
+    from app.services.quicktrade_negotiation_service import negotiate_order_price
+    stub = _patch_driver(monkeypatch, _StubDriver(
+        order={'success': True, 'symbol': 'MTC', 'side': 'BUY', 'price': 29.00,
+               'balance': 100, 'account_no': '3024959'},
+        quote={'success': True, 'symbol': 'MTC', 'best_bid': 30.00, 'best_offer': 30.25, 'last': 29.00},
+    ))
+
+    res = await negotiate_order_price('11008198')
+
+    assert res['success'] is False and res['outcome'] == 'MAX_TICKS_EXCEEDED'
+    assert 'LINE_NEGO_MAX_TICKS' in res['error'] and stub.amend_calls == []
 
 
 @pytest.mark.asyncio

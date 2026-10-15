@@ -1,14 +1,19 @@
 """Unit tests (mock DOM, no browser) for the Krungsri Quick Trade driver (Pillar 6).
 
 Covers the quote scraper, the direct-URL order-detail flow, the price/PIN amendment
-fill, and the DRY_RUN gating of Submit. No real navigation is performed.
+fill, the DRY_RUN gating of Submit, and the read-only open-order listing. No real
+navigation is performed.
 """
+from unittest.mock import AsyncMock
+
 import pytest
 
+from app.brokers.krungsri import quicktrade_driver as drv
 from app.brokers.krungsri.quicktrade_driver import (
     KrungsriQuickTradeDriver,
     ORDER_DETAIL_URL_TMPL,
 )
+from app.core.config import settings
 
 
 class FakePage:
@@ -208,3 +213,105 @@ async def test_amend_price_result_always_carries_submitted_and_success_keys():
     assert out["submitted"] is False      # nothing was sent (Anti-Mock)
     assert out["dry_run"] in (True, False)
     assert set(out) >= {"success", "order_no", "new_price", "dry_run", "submitted", "error"}
+
+
+# --- open-order listing (loop 1: /nego kss reads this ledger) -------------- #
+
+LEDGER_ROWS = [
+    ["", "Order no", "Symbol", "Date", "Time", "Side", "Price", "Volume",
+     "Matched", "Balance", "Cancelled", "Status"],
+    ["", "11008198", "MTC", "14/10/2026", "10:15:00", "Short", "29.25",
+     "1,000", "500", "500", "0", "Open"],
+    ["", "11008199", "PTT", "14/10/2026", "10:20:00", "Buy", "34.00",
+     "1,000", "1,000", "0", "0", "Matched"],
+]
+
+
+class _LedgerContext(FakeContext):
+    """``FakeContext`` whose page answers the ledger scrape with a fixed payload."""
+
+    def __init__(self, payload):
+        super().__init__()
+        self.payload = payload
+        self.closed = False
+
+    async def new_page(self):
+        p = FakePage(evaluate_result=self.payload)
+        self.opened.append(p)
+        return p
+
+    async def close(self):
+        self.closed = True
+
+
+class _FakeBrowser:
+    async def close(self):
+        return None
+
+
+class _FakePlaywright:
+    def __init__(self):
+        self.stopped = False
+
+    async def stop(self):
+        self.stopped = True
+
+
+class _FakeAsyncPlaywright:
+    def __init__(self):
+        self.pw = _FakePlaywright()
+
+    async def start(self):
+        return self.pw
+
+
+def test_filter_open_orders_keeps_only_working_balance():
+    orders = [
+        {"order_no": "1", "balance": 500, "status": "Open"},
+        {"order_no": "2", "balance": 0, "status": "Matched"},      # fully matched
+        {"order_no": "3", "balance": 100, "status": "Cancelled"},  # cancelled
+        {"order_no": "4", "balance": 100, "status": "Unmatched"},
+    ]
+    assert [o["order_no"] for o in KrungsriQuickTradeDriver.filter_open_orders(orders)] == ["1", "4"]
+
+
+def test_filter_open_orders_tags_the_account_it_was_read_from():
+    out = KrungsriQuickTradeDriver.filter_open_orders(
+        [{"order_no": "1", "balance": 500, "status": "Open"}], "3024959")
+    assert out[0]["account_no"] == "3024959"
+
+
+def test_filter_open_orders_survives_an_unreadable_balance():
+    assert KrungsriQuickTradeDriver.filter_open_orders([{"order_no": "1", "balance": "-", "status": "Open"}]) == []
+
+
+async def test_list_open_orders_reads_the_margin_ledger(monkeypatch, tmp_path):
+    d = KrungsriQuickTradeDriver()
+    session = tmp_path / "session_state.json"
+    session.write_text("{}")
+    ctx = _LedgerContext({"selected_account": "3024959", "rows": LEDGER_ROWS})
+    monkeypatch.setattr(d, "_session_file", lambda: str(session))
+    monkeypatch.setattr(d, "_launch", AsyncMock(return_value=(_FakeBrowser(), ctx)))
+    monkeypatch.setattr(drv, "async_playwright", lambda: _FakeAsyncPlaywright())
+
+    out = await d.list_open_orders()
+
+    margin = str(settings.TRADEMAN_ACCOUNT_NO_MARGIN).strip()
+    assert out["success"] is True
+    assert out["account_no"] == margin
+    assert out["selected_account"] == "3024959"
+    assert [o["order_no"] for o in out["orders"]] == ["11008198"]   # 11008199 is fully matched
+    assert out["orders"][0]["account_no"] == margin
+    # read-only: the account dropdown was used, but no price/volume field was ever filled
+    assert ctx.opened[0].selected and not ctx.opened[0].filled
+
+
+async def test_list_open_orders_fails_closed_without_a_session_file(monkeypatch, tmp_path):
+    d = KrungsriQuickTradeDriver()
+    monkeypatch.setattr(d, "_session_file", lambda: str(tmp_path / "missing.json"))
+
+    out = await d.list_open_orders()
+
+    assert out["success"] is False
+    assert "Session file not found" in out["error"]
+

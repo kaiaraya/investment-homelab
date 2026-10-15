@@ -8,7 +8,8 @@ Trade code path; it never touches TradeMan or any other broker.
 Capabilities:
 1. Read a live 5-level Bid/Offer book + market info for a symbol
    (``#eqQuoteSymbol`` + ``#btnGetQuotes`` -> ``#instBidOfferEq`` / ``#instInfoEq``).
-2. Read the open-order ledger (``#orderBodyEq``) to snapshot an order.
+2. Read the open-order ledger (``#orderBodyEq``) to snapshot one order (``get_order``)
+   or to list every working order of the MARGIN account (``list_open_orders``).
 3. Amend an existing order in place via "Change Price& Volume" on the Settrade
    order-detail page (``app.settrade.com/order-status-detail/``): price only,
    the volume field is never touched.
@@ -253,6 +254,28 @@ class KrungsriQuickTradeDriver:
         return None
 
     @staticmethod
+    def filter_open_orders(orders: Optional[List[Dict[str, Any]]],
+                           account_no: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Keep only the orders that are still working (``balance > 0``, not cancelled/matched).
+
+        ``account_no`` (when given) is copied onto every row so the caller can amend the
+        order on the exact account it was read from. Pure - no browser.
+        """
+        out: List[Dict[str, Any]] = []
+        for o in orders or []:
+            try:
+                balance = int(o.get("balance") or 0)
+            except (TypeError, ValueError):
+                continue
+            status = str(o.get("status") or "").upper()
+            if balance > 0 and "CANCEL" not in status and "MATCH" not in status.split():
+                row = dict(o)
+                if account_no:
+                    row.setdefault("account_no", account_no)
+                out.append(row)
+        return out
+
+    @staticmethod
     def _fmt_price(price: Any) -> str:
         return f"{float(price):.2f}"
 
@@ -429,6 +452,44 @@ class KrungsriQuickTradeDriver:
                         "error": f"order {order_no} not found in accounts {candidates}"}
             except Exception as exc:
                 logger.error(f"get_order({order_no}) failed: {exc}")
+                return {"success": False, "error": str(exc)}
+            finally:
+                await context.close()
+                await browser.close()
+                await playwright.stop()
+
+    async def list_open_orders(self, account_no: Optional[str] = None) -> Dict[str, Any]:
+        """List the working orders (``balance > 0``) held in the Quick Trade ledger.
+
+        Read-only: selects no price and submits nothing. Defaults to the MARGIN account
+        (``settings.TRADEMAN_ACCOUNT_NO_MARGIN``), which is where this installation's
+        order ledger lives (KSS-QT-RCA-001) and where the in-place amendment is allowed
+        to act. Zero-OTP: reuses the saved session, never logs in.
+        """
+        account = str(account_no or getattr(settings, "TRADEMAN_ACCOUNT_NO_MARGIN", "") or "").strip()
+        async with self._lock:
+            session_file = self._session_file()
+            if not os.path.exists(session_file):
+                return {"success": False, "error": f"Session file not found at {session_file}"}
+            playwright = await async_playwright().start()
+            browser, context = await self._launch(playwright)
+            try:
+                page = await context.new_page()
+                await page.goto(QUICKTRADE_SSO_URL, wait_until="domcontentloaded", timeout=45000)
+                for _ in range(20):
+                    if "fastorder" in page.url:
+                        break
+                    await page.wait_for_timeout(1000)
+                await self._select_account(page, account)
+                ledger = await self._read_order_ledger(page)
+                return {
+                    "success": True,
+                    "account_no": account,
+                    "selected_account": ledger["selected_account"] or account,
+                    "orders": self.filter_open_orders(ledger["orders"], account),
+                }
+            except Exception as exc:
+                logger.error(f"list_open_orders({account}) failed: {exc}")
                 return {"success": False, "error": str(exc)}
             finally:
                 await context.close()

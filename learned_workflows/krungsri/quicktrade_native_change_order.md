@@ -71,11 +71,11 @@ flowchart TD
 
 | Layer | Artifact | Behaviour |
 |---|---|---|
-| Policy (pure) | `app/services/quicktrade_negotiation_service.py` → `plan_negotiation()` | BUY→Best Bid 1 · SELL/SHORT→Best Offer 1 · SHORT→`max(Offer1, Last)`; **fail-closed** `UPTICK_VIOLATION` when `Offer1 < Last`; volume is copied from `balance`, never changed |
-| Driver | `app/brokers/krungsri/quicktrade_driver.py` | `get_quote` (`#eqQuoteSymbol` + `#btnGetQuotes` → `#instBidOfferEq`/`#instInfoEq`) · `get_order` (searches `candidate_accounts()` = MARGIN → CASH — see `rca/krungsri/rca_krungsri_quicktrade.md` KSS-QT-RCA-001) · `amend_price` (direct order-detail URL → `Change Price& Volume` → price + PIN → Submit) |
-| Orchestration | `negotiate_order_price(order_no, …)` (same service module) | resolves the snapshot → live quote → policy → `amend_price` on `OK` only; `execute=False` = plan only |
+| Policy (pure) | `app/services/quicktrade_negotiation_service.py` → `plan_negotiation()` | BUY→Best Bid 1 · SELL/SHORT→Best Offer 1 · SHORT→`max(Offer1, Last)`; **fail-closed** `UPTICK_VIOLATION` when `Offer1 < Last`; **G4** `INVALID_TICK_SIZE` (`validator.validate_tick_size`) · **G5** `MAX_TICKS_EXCEEDED` (`tick_distance()` > `LINE_NEGO_MAX_TICKS`, reason carries the tick count); volume is copied from `balance`, never changed |
+| Driver | `app/brokers/krungsri/quicktrade_driver.py` | `get_quote` (`#eqQuoteSymbol` + `#btnGetQuotes` → `#instBidOfferEq`/`#instInfoEq`) · `get_order` (searches `candidate_accounts()` = MARGIN → CASH — see `rca/krungsri/rca_krungsri_quicktrade.md` KSS-QT-RCA-001) · `list_open_orders` (read-only `#orderBodyEq` listing of the **MARGIN** account, `balance > 0`, via pure `filter_open_orders`) · `amend_price` (direct order-detail URL → `Change Price& Volume` → price + PIN → Submit) |
+| Orchestration | `negotiate_order_price(order_no, …)` (same service module) | pins `account_no = settings.TRADEMAN_ACCOUNT_NO_MARGIN` (3024959) — never discovered per call · resolves the snapshot → live quote → policy → `amend_price` on `OK` only; `execute=False` = plan only |
 | REST | `POST /api/v1/krungsri/quicktrade/negotiate-price` (`app/api/v1/quicktrade.py`) | broker-isolated router mounted in `app/api/v1/api.py` |
-| LINE | `/negotiate <order_no>` (`handlers.py::_handle_negotiate` + `cards.negotiate_card`) | G1 kill-switch → G2 `LINE_NEGO_WINDOWS` → per-order lock (`CLI_BUSY`); replies `⚡ [LIVE|TEST] กำลังต่อราคา…` then pushes the result card |
+| LINE | `/nego kss <order_no>` (`handlers.py::_handle_nego` → `_nego_quicktrade` + `cards.negotiate_card`) · `/negotiate <order_no>` = **thin alias** of it | G1 kill-switch → G2 `LINE_NEGO_WINDOWS` → G3 session-alive, then the shared per-order lock (`CLI_BUSY`); replies `⚡ [LIVE|TEST] กำลังต่อราคา…` then pushes the result card (status `CLI_NEGOTIATE`) |
 
 Safety: **Zero-OTP** (reads `data/session_state.json`; never logs in, never fires SMS) · `settings.DRY_RUN_MODE`
 gates the Submit · **Anti-Mock** (unknown order / unreadable quote / uptick violation are reported as failures —
@@ -124,5 +124,25 @@ renders `True → ส่งเข้าตลาดแล้ว` · `False → �
    - Verified on modal: Price staged to `29.50`, volume preserved at `1,700`, PIN filled, Submit untouched (`DRY-RUN` guaranteed).
    - Screenshot logged: `data/screenshots/quicktrade_amend_dryrun.png`.
 2. **LIVE `/negotiate <order_no>` in LINE group**:
-   - Staging test available via `/negotiate 11008198`. Submission remains gated by `settings.DRY_RUN_MODE` until live market trading window.
+   - Staging test available via `/negotiate 11008198` (identical to `/nego kss 11008198` since 2026-10-15).
+   - Submission remains gated by `settings.DRY_RUN_MODE` until live market trading window.
+
+### 4.5 Loop 1 unification (2026-10-15, TASK-loop1-2) — one KSS path
+
+The KSS side no longer has two competing routes; everything in-place goes through Quick Trade.
+
+| Before | After |
+|---|---|
+| `/nego kss …` LIVE → `_broker_modify` → `trademan_driver.modify_order_price` = **cancel + replace** (violates directive Pillar 3 §3.3 / D1) | `/nego kss …` LIVE → `_broker_modify` → `quicktrade_negotiation_service.negotiate_order_price` (Settrade `Change Price& Volume`) — **in place**, order never leaves the queue |
+| `trademan_driver.scrape_unmatched_orders()` fed the KSS `/nego` queue | `quicktrade_driver.list_open_orders()` (MARGIN `#orderBodyEq`, `balance > 0`) — the same ledger the amendment acts on, so the list can never disagree with the amend (Unreadable ledger ⇒ `RuntimeError` ⇒ honest error message, never an empty "nothing to do" queue) |
+| `/nego kss <order_no>` → batch planner (`nego_card`), `#neg` only via `/negotiate` | `/nego kss <order_no>` → `_nego_quicktrade` (single-order `negotiate_card` + `LINE_CLI_NEGO` audit) · `/nego kss` / `/nego kss SYMBOL` → batch planner (`nego_card`) · `/negotiate <order_no>` = thin alias (own lock key, same flow) |
+| `plan_negotiation()` had no tick guards (they lived only in `handlers._plan_nego`) | **G4** `INVALID_TICK_SIZE` + **G5** `MAX_TICKS_EXCEEDED` inside `plan_negotiation()` — one source of truth for both routes; `tick_distance()` fails closed (`None`) instead of guessing |
+| `negotiate_order_price()` discovered the account (MARGIN → CASH) per call | `account_no` pinned to `settings.TRADEMAN_ACCOUNT_NO_MARGIN` (3024959), also for the ledger read |
+
+Tests: `tests/test_quicktrade_negotiation_policy.py` (G4/G5 · `tick_distance` · pinned account · G5 end-to-end),
+`tests/test_quicktrade_driver.py` (`filter_open_orders` · `list_open_orders` happy path + no-session fail-closed),
+`tests/test_line_cli_flow.py` (`/nego kss <no>` = Quick Trade flow · no `trademan.modify_order_price` · `/negotiate` alias ·
+`MAX_TICKS_EXCEEDED` shown honestly · KSS ledger source · TEST-mode dispatch unchanged).
+Library note: the card renders an unmapped outcome (`MAX_TICKS_EXCEEDED`) with the fallback ℹ️ + raw label —
+adding a Thai label to `cards._NEGOTIATE_OUTCOME` is a separate (out-of-scope) card.
 
