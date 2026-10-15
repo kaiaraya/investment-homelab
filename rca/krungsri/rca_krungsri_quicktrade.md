@@ -95,3 +95,50 @@ state at its top level, so `success=True` was the only signal a non-UI caller co
 
 **User feedback**: pending the live `/negotiate <order_no>` re-test (runbook §4.4).
 
+---
+
+## KSS-QT-RCA-004 (2026-10-15) — `/nego kss` reached the market through Cancel+Replace while `/negotiate` amended in place
+
+**Symptom**: the same broker had two price-negotiation commands that behaved differently. `/negotiate <order_no>`
+used Quick Trade's in-place `Change Price& Volume`, but `/nego kss [...]` — the documented, user-facing command —
+went `handlers._broker_modify` → `trademan_driver.modify_order_price`, i.e. cancel + resend. A nightly `/nego kss`
+sweep could cancel and re-queue orders (losing queue priority, and on some symbols the original order number),
+while the order-detail tab showed the amendment as if it had been in place.
+
+**Root cause**: `/nego kss` predates Pillar 6. Both its discovery (`trademan_driver.scrape_unmatched_orders` on the
+TradeMan portfolio screen) and its amendment driver were written before `quicktrade_driver` existed; the in-place
+path was added for `/negotiate` only, so the two never converged. The guardrails then lived twice (`_plan_nego`
+G4–G6 in the handler *and* `plan_negotiation` in the service) — that duplication is what let the wrong driver stay
+on the LIVE route.
+
+**Edge cases**
+- A matched/cancelled row (`balance == 0`) is not negotiable (the service copies `volume` from `balance`), and a row
+  whose balance could not be parsed must be **dropped**, never guessed.
+- Order numbers must come from the platform that will be amended (`#orderBodyEq` on Quick Trade); otherwise
+  `/nego kss` and `/negotiate` address two different universes of orders.
+- SHORT at exactly `LastPrice` passes `compute_passive_price` (`Offer1 >= Last`) but is rejected by
+  `validator.validate_short_uptick` — the stricter, SET-accurate rule was chosen (user decision, 2026-10-15).
+- The service re-reads the ledger + quote, so the price the handler previewed can differ from the price actually
+  sent; the card and the audit row must report the **service's** figures.
+- An unreadable ledger must raise (the command reports an error), never look like "no pending orders".
+
+**Proven solution**
+- `app/brokers/krungsri/quicktrade_driver.py`: new `list_open_orders(account_no=None, symbol=None)` (MARGIN first,
+  same session/lock/launch path as `get_order`) + `pending_orders()` filter (`balance > 0`, exact symbol match).
+- `app/services/quicktrade_negotiation_service.py`: `plan_negotiation()` applies **G4**
+  (`validator.validate_tick_size` → `TICK_SIZE_VIOLATION`), **G5** (shared `tick_distance_exceeds()` /
+  `tick_distance()`; `MAX_TICKS_EXCEEDED` with the tick count in the reason) and **G6**
+  (`validator.validate_short_uptick` → `UPTICK_VIOLATION`). Every refusal clears `target_price`, so no caller can
+  submit a rejected price. `max_ticks` is injectable (default `settings.LINE_NEGO_MAX_TICKS`).
+- `app/services/line_cli/handlers.py`: `_broker_open_orders("kss")` reads the Quick Trade ledger; the LIVE `kss`
+  branch of `_broker_modify` calls `negotiate_order_price()` (tagged `path="QUICKTRADE_INPLACE"`);
+  `_apply_quicktrade_result()` folds the service result into the card row (refusal / `NO_CHANGE` = **skip**,
+  DRY-RUN disclosed); `_handle_nego` pushes `cards.negotiate_card` for one explicit order_no else
+  `cards.nego_card`; `_handle_negotiate` is now a two-line alias of `/nego kss`.
+- Tests: `tests/test_quicktrade_negotiation_policy.py` (G4/G5/G6 + `tick_distance`),
+  `tests/test_quicktrade_driver.py` (`list_open_orders` / `pending_orders`), `tests/test_line_cli_flow.py`
+  (LIVE route never calls `modify_order_price`, ledger fail-closed, alias = same path, refusal ≠ ok).
+  `.venv/bin/python scripts/verify_changes.py <3 files>` → **PASS (125 targeted, compileall OK, 2026-10-15)**.
+
+**User feedback**: live round-B witness check still pending (`TASK-loop1-4`).
+

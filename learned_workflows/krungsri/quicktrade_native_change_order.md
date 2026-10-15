@@ -57,9 +57,11 @@ flowchart TD
 ---
 
 ## 3. Regulatory Safety Invariants (Strict)
-1. **Short Sell Uptick Rule**:
-   Under SET rules, short orders cannot be amended to a price lower than the Last Traded Price (`LastPrice`).
-   If `Best Offer 1 < LastPrice`, amendment is aborted immediately (`UPTICK_VIOLATION`).
+1. **Short Sell Uptick Rule (STRICT)**:
+   Under SET rules a short may only be amended to a price **strictly above** `LastPrice`
+   (`validator.validate_short_uptick` — the zero-plus tick on `LastPrice` is rejected).
+   `plan_negotiation()` aborts with `UPTICK_VIOLATION` when `Best Offer 1 < LastPrice` (down-tick)
+   **and** when the final target would equal `LastPrice`.
 2. **Volume Invariance**:
    Passive price negotiation only alters `price`. `volume` must remain identical to existing `balance`.
 3. **Session Reusability**:
@@ -71,11 +73,11 @@ flowchart TD
 
 | Layer | Artifact | Behaviour |
 |---|---|---|
-| Policy (pure) | `app/services/quicktrade_negotiation_service.py` → `plan_negotiation()` | BUY→Best Bid 1 · SELL/SHORT→Best Offer 1 · SHORT→`max(Offer1, Last)`; **fail-closed** `UPTICK_VIOLATION` when `Offer1 < Last`; volume is copied from `balance`, never changed |
-| Driver | `app/brokers/krungsri/quicktrade_driver.py` | `get_quote` (`#eqQuoteSymbol` + `#btnGetQuotes` → `#instBidOfferEq`/`#instInfoEq`) · `get_order` (searches `candidate_accounts()` = MARGIN → CASH — see `rca/krungsri/rca_krungsri_quicktrade.md` KSS-QT-RCA-001) · `amend_price` (direct order-detail URL → `Change Price& Volume` → price + PIN → Submit) |
+| Policy (pure) | `app/services/quicktrade_negotiation_service.py` → `plan_negotiation()` | BUY→Best Bid 1 · SELL/SHORT→Best Offer 1 · SHORT→`max(Offer1, Last)`; volume is copied from `balance`, never changed; guardrails **G4** `validate_tick_size` → `TICK_SIZE_VIOLATION` · **G5** `tick_distance_exceeds()` ≤ `LINE_NEGO_MAX_TICKS` → `MAX_TICKS_EXCEEDED` (reason states the tick count) · **G6** `validate_short_uptick` (strict) → `UPTICK_VIOLATION`; every refusal clears `target_price` |
+| Driver | `app/brokers/krungsri/quicktrade_driver.py` | `get_quote` (`#eqQuoteSymbol` + `#btnGetQuotes` → `#instBidOfferEq`/`#instInfoEq`) · `get_order` (searches `candidate_accounts()` = MARGIN → CASH — see `rca/krungsri/rca_krungsri_quicktrade.md` KSS-QT-RCA-001) · `amend_price` (direct order-detail URL → `Change Price& Volume` → price + PIN → Submit) · `list_open_orders()` (read-only `#orderBodyEq` scrape; `pending_orders()` keeps `balance > 0`) |
 | Orchestration | `negotiate_order_price(order_no, …)` (same service module) | resolves the snapshot → live quote → policy → `amend_price` on `OK` only; `execute=False` = plan only |
 | REST | `POST /api/v1/krungsri/quicktrade/negotiate-price` (`app/api/v1/quicktrade.py`) | broker-isolated router mounted in `app/api/v1/api.py` |
-| LINE | `/negotiate <order_no>` (`handlers.py::_handle_negotiate` + `cards.negotiate_card`) | G1 kill-switch → G2 `LINE_NEGO_WINDOWS` → per-order lock (`CLI_BUSY`); replies `⚡ [LIVE|TEST] กำลังต่อราคา…` then pushes the result card |
+| LINE | `/nego kss [SYMBOL\|order_no]` (`handlers.py::_handle_nego`) · `/negotiate <order_no>` = **alias** of it | G1 kill-switch → G2 `LINE_NEGO_WINDOWS` → G3 session alive → per-broker lock (`CLI_BUSY`); discovery = `list_open_orders()`; LIVE amend = `negotiate_order_price()` on the SAME order_no; card = `negotiate_card` (one explicit order_no) / `nego_card` (batch) |
 
 Safety: **Zero-OTP** (reads `data/session_state.json`; never logs in, never fires SMS) · `settings.DRY_RUN_MODE`
 gates the Submit · **Anti-Mock** (unknown order / unreadable quote / uptick violation are reported as failures —
@@ -125,4 +127,28 @@ renders `True → ส่งเข้าตลาดแล้ว` · `False → �
    - Screenshot logged: `data/screenshots/quicktrade_amend_dryrun.png`.
 2. **LIVE `/negotiate <order_no>` in LINE group**:
    - Staging test available via `/negotiate 11008198`. Submission remains gated by `settings.DRY_RUN_MODE` until live market trading window.
+
+---
+
+## 5. Unified `/nego` (2026-10-15) — one in-place path for kss
+
+`/nego kss [SYMBOL|order_no]` and `/negotiate <order_no>` now run the **same** code path
+(`handlers._handle_nego`); `/negotiate` rewrites itself into `/nego kss <order_no>`.
+
+Flow: G1 kill-switch → G2 `LINE_NEGO_WINDOWS` → G3 session alive → per-broker lock → discovery
+(`quicktrade_driver.list_open_orders()` on `#orderBodyEq`, MARGIN first) → target filter (order_no or symbol)
+→ `_plan_nego()` preview → LIVE: `_broker_modify("kss")` → `negotiate_order_price()` (in place, same order_no)
+→ card (`negotiate_card` for one explicit order_no, else `nego_card`).
+
+**Rules that must not regress**
+- **No cancel+replace for kss**: `trademan_driver.modify_order_price` must never be reachable from `/nego`
+  (locked by `test_broker_modify_kss_live_uses_quicktrade_in_place`).
+- The card/audit row mirrors the **service's** outcome: `NO_CHANGE` and the G4/G5/G6 refusals are **skips**, and a
+  DRY-RUN staging is labelled — a refusal is never counted as `ok`
+  (`test_nego_kss_live_refusal_is_reported_as_skipped`).
+- An unreadable ledger raises, so the command reports ❌ instead of "no pending orders".
+- LIB is untouched by this section (its hardening is `TASK-loop1-3`).
+
+Verify: `.venv/bin/python scripts/verify_changes.py app/services/quicktrade_negotiation_service.py app/brokers/krungsri/quicktrade_driver.py app/services/line_cli/handlers.py`
+→ **PASS (125 targeted, compileall OK, 2026-10-15)**. Live witness: **not yet** (`TASK-loop1-4`).
 

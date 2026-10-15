@@ -67,3 +67,42 @@
 ## Argon Analysis
 - Direction verdict: ...
 - Next loop focus: ...
+
+---
+
+## Session carry-over (from the TASK-loop1-2 session, 2026-10-15)
+
+**Start here (new session)**: read this file + the files in its Context map only. Run mode = interactive
+(`stepwise-approval`), one atomic step per turn, `verify_changes.py` after every step, `--full` once at close.
+
+**Prerequisites now on `main` (TASK-loop1-2, card `2b7ff`)**
+- `/nego kss` = `/negotiate` = **one** path (`handlers._handle_nego`); the LIVE `kss` amendment goes in place through
+  `negotiate_order_price()` (SAC red line: `trademan_driver.modify_order_price` must stay unreachable from `/nego`).
+- `quicktrade_negotiation_service.plan_negotiation()` owns G4/G5/G6 and returns the enum
+  `OK / NO_CHANGE / UPTICK_VIOLATION / **TICK_SIZE_VIOLATION** / **MAX_TICKS_EXCEEDED** / NO_QUOTE / UNSUPPORTED_SIDE`
+  (every refusal clears `target_price` and sets `error`).
+- `quicktrade_driver.list_open_orders()` + `pending_orders()` read the `#orderBodyEq` ledger (MARGIN first).
+- Handler seams to reuse: `_broker_open_orders(broker)`, `_broker_modify(broker, …)` (kss branch returns
+  `path="QUICKTRADE_INPLACE"`), `_apply_quicktrade_result(row, res)` (service outcome → card row: refusal/NO_CHANGE =
+  `skip`, DRY-RUN labelled). `/nego lib` still runs the **old** preview path (`_plan_nego` → `_broker_modify` →
+  `liberator_plugin.change_order`) — that is exactly what this card hardens.
+
+**Carry-over questions that touch this card**
+1. `_plan_nego` is now only a preview for `kss` but the real path for `lib` → decide whether LIB also gets a
+   service-level policy, or document why the preview stays authoritative for LIB (avoid two drifting policies).
+2. Strict SHORT uptick (target == `LastPrice` refused) is applied for kss since 2026-10-15; LIB's `/nego lib` must
+   not silently use the looser rule — check `_plan_nego`'s G6 for the lib path in Step 3.
+3. `/negotiate` returns `{"status": "CLI_NEGO", "order_no", "ok", "skipped", "failed"}` now (the old `outcome` key is
+   gone) — keep the test file consistent when touching `tests/test_line_cli_flow.py`.
+
+**Test-harness gotchas (learned the hard way)**
+- `tests/test_line_cli_flow.py` has an **autouse** `_broker_edges` fixture that stubs `_broker_open_orders` /
+  `_broker_modify` / `_broker_quote`; a test that must exercise the routing has to restore the real function
+  (`REAL_BROKER_OPEN_ORDERS` / `REAL_BROKER_MODIFY` are captured at module import — same pattern as `REAL_LIVE_CARD`).
+- `--full` (verify_changes.py) lets the annealing tests overwrite the tracked
+  `learned_workflows/click2win/click2win_order_submit.md` and `learned_workflows/shared/test_anneal_wf.md`
+  (open item F-11 "Self-Annealed ×75"). After every `--full`, `git checkout --` those two files.
+
+**Out of scope reminders**: no KSS/QuickTrade edits, no new orders, no OTP/login, no gateway restart, no LIVE calls
+(live quote evidence belongs to `TASK-loop1-4`). Close with `TASK-loop1-3: <type>(<scope>): <summary>` commits on
+`main` (same convention as `TASK-loop1-2`).

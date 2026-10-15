@@ -60,16 +60,58 @@
 ---
 
 ## Cline Report
-- Git Commit(s): `TASK-loop1-N: <type>(<scope>): <summary>`
+- Git Commit(s): `d7bde41` (`TASK-loop1-2: fix(nego)…` — code + tests) · the follow-up `TASK-loop1-2: docs(rca)…` commit on `main` (2026-10-15)
+  (a self-referencing hash is deliberately avoided — the docs commit carries its own message)
 - Files changed:
-- Summary:
+  - `app/services/quicktrade_negotiation_service.py` — `plan_negotiation()` now enforces **G4**
+    (`validate_tick_size` → `TICK_SIZE_VIOLATION`), **G5** (`tick_distance_exceeds()` ≤
+    `settings.LINE_NEGO_MAX_TICKS` → `MAX_TICKS_EXCEEDED`, reason states the tick count) and **G6**
+    (`validate_short_uptick`, strict → `UPTICK_VIOLATION`); new enum values + shared helpers
+    `tick_distance()` / `tick_distance_exceeds()`; every refusal clears `target_price` and sets `error`;
+    `max_ticks` is injectable.
+  - `app/brokers/krungsri/quicktrade_driver.py` — new `list_open_orders(account_no=None, symbol=None)` (read-only
+    `#orderBodyEq`, MARGIN first, same session/lock/launch path as `get_order`) + `pending_orders()` filter
+    (`balance > 0`, exact symbol, unparsed balance dropped).
+  - `app/services/line_cli/handlers.py` — kss discovery = Quick Trade ledger (raises on an unreadable ledger);
+    LIVE `kss` `_broker_modify` → `negotiate_order_price()` tagged `path="QUICKTRADE_INPLACE"` (cancel+replace is
+    unreachable); `_apply_quicktrade_result()` folds the service result into the card row; `_handle_nego` picks
+    `cards.negotiate_card` (one explicit order_no) or `cards.nego_card` (batch) and counts skip/ok/fail from the row;
+    `_handle_negotiate` is a 2-line alias of `/nego kss`; help texts updated.
+  - Tests: `tests/test_quicktrade_negotiation_policy.py` (+6), `tests/test_quicktrade_driver.py` (+4),
+    `tests/test_line_cli_flow.py` (+5, 3 `/negotiate` tests rewritten for the alias).
+  - Docs: `rca/krungsri/rca_krungsri_quicktrade.md` (KSS-QT-RCA-004),
+    `learned_workflows/krungsri/quicktrade_native_change_order.md` (§3 invariant 1, §4 rows, new §5).
+- Summary: `/nego kss` and `/negotiate` are one path now, both amending in place on the same Settrade order number
+  through Quick Trade; G4/G5/G6 live in the service (single source of truth) and the card/audit report the service's
+  own numbers (Anti-Mock). Order discovery moved to the platform that is actually amended. No real order was
+  touched: all work is unit/mock only, no OTP, no login, no gateway restart, no LIB selectors.
 - Tests run + result:
+  - `.venv/bin/python scripts/verify_changes.py app/services/quicktrade_negotiation_service.py app/brokers/krungsri/quicktrade_driver.py app/services/line_cli/handlers.py`
+    → **PASS (targeted 125 tests, compileall OK)**
+  - `.venv/bin/python -m pytest tests/test_quicktrade_negotiation_policy.py tests/test_quicktrade_driver.py tests/test_line_cli_flow.py -q --tb=line` → **125 passed**
+  - `--full` suite deliberately **not** run per step (run once at task close).
 - Open questions:
+  1. **Strict SHORT uptick** (a target equal to `LastPrice` is refused, not just a down-tick) was applied on the
+     user's decision 2026-10-15; the broker's own behaviour at exact equality is still unverified → witness in
+     `TASK-loop1-4`.
+  2. `_plan_nego` is now a *preview* for `kss` and stays the real path for `lib` — `TASK-loop1-3` should decide
+     whether LIB gets a service-level policy too (two previews must not drift).
+  3. `/negotiate`'s return shape changed to `{"status": "CLI_NEGO", "order_no", "ok", "skipped", "failed"}` (the
+     `outcome` key is gone). Any external consumer of the old shape must be updated.
+  4. TEST-mode `/nego kss` now reads the Quick Trade ledger instead of the TradeMan portfolio screen — intended
+     (one source of truth), but it does need a live session to be exercised → `TASK-loop1-4`.
+  5. LIVE + `DRY_RUN_MODE=True` can still show a LIVE header while nothing was sent (pre-existing); the row reason
+     now says `DRY-RUN — ยังไม่กดส่ง` — worth aligning with the dispatcher's mode flag in a later card.
 ---
 
 ## Cline Verification & Stepwise Approval
-- [ ] Stage A (Code Audit) · [ ] Stage B (Verify) · [ ] Stage C (Visual/HITL) · [ ] Stage D (Verdict + Merge)
-- Verdict: PASS / CHANGES_REQUESTED
+- [x] Stage A (Code Audit) · [x] Stage B (Verify) · [ ] Stage C (Visual/HITL) · [ ] Stage D (Verdict + Merge)
+- Verdict: **PASS (code + unit)** — Stage A: diff audited against the allowed scope (3 source files + 3 test files
+  + the two broker docs), invariants held (Anti-Mock: refusals are skips and `submitted` is never inferred from
+  `success`; Zero-OTP: no login/SMS path touched; Uptick: strict G6 added, not weakened; Broker isolation: LIB
+  untouched) · Stage B: `verify_changes.py` PASS 125 targeted + compileall OK.
+- Stage C (live witness) and Stage D (commit/merge = human gate #2) are **open** — live evidence is deliberately
+  deferred to `TASK-loop1-4` (no order was placed or amended).
 ---
 
 ## Argon Analysis
