@@ -85,6 +85,18 @@ await import("@clinebot/core/hub/daemon-entry");   // ต้องเป็น d
 ⚠️ **ต้องใส่ซ้ำทุกครั้งหลัง `npm i -g kanban` / npm upgrade** จนกว่า release > 0.1.70 จะ ship ไฟล์เอง
 (หรือมีคนรันเวอร์ชันที่ build จาก `main` ที่มี `2f8764b` / `7ab7909`)
 
+ติดตั้งซ้ำได้ในคำสั่งเดียว (source ของ shim อยู่ในสคริปต์นี้ = single source of truth ·
+มีเทสต์ `tests/test_install_entry_shim.py` กันถอยหลัง):
+
+```bash
+.venv/bin/python scripts/kanban/install_entry_shim.py --check    # ดูสถานะ ไม่เขียน
+.venv/bin/python scripts/kanban/install_entry_shim.py            # ติดตั้ง/ซ่อม (backup ของเดิมไว้)
+.venv/bin/python scripts/kanban/install_entry_shim.py --smoke    # + สตาร์ท daemon จริงบนพอร์ตว่าง
+```
+
+รันบนเครื่องนี้ 2026-10-15: `--check` → `current -> already-current` (exit 0) ·
+`--smoke` → `smoke: OK (port 39377)` (exit 0)
+
 หลักฐาน (เครื่องนี้ · 2026-10-15 21:2x):
 
 | ขั้น | ผล |

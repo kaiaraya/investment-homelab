@@ -106,7 +106,10 @@ Upstream: **`cline/kanban#495`** and **`cline/kanban#590`** (both open; the fix 
 **before** `await import("@clinebot/core/hub/daemon-entry")` — the order matters, a static
 `export * from` is hoisted and the global would not exist yet.
 Code + full evidence: `rca/shared/rca_kanban_hub_daemon.md`.
-⚠️ Re-apply after every `npm i -g kanban` / npm upgrade, until a release > 0.1.70 ships the file.
+⚠️ Re-apply after every `npm i -g kanban` / npm upgrade — one command:
+`.venv/bin/python scripts/kanban/install_entry_shim.py` (`--check` = status only,
+`--smoke` = spawn the real daemon on a free port). The shim source lives in that script
+(single source of truth, covered by `tests/test_install_entry_shim.py`).
 
 Evidence (verified **twice**, 2026-10-15): `node dist/entry.js --cwd /tmp --port 45999` binds the
 port with no error · `hub-daemon.log` stopped growing (8 → 8 `MODULE_NOT_FOUND`, mtime frozen at

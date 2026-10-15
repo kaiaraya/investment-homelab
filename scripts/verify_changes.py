@@ -157,6 +157,8 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     ],
     "scripts/dev_resume_session.py": ["tests/test_dev_resume_session.py"],
     "scripts/hooks/token_guard.py": ["tests/test_token_guard.py"],
+    "scripts/kanban/install_entry_shim.py": ["tests/test_install_entry_shim.py"],
+    "scripts/kanban/__init__.py": ["tests/test_install_entry_shim.py"],
     "scripts/krungsri/probe_account_info.py": ["tests/test_probe_account_info.py"],
     "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
 }
