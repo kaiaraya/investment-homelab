@@ -89,10 +89,31 @@ the session flips to `state: interrupted` / `reviewReason: interrupted` after ~3
 **`trash`**, and the transcript says `"status": "cancelled"`, `"exit_code": 0`,
 `"interactive": true`, `totalCost: 0`.
 
-Ruled out: the tool terminal being torn down (a detached `setsid nohup … & disown` start died the
-same way) · the token-guard hook (it only denies `view_file`) · a provider error (nothing in
-`journalctl --user -u cline-kanban` or `hub-daemon.log`; no error in the transcript).
-**Cause still open** ⇒ do not start cards from an agent tool terminal. Instead:
+**ROOT CAUSE FOUND (2026-10-15 evening) — upstream packaging bug, not this repo:**
+
+`kanban@0.1.70` (and every published version 0.1.40→0.1.70) ships a `dist/` holding only `cli.js`,
+`index.js`, `web-ui/`. `dist/cli.js` spawns the hub daemon as `node <pkg>/dist/entry.js` →
+the spawn dies with `MODULE_NOT_FOUND` (that is the ~8-entry crash loop in
+`~/.cline/data/logs/hub-daemon.log`), the hub command then times out after ~30 s and the card
+session ends `cancelled` / `interrupted` mid-turn. Second stacked bug: even with `dist/entry.js`
+present, `@clinebot/core`'s daemon entry references a bare global `AI` (Vercel AI SDK) at
+module-evaluation time → `ReferenceError: AI is not defined`.
+Upstream: **`cline/kanban#495`** and **`cline/kanban#590`** (both open; the fix commits
+`2f8764b` / `7ab7909` on `main` are **not** in any npm release yet).
+
+**Machine-local fix (applied 2026-10-15, verified end-to-end):** a 1.4 KB shim at
+`<npm-global>/kanban/dist/entry.js` that sets `globalThis.AI` from the installed `ai` package
+**before** `await import("@clinebot/core/hub/daemon-entry")` — the order matters, a static
+`export * from` is hoisted and the global would not exist yet.
+Code + full evidence: `rca/shared/rca_kanban_hub_daemon.md`.
+⚠️ Re-apply after every `npm i -g kanban` / npm upgrade, until a release > 0.1.70 ships the file.
+
+Evidence: `node dist/entry.js --cwd /tmp --port 45999` binds the port with no error ·
+`hub-daemon.log` stopped growing (8 → 8 `MODULE_NOT_FOUND`, mtime frozen) · a smoke card
+(`f76e7`, prompt "reply `DONE <sha>`") went `in_progress`, its session ended `status: completed`
+with the real answer, and `kanban task delete` cleaned the worktree.
+
+Still true (independent of the bug):
 
 - Start the card in a terminal that a **human keeps open** — `kanban task start --task-id <id>`
   streams into it — or press **Start** in the Kanban UI (`http://127.0.0.1:3484`).

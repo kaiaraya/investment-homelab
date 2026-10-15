@@ -34,7 +34,7 @@
 
 > 🔁 **RE-PLAN 2026-10-15:** ขั้น 1–6 ทั้งหมด = **NOT RUN** (รอบก่อนหยุดที่ Gate แล้วถูก rollback) · ห้ามตีความ `⬜` เป็นผลบวก · ต้องผ่าน Gate ใหม่ทั้ง 4 ข้อก่อนเริ่มขั้น 1
 >
-> 📌 **Infra note (จากรอบก่อน — ยังใช้ได้):** session ที่สั่งผ่าน `kanban task start` เคยถูก `cancel` แบบ flaky (5–16 วิ) 2/3 ครั้งแรก แล้วครั้งถัดไปสำเร็จ — **ไม่เกี่ยวกับ concurrency cap** (`Scheduler concurrency = 2`) เพราะช่วงนั้นรันการ์ดเดียว · `hub-daemon.log` ไม่มี entry cancel/abort/limit ⇒ ถ้าการ์ดถูก cancel ให้ start ซ้ำได้ทันที (ไม่ต้องแก้โค้ด)
+> 📌 **Infra note (อัปเดต 2026-10-15 เย็น — root cause ปิดแล้ว):** การที่ session ที่สั่งผ่าน `kanban task start` ถูก `cancel`/`interrupted` กลางเทิร์น (และบางรอบค้าง ~30 วิ) **ไม่ใช่ flaky และไม่เกี่ยวกับ concurrency cap** — เกิดจาก **hub daemon spawn ไม่ขึ้น**: `kanban@0.1.70` ไม่ ship `dist/entry.js` ที่ `dist/cli.js` เรียก (`MODULE_NOT_FOUND` ใน `~/.cline/data/logs/hub-daemon.log`) → hub command timeout ~30 วิ → session จบเป็น `cancelled` · **แก้แล้วด้วย shim เครื่องนี้ + พิสูจน์ end-to-end แล้ว** (การ์ด smoke `f76e7` รันจบ `status: completed`) — รายละเอียด/โค้ด: `rca/shared/rca_kanban_hub_daemon.md` (KB-RCA-001) · ถ้าการ์ดถูก cancel อีก **ให้เช็ค `hub-daemon.log` ว่ามี `MODULE_NOT_FOUND` ใหม่ไหม** (ถ้ามี = shim ถูกทับหลัง npm upgrade → ติดตั้งซ้ำ)
 
 ## Acceptance / Tests ที่ต้องผ่าน
 - ทุกข้อ #1–#6 ตรง Expected Outcome **และ** พยาน (Admin) ยืนยันด้วยตาทุกข้อ
