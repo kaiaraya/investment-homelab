@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 from app.mcp.pillars.pillar2_portfolio import (
     current_orders,
+    current_open_orders,
+    portfolio_holdings,
     _classify_order_category,
 )
 
@@ -102,3 +104,86 @@ async def test_current_orders_click2win_not_implemented_notice():
     res = await current_orders(platform="CLICK2WIN")
     assert res["success"] is False
     assert res["platform"] == "CLICK2WIN"
+
+
+# --------------------------------------------------------------------------- #
+# TASK-loop1-1 · A3 Account Scope Lock: no `else: CLICK2WIN` fallback anywhere
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["SETTRADE", "SETTRADE_OPENAPI", "IBKR", "DIME"])
+async def test_pillar2_readers_reject_unknown_platform(bad):
+    """An unknown broker name must RAISE (Broker Isolation) — never silently fall back to
+    Click2Win and return another broker's holdings/orders.
+
+    NB: an empty/omitted platform is NOT covered here — ``platform or settings.TRADING_PLATFORM``
+    makes it mean "use the configured default broker", which is unrelated to isolation."""
+    with pytest.raises(ValueError, match="Unknown trading platform"):
+        await portfolio_holdings(platform=bad)
+    with pytest.raises(ValueError, match="Unknown trading platform"):
+        await current_open_orders(platform=bad)
+    with pytest.raises(ValueError, match="Unknown trading platform"):
+        await current_orders(platform=bad)
+
+
+@pytest.mark.asyncio
+async def test_current_orders_reports_authenticated_flag():
+    """`current_orders` must expose the broker's own auth state so the LINE card can say
+    "อ่านไม่ได้" instead of showing an empty ledger as 🟢 live (TASK-loop1-1)."""
+    with patch("app.brokers.liberator.plugin.liberator_plugin.get_all_orders",
+               new=AsyncMock(return_value=[])), \
+         patch("app.brokers.liberator.plugin.liberator_plugin.get_health",
+               new=AsyncMock(return_value={"is_authenticated": False})):
+        res = await current_orders(platform="LIBERATOR")
+
+    assert res["authenticated"] is False
+
+    with patch("app.mcp.pillars.pillar2_portfolio.trademan_driver.is_page_authenticated",
+               new=AsyncMock(return_value=False)), \
+         patch("app.mcp.pillars.pillar2_portfolio.trademan_driver.scrape_all_orders",
+               new=AsyncMock(return_value=[])):
+        kss = await current_orders(platform="KRUNGSRI", account_type="MARGIN")
+
+    assert kss["authenticated"] is False
+
+
+@pytest.mark.asyncio
+async def test_kss_read_defaults_to_margin_account():
+    """A3 Account Scope Lock: an omitted ``account_type`` must resolve to the MARGIN account
+    (`3024959`) for Krungsri — not to ``account_context``'s CASH default — while an explicit
+    ``account_type`` still wins."""
+    with patch("app.mcp.pillars.pillar2_portfolio.trademan_driver.is_page_authenticated",
+               new=AsyncMock(return_value=False)), \
+         patch("app.mcp.pillars.pillar2_portfolio.trademan_driver.scrape_all_orders",
+               new=AsyncMock(return_value=[])):
+        ledger = await current_orders(platform="KRUNGSRI")
+
+    assert ledger["account_type"] == "MARGIN"
+
+    with patch("app.mcp.pillars.pillar2_portfolio.trademan_driver.scrape_portfolio",
+               new=AsyncMock(return_value=[])):
+        holdings = await portfolio_holdings(platform="TRADEMAN")
+
+    assert holdings["account_type"] == "MARGIN"
+
+    with patch("app.mcp.pillars.pillar2_portfolio.trademan_driver.scrape_portfolio",
+               new=AsyncMock(return_value=[])):
+        cash = await portfolio_holdings(platform="TRADEMAN", account_type="CASH")
+
+    assert cash["account_type"] == "CASH"
+
+
+@pytest.mark.asyncio
+async def test_portfolio_holdings_liberator_returns_account_no():
+    """C2 (TASK-loop1-1): `/port lib sync` must show the REAL account number, not "LIVE"."""
+    class _FakePortfolio:
+        account_no = "1234567"
+        positions = []
+
+    with patch("app.brokers.liberator.plugin.liberator_plugin.get_portfolio",
+               new=AsyncMock(return_value=_FakePortfolio())), \
+         patch("app.brokers.liberator.plugin.liberator_plugin.get_health",
+               new=AsyncMock(return_value={"is_authenticated": True})):
+        res = await portfolio_holdings(platform="LIBERATOR")
+
+    assert res["account_no"] == "1234567"
+    assert res["authenticated"] is True

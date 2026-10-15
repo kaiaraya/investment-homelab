@@ -59,8 +59,8 @@ def _row(cells: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _cell(text: str, color: str = FG, flex: int = 1, align: str = "start",
-          weight: str = "regular", wrap: bool = False) -> Dict[str, Any]:
-    cell: Dict[str, Any] = {"type": "text", "text": text, "color": color, "size": "xs",
+          weight: str = "regular", wrap: bool = False, size: str = "xs") -> Dict[str, Any]:
+    cell: Dict[str, Any] = {"type": "text", "text": text, "color": color, "size": size,
                             "flex": flex, "align": align, "weight": weight}
     if wrap:
         cell["wrap"] = True          # RCA-012: let a long symbol wrap instead of clip
@@ -338,11 +338,19 @@ def orders_card(
         emoji = _STATUS_EMOJI.get(kind, "❔")
         bal = int(r.get("balance", 0) or 0)
         tail = f"ค้าง {bal:,}" if kind in ("open", "partial") else str(r.get("status", emoji))
-        body.append(_row([
-            _cell(f"{emoji} {r.get('side', '')} {r.get('symbol', '')}", FG, flex=3, weight="bold"),
-            _cell(f"{int(r.get('volume', 0)):,} @{float(r.get('price', 0.0)):.2f}", FG, flex=4, align="end"),
-            _cell(tail, MUTED, flex=3, align="end"),
-        ]))
+        # CLI-RCA-004: two lines per order — the symbol gets its own line in bold `md` so a long
+        # ticker is never clipped on a phone screen; volume/price + status sit on line two.
+        body.append({
+            "type": "box", "layout": "vertical", "margin": "sm", "spacing": "xs",
+            "contents": [
+                _cell(f"{emoji} {r.get('side', '')} {r.get('symbol', '')}", FG,
+                      weight="bold", size="md", wrap=True),
+                _row([
+                    _cell(f"{int(r.get('volume', 0)):,} @{float(r.get('price', 0.0)):.2f}", FG, flex=3),
+                    _cell(tail, MUTED, flex=2, align="end"),
+                ]),
+            ],
+        })
     body.append({"type": "separator", "margin": "md", "color": "#334155"})
     body.append(_cell(("🟢 live " if live else "🕒 snapshot ") + snapshot_label, UP if live else MUTED))
 

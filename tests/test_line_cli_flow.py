@@ -1053,3 +1053,87 @@ async def test_negotiate_dry_run_card_never_claims_a_live_submission(service, db
     assert 'จัดเตรียมไว้ (TEST/DRY-RUN)' in str(card)
     assert 'ส่งเข้าตลาดแล้ว' not in str(card)
 
+
+
+# --------------------------------------------------------------------------- #
+# TASK-loop1-1 · Pillar 2 orders/port honesty (A3 · C2 · C4 · CLI-RCA-004)
+# --------------------------------------------------------------------------- #
+def _find_inner_row(node, needle):
+    """Innermost vertical ``box`` whose FIRST content is the text cell containing ``needle``."""
+    if isinstance(node, dict):
+        contents = node.get("contents")
+        if (node.get("type") == "box" and node.get("layout") == "vertical"
+                and isinstance(contents, list) and contents
+                and isinstance(contents[0], dict) and contents[0].get("type") == "text"
+                and needle in str(contents[0].get("text", ""))):
+            return node
+        for value in node.values():
+            found = _find_inner_row(value, needle)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for value in node:
+            found = _find_inner_row(value, needle)
+            if found:
+                return found
+    return None
+
+
+@pytest.mark.asyncio
+async def test_live_orders_card_is_unavailable_when_not_authenticated(monkeypatch):
+    """TASK-loop1-1 (Anti-Mock): when the broker reports ``authenticated is False`` the orders
+    card must say อ่านไม่ได้ — never an empty ledger under a 🟢 live badge."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    orders = AsyncMock(return_value={
+        "platform": "KRUNGSRI", "authenticated": False, "total": 0,
+        "unmatched_count": 0, "orders": []})
+    monkeypatch.setattr(pillar2, "current_orders", orders)
+
+    card = await REAL_LIVE_CARD("orders", "kss")
+
+    orders.assert_awaited_with(platform="TRADEMAN")
+    text = _flex_text(card)
+    assert "อ่านไม่ได้" in text and "/login kss" in text
+    assert "🟢 live" not in text
+
+
+@pytest.mark.asyncio
+async def test_live_orders_card_row_is_two_lines_with_md_symbol(monkeypatch):
+    """CLI-RCA-004: each order is its own 2-line block — symbol on line 1 in bold ``md`` (no
+    clipping on a phone screen), volume/price + status on line 2."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    monkeypatch.setattr(pillar2, "current_orders", AsyncMock(return_value={
+        "platform": "KRUNGSRI", "authenticated": True, "total": 1, "unmatched_count": 1,
+        "orders": [{"broker_order_no": "1", "symbol": "SAWAD", "side": "BUY", "volume": 100,
+                    "balance": 100, "price": 22.5, "status_raw": "O",
+                    "status_category": "UNMATCHED"}]}))
+
+    card = await REAL_LIVE_CARD("orders", "kss")
+
+    text = _flex_text(card)
+    assert "SAWAD" in text and "🟢 live" in text
+    row = _find_inner_row(card, "SAWAD")
+    assert row is not None, "each order must be its own vertical (2-line) box"
+    symbol_cell = row["contents"][0]
+    assert symbol_cell["size"] == "md" and symbol_cell["weight"] == "bold"
+    assert row["contents"][1]["layout"] == "horizontal"
+
+
+@pytest.mark.asyncio
+async def test_live_port_card_lib_shows_real_account_no(monkeypatch):
+    """C2 (TASK-loop1-1): `/port lib sync` shows the account number read off the screen instead
+    of the generic "LIVE" placeholder."""
+    from app.mcp.pillars import pillar2_portfolio as pillar2
+
+    holdings = AsyncMock(return_value={
+        "platform": "LIBERATOR", "account_type": "CASH", "account_no": "1234567",
+        "authenticated": True, "count": 0, "holdings": []})
+    monkeypatch.setattr(pillar2, "portfolio_holdings", holdings)
+
+    card = await REAL_LIVE_CARD("port", "lib")
+
+    holdings.assert_awaited_with(platform="LIBERATOR")
+    assert "1234567" in _flex_text(card)
+

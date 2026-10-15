@@ -363,6 +363,19 @@ class TradeManDriver:
             return tm_page
         return auth_driver.page if auth_driver.is_authenticated else None
 
+    async def is_page_authenticated(self) -> bool:
+        """Public RCA-008/009 check: a TradeMan tab is open AND it really is an authenticated
+        page (URL is not /SignIn and the account dropdown renders a real 7-digit account).
+
+        Single source of truth for "the rows we just read came from an authenticated screen"
+        (LIB-RCA-007). Pillar 2 ``current_orders`` uses it so an unreadable/empty ledger is
+        never rendered as 🟢 live (TASK-loop1-1 · Anti-Mock).
+        """
+        page = self.page
+        if not page or page.is_closed():
+            return False
+        return await self._is_authenticated_page(page)
+
     async def ensure_browser_ready(self) -> Optional[Page]:
         """
         Ensures an active, authenticated TradeMan browser page is ready.
@@ -545,7 +558,8 @@ class TradeManDriver:
            clicks ``#dropDownAccountPort div.absolute span:text-is("<acc_no>")`` and verifies
            that the current-account div really shows the target before reporting success.
         Returns ``success=False`` with status ``ACCOUNT_SWITCH_FAILED`` when the switch cannot
-        be confirmed (Anti-Mock: no fabricated account_no).
+        be confirmed on screen, or ``BROWSER_NOT_ACTIVE`` when there is no TradeMan page at all
+        (Anti-Mock: never a fabricated ``account_no`` / fake success).
         """
         async with self.lock:
             target = account_type.upper().strip()
@@ -564,14 +578,18 @@ class TradeManDriver:
                             "KDE Connect is listening on D-Bus or submit via session_submit_otp('123456')."
                         )
                     }
-                # If in dry-run or testing mode without active display/credentials
+                # Anti-Mock (TASK-loop1-1 · CLI-RCA-007): with no TradeMan page the switch never
+                # happened on screen, so a settings-derived account number must NOT be reported
+                # as a successful switch — callers must not proceed on unverified account state.
                 return {
-                    "success": True,
+                    "success": False,
                     "platform": "KRUNGSRI",
                     "account_type": target,
-                    "account_no": settings.TRADEMAN_ACCOUNT_NO_MARGIN if target == "MARGIN" else (settings.TRADEMAN_ACCOUNT_NO_CASH or "3024959-CASH"),
-                    "status": "SIMULATED_SWITCH",
-                    "message": f"Switched Krungsri account context to {target} (Browser not active)."
+                    "status": "BROWSER_NOT_ACTIVE",
+                    "error": (
+                        f"Cannot switch Krungsri account to {target}: no active TradeMan "
+                        "browser session (login/SSO not established)."
+                    )
                 }
             return await self._select_account_on_page(page, target)
 

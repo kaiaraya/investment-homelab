@@ -515,3 +515,20 @@ async def test_switch_account_missing_dropdown_returns_failure():
     assert res["status"] == "ACCOUNT_SWITCH_FAILED"
     assert "account_no" not in res
 
+
+
+@pytest.mark.asyncio
+async def test_switch_account_without_browser_is_browser_not_active():
+    """TASK-loop1-1 (Anti-Mock): with no TradeMan page the switch never happened on screen, so it
+    must report BROWSER_NOT_ACTIVE — never a fake ``SIMULATED_SWITCH`` success carrying an
+    account number taken from settings (CLI-RCA-007)."""
+    with patch.object(trademan_driver, "ensure_authenticated_trademan", new_callable=AsyncMock, return_value=None):
+        with patch("app.browser.trademan_driver.auth_driver") as m_auth:
+            m_auth.status = "IDLE"  # not AWAITING_OTP -> the login/OTP branch is skipped
+            res = await trademan_driver.switch_account("MARGIN")
+
+    assert res["success"] is False
+    assert res["status"] == "BROWSER_NOT_ACTIVE"
+    assert "account_no" not in res
+    assert settings.TRADEMAN_ACCOUNT_NO_MARGIN not in str(res)
+
