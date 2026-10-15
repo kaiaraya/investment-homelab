@@ -108,10 +108,11 @@ Upstream: **`cline/kanban#495`** and **`cline/kanban#590`** (both open; the fix 
 Code + full evidence: `rca/shared/rca_kanban_hub_daemon.md`.
 ⚠️ Re-apply after every `npm i -g kanban` / npm upgrade, until a release > 0.1.70 ships the file.
 
-Evidence: `node dist/entry.js --cwd /tmp --port 45999` binds the port with no error ·
-`hub-daemon.log` stopped growing (8 → 8 `MODULE_NOT_FOUND`, mtime frozen) · a smoke card
-(`f76e7`, prompt "reply `DONE <sha>`") went `in_progress`, its session ended `status: completed`
-with the real answer, and `kanban task delete` cleaned the worktree.
+Evidence (verified **twice**, 2026-10-15): `node dist/entry.js --cwd /tmp --port 45999` binds the
+port with no error · `hub-daemon.log` stopped growing (8 → 8 `MODULE_NOT_FOUND`, mtime frozen at
+13:48) · two smoke cards (`f76e7` → `DONE 9ed1f5a`, `11c9e` → `PWD …/worktrees/11c9e/InvestmentHomelab`
++ `DONE 842c6c5`) went `in_progress`, their sessions ended `status: completed` (not `cancelled`),
+and `kanban task delete` removed the worktrees.
 
 Still true (independent of the bug):
 

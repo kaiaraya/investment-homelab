@@ -93,7 +93,9 @@ await import("@clinebot/core/hub/daemon-entry");   // ต้องเป็น d
 | `HOME=/tmp/... node dist/entry.js --cwd /tmp/... --port 45999` | log ไม่มี error · `ss -ltn` = **LISTEN 127.0.0.1:45999** |
 | `hub-daemon.log` | ไม่โตแล้ว — `MODULE_NOT_FOUND` 8 → **8**, mtime ค้างที่ 13:48 |
 | การ์ด smoke `f76e7` (`DONE <sha>`) | ย้ายเข้า `in_progress` · session `status: **completed**` · ข้อความจริง `DONE 9ed1f5a` |
+| การ์ด smoke ใบที่ 2 `11c9e` (รันซ้ำ 2026-10-15 22:1x) | session `status: **completed**`, `exit_code: 0`, `interactive: true`, `pid: 1535` · `cwd` = `~/.cline/worktrees/11c9e/InvestmentHomelab` (detached HEAD @ `842c6c5`) · agent ตอบ `PWD /home/araya-sawasdichai/.cline/worktrees/11c9e/InvestmentHomelab` + `DONE 842c6c5` ⇒ **พิสูจน์ว่ารันใน worktree ของการ์ดจริง ไม่ใช่ checkout หลัก และไม่ถูก cancel** |
 | `kanban task delete --task-id f76e7` | `worktreeCleanup.removed: true` · board กลับเป็น 0 การ์ดทุกคอลัมน์ |
+| `kanban task delete --task-id 11c9e` | `worktreeCleanup[0].removed: true` · `git worktree list` เหลือ main อย่างเดียว · board 0 การ์ดทุกคอลัมน์ · `hub-daemon.log` ยังค้าง 8 / mtime 13:48 |
 
 **User Feedback & Context**: พบ root cause หลังรื้อ `hub-daemon.log` + เทียบ tarball ทุกเวอร์ชัน ·
 ผู้ใช้ยืนยันให้ค้นในเน็ตก่อน แล้วเจอ `cline/kanban#495`/`#590` ตรงกับอาการทุกข้อ (รวม ~30 วิ timeout) ·
