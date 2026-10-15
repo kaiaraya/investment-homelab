@@ -747,20 +747,29 @@ class LiberatorDriver:
             };
         }""")
 
+    #: Explicit status returned by ``get_market_bid_offer`` when the Liberator board
+    #: cannot be read. Anti-Mock (Invariant 1): callers MUST halt on this status —
+    #: never substitute a guess and never fall back to the order's own price.
+    QUOTE_UNAVAILABLE = "QUOTE_UNAVAILABLE"
+
     @staticmethod
-    def _unknown_quote(symbol: str) -> Dict[str, Any]:
-        """
-        Anti-Mock sentinel for the Liberator board: every numeric field is None and
-        ``source`` is "unavailable". Callers MUST treat this as "do not trade" —
-        never substitute a guess and never fall back to the order's own price.
-        (Mirrors ``TradeManDriver._unknown_quote``.)
+    def _quote_unavailable(symbol: str, reason: str) -> Dict[str, Any]:
+        """Fail-closed result for ``get_market_bid_offer`` — this is NOT a quote.
+
+        Every numeric field is None *and* the envelope is explicitly marked
+        ``success=False`` / ``status=QUOTE_UNAVAILABLE`` (LIB fail-closed), so no
+        caller can mistake a read failure for a board reading or silently price an
+        amend from it (Anti-Mock / Invariant 1).
         """
         return {
+            "success": False,
+            "status": "QUOTE_UNAVAILABLE",
             "symbol": (symbol or "").strip().upper(),
+            "source": "unavailable",
             "bid_1": None, "offer_1": None, "last": None,
             "prior_close": None, "ceiling": None, "floor": None,
             "board_lot": None, "flag": None,
-            "source": "unavailable",
+            "error": reason,
         }
 
     async def get_market_bid_offer(self, symbol: str) -> Dict[str, Any]:
@@ -774,18 +783,24 @@ class LiberatorDriver:
         "bid" and "offer") exactly like ``_extract_portfolio_from_page`` isolates
         the Holdings/Orders tables — no hard-coded positional selector.
 
-        Anti-Mock / fail-closed: if the page is not open, login was not performed,
-        or the depth table cannot be found, return ``_unknown_quote`` (all None,
-        ``source="unavailable"``). This method NEVER auto-logs-in (Invariant 7) and
-        NEVER invents a price.
+        Anti-Mock / fail-closed: if the page is not open, login was not performed, or the
+        depth table cannot be found, this returns the explicit ``QUOTE_UNAVAILABLE``
+        envelope (``success=False`` + every numeric field None) — the caller MUST halt.
+        It NEVER auto-logs-in (Invariant 7), NEVER invents a price and NEVER falls back
+        to the order's own price.
+
+        Success shape: ``{"success": True, "status": "OK", ..., "source":
+        "liberator_board"}``; failure shape: ``{"success": False, "status":
+        "QUOTE_UNAVAILABLE", ..., "source": "unavailable", "error": <reason>}``.
         """
         clean_sym = (symbol or "").strip().upper()
         if not clean_sym:
-            return self._unknown_quote("")
+            return self._quote_unavailable("", "Symbol is required to read the Liberator board.")
 
         if not self.page or self.page.is_closed():
             logger.warning("get_market_bid_offer(%s): no active Liberator page — fail-closed", clean_sym)
-            return self._unknown_quote(clean_sym)
+            return self._quote_unavailable(
+                clean_sym, "No active Liberator page (session not open) — login first, never auto-login.")
 
         page = self.page
         try:
@@ -843,13 +858,16 @@ class LiberatorDriver:
             }""")
         except Exception as e:
             logger.warning(f"get_market_bid_offer({clean_sym}) failed: {e} — fail-closed")
-            return self._unknown_quote(clean_sym)
+            return self._quote_unavailable(clean_sym, f"Board read failed: {type(e).__name__}: {e}")
 
         if quote.get("bid_1") is None and quote.get("offer_1") is None and quote.get("last") is None:
             logger.warning(f"get_market_bid_offer({clean_sym}): depth table unavailable — fail-closed")
-            return self._unknown_quote(clean_sym)
+            return self._quote_unavailable(
+                clean_sym, "5-Bid/Offer depth table not found on the Liberator Portfolio page.")
 
         return {
+            "success": True,
+            "status": "OK",
             "symbol": clean_sym,
             "bid_1": quote.get("bid_1"),
             "offer_1": quote.get("offer_1"),
@@ -1217,11 +1235,17 @@ class LiberatorDriver:
         new_price: float,
         new_volume: Optional[int] = None,
         pin: Optional[str] = None,
+        expected_symbol: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Amends a resting Liberator order **in place** via the row's native `Change` control
         (ต่อราคาแบบไม่เสียคิว) — the ORIGINAL order number is preserved: nothing is cancelled
         and no new order is submitted (replaces the old cancel + re-place flow).
+
+        ``expected_symbol`` (Loop 1 D3, fail-closed): the symbol the caller believes this
+        order is for. When given and it does not match the symbol read from the live order
+        row, the amend is refused with ``status="SYMBOL_MISMATCH"`` **before** the Change
+        control is pressed — never amend an order we cannot positively identify.
 
         Live-proven path (order #11894, BCH SELL 12.00 x 4,000, 2026-10-09):
             row    = `#OrderTableList tbody tr:has(input[id='11894'])`
@@ -1267,7 +1291,7 @@ class LiberatorDriver:
 
         try:
             return await self._amend_order_in_place(
-                str(order_no), float(new_price), new_volume, str(order_pin)
+                str(order_no), float(new_price), new_volume, str(order_pin), expected_symbol
             )
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error amending Liberator order #{order_no}: {e}")
@@ -1279,6 +1303,7 @@ class LiberatorDriver:
         new_price: float,
         new_volume: Optional[int],
         order_pin: str,
+        expected_symbol: Optional[str] = None,
     ) -> Dict[str, Any]:
         """DOM half of change_order(): press Change, fill the amend overlay, confirm, verify."""
         page = self.page
@@ -1299,6 +1324,30 @@ class LiberatorDriver:
 
         # 2. Read the row as it is now (evidence + amendability guard)
         parsed = self._parse_order_row_cells(await row.locator("td").all_inner_texts())
+
+        # 2a. Fail-closed symbol confirmation (Loop 1 D3): the caller told us which symbol
+        #     this order should be — if the live row disagrees, the identity of the order we
+        #     are about to amend is unproven, so NOTHING is pressed (never amend the wrong
+        #     stock). Checked before the status guard: identity first, then state.
+        want = str(expected_symbol or "").strip().upper()
+        actual = str(parsed["symbol"] or "").upper()
+        if want and actual != want:
+            logger.warning(
+                "change_order(%s): symbol mismatch — row is %r, expected %r — fail-closed",
+                order_no, actual, want,
+            )
+            return {
+                "success": False,
+                "status": "SYMBOL_MISMATCH",
+                "order_no": str(order_no),
+                "expected_symbol": want,
+                "actual_symbol": actual,
+                "error": (
+                    f"Order #{order_no} is {actual or 'unknown'} on the broker, not {want}"
+                    " - the Change control was NOT pressed (fail-closed)."
+                ),
+            }
+
         status = parsed["status"]
         if status.lower() not in self.LIB_AMENDABLE_STATUSES:
             return {
@@ -1467,11 +1516,14 @@ class LiberatorDriver:
                 "message": f"Order #{ord_no} ({ord_symbol}) is already at ฿{new_price:.2f} - no amend needed."
             }
 
-        # Amend the resting order IN PLACE (ต่อราคา) — order number + queue slot preserved
+        # Amend the resting order IN PLACE (ต่อราคา) — order number + queue slot preserved.
+        # Fail-closed: hand the symbol we selected in with the request so change_order can
+        # refuse if the live row is a different stock (Loop 1 D3).
         amend_res = await self.change_order(
             order_no=str(ord_no),
             new_price=new_price,
             new_volume=None,
+            expected_symbol=ord_symbol,
         )
         if not amend_res.get("success", False):
             return {

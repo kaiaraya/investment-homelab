@@ -408,3 +408,215 @@ async def test_negotiate_price_propagates_amend_failure():
     assert res["action"] == "AMEND_UNVERIFIED"
     assert res["order_no"] == ORDER_NO
     assert "not confirmed" in res["error"]
+
+
+# ─── get_market_bid_offer — fail-closed board read (QUOTE_UNAVAILABLE) ───────────────
+
+class _FakeSymbolInput:
+    def __init__(self, log):
+        self.log = log
+        self.filled = []
+
+    async def fill(self, value):
+        self.filled.append(value)
+        self.log.append(("symbol-input", "fill", value))
+
+
+class _FakeKeyboard:
+    def __init__(self, log):
+        self.log = log
+
+    async def press(self, key):
+        self.log.append(("keyboard", key))
+
+
+class FakeQuotePage:
+    """Minimal Page stand-in for the board (`get_market_bid_offer`) path."""
+
+    def __init__(self, payload=None, error=None, has_input=True,
+                 url="https://webtrade.liberator.co.th/Portfolio", closed=False):
+        self.payload = payload if payload is not None else {"bid_1": None, "offer_1": None, "last": None}
+        self.error = error
+        self.url = url
+        self.log = []
+        self._closed = closed
+        self.sym_input = _FakeSymbolInput(self.log) if has_input else None
+        self.keyboard = _FakeKeyboard(self.log)
+
+    def is_closed(self):
+        return self._closed
+
+    async def goto(self, url, **kwargs):
+        self.url = url
+        self.log.append(("goto", url))
+
+    async def wait_for_timeout(self, ms):
+        self.log.append(("wait", ms))
+
+    async def query_selector(self, selector):
+        self.log.append(("query_selector", selector))
+        return self.sym_input
+
+    async def evaluate(self, script):
+        if self.error:
+            raise RuntimeError(self.error)
+        return dict(self.payload)
+
+
+def _quote_driver(page):
+    drv = LiberatorDriver()
+    drv.page = page
+    return drv
+
+
+def _assert_unavailable(res):
+    """Anti-Mock: the envelope must be explicitly NOT a quote, with no numbers at all."""
+    assert res["success"] is False
+    assert res["status"] == LiberatorDriver.QUOTE_UNAVAILABLE == "QUOTE_UNAVAILABLE"
+    assert res["source"] == "unavailable"
+    assert (res["bid_1"], res["offer_1"], res["last"]) == (None, None, None)
+    assert res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_without_a_page():
+    """The board cannot be read without a live page — and must NOT auto-login."""
+    res = await _quote_driver(None).get_market_bid_offer("BCH")
+    _assert_unavailable(res)
+    assert "No active Liberator page" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_for_a_blank_symbol():
+    page = FakeQuotePage()
+    res = await _quote_driver(page).get_market_bid_offer("   ")
+    _assert_unavailable(res)
+    assert page.log == []                       # nothing was touched
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_when_the_depth_table_is_missing():
+    page = FakeQuotePage(payload={"bid_1": None, "offer_1": None, "last": None})
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)
+    assert "depth table" in res["error"]
+    assert ("query_selector", "#SearchSymbolList-setBuySellFooter") in page.log
+    assert page.sym_input.filled == ["", "BCH"]   # proven footer selector, LIB-RCA-005
+    assert ("keyboard", "Enter") in page.log
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_returns_the_board_quote_when_readable():
+    page = FakeQuotePage(
+        payload={"bid_1": 11.60, "offer_1": 11.70, "last": 11.65},
+        url="https://webtrade.liberator.co.th/Order",
+    )
+    res = await _quote_driver(page).get_market_bid_offer(" bch ")
+
+    assert res["success"] is True and res["status"] == "OK"
+    assert res["symbol"] == "BCH"               # normalised, not echoed raw
+    assert (res["bid_1"], res["offer_1"], res["last"]) == (11.60, 11.70, 11.65)
+    assert res["source"] == "liberator_board"
+    assert ("goto", "https://webtrade.liberator.co.th/Portfolio") in page.log
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_fails_closed_on_a_page_error():
+    """A DOM/JS failure is reported as QUOTE_UNAVAILABLE, never raised at the caller."""
+    res = await _quote_driver(FakeQuotePage(error="Execution context was destroyed")).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)
+    assert "Execution context was destroyed" in res["error"]
+
+
+# ─── change_order — symbol confirmation BEFORE pressing Change (fail-closed) ─────────
+
+@pytest.mark.asyncio
+async def test_change_order_refuses_when_the_row_is_a_different_symbol(weekday_clock):
+    """Loop 1 D3: an order whose live row is not the requested symbol must NOT be touched."""
+    page, parts = _build_page()
+    drv = _driver(page)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", expected_symbol="PTT")
+
+    assert res["success"] is False
+    assert res["status"] == "SYMBOL_MISMATCH"
+    assert res["expected_symbol"] == "PTT" and res["actual_symbol"] == "BCH"
+    assert parts["change"].clicks == 0          # the Change control was never pressed
+    assert parts["confirm"].clicks == 0         # ...and nothing was confirmed
+    assert parts["price"].filled == []
+    drv.scrape_portfolio.assert_not_awaited()   # no verification read after a refusal
+
+
+@pytest.mark.asyncio
+async def test_change_order_amends_when_the_expected_symbol_matches(weekday_clock):
+    page, parts = _build_page()
+    drv = _driver(page, verified_price=11.70)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", expected_symbol=" bch ")
+
+    assert res["success"] is True
+    assert parts["change"].clicks == 1
+
+
+@pytest.mark.asyncio
+async def test_change_order_symbol_guard_is_checkable_before_the_status_guard(weekday_clock):
+    """Identity outranks state: a mismatch is reported even when it could not be amended."""
+    page, parts = _build_page(status="Matched")
+    drv = _driver(page)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", expected_symbol="PTT")
+
+    assert res["status"] == "SYMBOL_MISMATCH"
+    assert parts["change"].clicks == 0
+
+
+@pytest.mark.asyncio
+async def test_negotiate_price_passes_the_selected_symbol_to_change_order():
+    """The negotiation path must prove the symbol it selected, not just the order number."""
+    drv = LiberatorDriver()
+    drv.scrape_portfolio = AsyncMock(return_value={"orders": [_open_order_row(12.0)]})
+    drv.change_order = AsyncMock(return_value={
+        "success": True, "action": "AMENDED_IN_PLACE",
+        "order_no": ORDER_NO, "old_price": 12.0, "new_price": 11.70,
+    })
+
+    await drv.negotiate_price(order_no=ORDER_NO, target_price=11.70)
+
+    assert drv.change_order.await_args.kwargs["expected_symbol"] == "BCH"
+
+
+# ─── plugin passthrough (LiberatorBrokerPlugin) ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_plugin_change_order_forwards_the_symbol_as_expected_symbol(monkeypatch):
+    """Loop 1 D3: the plugin must hand the caller's symbol down to the driver's guard."""
+    import app.brokers.liberator.plugin as plugin_mod
+    from app.brokers.liberator.plugin import LiberatorBrokerPlugin
+
+    drv = AsyncMock()
+    drv.change_order = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr(plugin_mod, "liberator_driver", drv)
+
+    res = await LiberatorBrokerPlugin().change_order(
+        order_no=ORDER_NO, new_price=11.70, symbol="BCH")
+
+    assert res["success"] is True
+    assert drv.change_order.await_args.kwargs == {
+        "order_no": ORDER_NO, "new_price": 11.70, "new_volume": None, "expected_symbol": "BCH",
+    }
+
+
+@pytest.mark.asyncio
+async def test_plugin_change_order_without_a_symbol_keeps_the_old_behaviour(monkeypatch):
+    """Backwards compatible: no symbol ⇒ the driver's symbol guard stays inactive."""
+    import app.brokers.liberator.plugin as plugin_mod
+    from app.brokers.liberator.plugin import LiberatorBrokerPlugin
+
+    drv = AsyncMock()
+    monkeypatch.setattr(plugin_mod, "liberator_driver", drv)
+
+    await LiberatorBrokerPlugin().change_order(order_no=ORDER_NO, new_price=11.70)
+
+    assert drv.change_order.await_args.kwargs["expected_symbol"] is None

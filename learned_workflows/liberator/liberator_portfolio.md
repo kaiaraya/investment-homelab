@@ -219,9 +219,12 @@ await current_orders(platform="LIBERATOR")
    (see LIB-RCA-005, "5-Bid/Offer Depth" = Table 1). `last` is read only from a column whose
    header contains `last`; it is **not** substituted from the holdings market price.
 
-**Anti-Mock / fail-closed:** when the page is not open, the depth table cannot be found, or the
-parse yields nothing → returns `_unknown_quote()` (`bid_1/offer_1/last = None`,
-`source="unavailable"`). Callers MUST skip the order, never trade on a guess.
+**Anti-Mock / fail-closed (updated 2026-10-15 · LIB-RCA-019):** when the page is not open, the
+depth table cannot be found, the side we need is empty, or the parse yields nothing → returns the
+**explicit** `QUOTE_UNAVAILABLE` envelope — `success=False`, `status="QUOTE_UNAVAILABLE"`,
+`source="unavailable"`, `bid_1/offer_1/last = None`, `error=<reason>`. The old `_unknown_quote()`
+sentinel is gone; the caller MUST halt (never trade on a guess, never fall back to the order's own
+price). Success shape carries `success=True`, `status="OK"`, `source="liberator_board"`.
 
 > ⚠️ Selector-heuristic status: the header-isolation rule is evidence-anchored (LIB-RCA-005) but the
 > depth table's exact `<th>` wording has **not** yet been re-verified on a live headed session.

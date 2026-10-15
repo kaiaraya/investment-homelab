@@ -264,14 +264,22 @@ class LiberatorBrokerPlugin(BaseBrokerPlugin):
         self,
         order_no: str,
         new_price: float,
-        new_volume: Optional[int] = None
+        new_volume: Optional[int] = None,
+        symbol: Optional[str] = None
     ) -> Dict[str, Any]:
         """Pillar 6 Amend In Place: presses the broker's native `Change` control on a resting
-        order so the price changes WITHOUT cancelling — order number + queue slot are retained."""
+        order so the price changes WITHOUT cancelling — order number + queue slot are retained.
+
+        ``symbol`` (Loop 1 D3, fail-closed): the symbol the caller believes this order is for.
+        The driver re-reads the live order row and refuses with ``status="SYMBOL_MISMATCH"``
+        (nothing pressed) when the row shows a different stock — never amend an order whose
+        identity is unproven.
+        """
         return await liberator_driver.change_order(
             order_no=order_no,
             new_price=new_price,
-            new_volume=new_volume
+            new_volume=new_volume,
+            expected_symbol=symbol
         )
 
     async def negotiate_price(
@@ -292,8 +300,10 @@ class LiberatorBrokerPlugin(BaseBrokerPlugin):
         """Live Bid1 / Offer1 (/ last) from the Liberator WebTrade board — used by the
         LINE CLI ``/nego lib`` guardrails (G5 tick distance / G6 SHORT uptick).
 
-        Fails closed: returns ``source="unavailable"`` (all numeric fields None) when
-        the board cannot be read, so callers must skip rather than trade on a guess.
+        Fails closed: when the board cannot be read the driver returns the explicit
+        ``QUOTE_UNAVAILABLE`` envelope (``success=False``, ``status="QUOTE_UNAVAILABLE"``,
+        ``source="unavailable"``, all numeric fields None), so callers must skip rather than
+        trade on a guess (Anti-Mock / Invariant 1).
         """
         return await liberator_driver.get_market_bid_offer(symbol)
 

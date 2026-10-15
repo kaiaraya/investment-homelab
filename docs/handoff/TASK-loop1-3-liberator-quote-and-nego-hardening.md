@@ -35,10 +35,10 @@
 ## Steps / Task Decomposition (Loop Engineering — บังคับ)
 | # | Atomic Step | Expected Outcome | Verify | Status |
 |---|---|---|---|---|
-| 1 | `get_market_bid_offer` fail-closed | อ่าน DOM ไม่ได้ → `QUOTE_UNAVAILABLE` ไม่คืนราคาเดา | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ⬜ |
-| 2 | `change_order` ยืนยัน symbol | symbol ไม่ตรง → ไม่กด + error | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ⬜ |
-| 3 | `_broker_modify` (lib) fail-closed | ไม่มีราคา/ไม่ตรง → `unavailable_card` | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ⬜ |
-| 4 | verify ครบ 3 ไฟล์ | PASS | `.venv/bin/python scripts/verify_changes.py app/brokers/liberator/driver.py app/brokers/liberator/plugin.py app/services/line_cli/handlers.py` | ⬜ |
+| 1 | `get_market_bid_offer` fail-closed | อ่าน DOM ไม่ได้ → `QUOTE_UNAVAILABLE` ไม่คืนราคาเดา | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ✅ PASS (25) |
+| 2 | `change_order` ยืนยัน symbol | symbol ไม่ตรง → ไม่กด + error | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ✅ PASS (29) |
+| 3 | `_broker_modify` (lib) fail-closed | ไม่มีราคา/ไม่ตรง → `unavailable_card` | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ✅ PASS (87) |
+| 4 | verify ครบ 3 ไฟล์ | PASS | `.venv/bin/python scripts/verify_changes.py …` | ✅ PASS (164) |
 
 ## Acceptance / Tests ที่ต้องผ่าน
 - `.venv/bin/python scripts/verify_changes.py app/brokers/liberator/driver.py app/brokers/liberator/plugin.py app/services/line_cli/handlers.py`
@@ -52,15 +52,28 @@
 
 ## Cline Report
 - Files changed:
-- Summary:
+  - `app/brokers/liberator/driver.py` — `_unknown_quote` → `_quote_unavailable` + `LiberatorDriver.QUOTE_UNAVAILABLE`; `get_market_bid_offer` now returns `{success,status,…}` (success=`OK`/`liberator_board`, failure=`QUOTE_UNAVAILABLE`/`unavailable`/`error`) on all 4 failure paths (blank symbol, no page, read exception, depth table not found); `change_order(..., expected_symbol=None)`; `_amend_order_in_place` verifies the live row symbol **before** the Change control (`SYMBOL_MISMATCH`, 0 clicks); `negotiate_price` passes `expected_symbol=ord_symbol`.
+  - `app/brokers/liberator/plugin.py` — `change_order(..., symbol=None)` passthrough → `expected_symbol`; `get_market_bid_offer` docstring = new contract.
+  - `app/services/line_cli/handlers.py` — `_NEGO_HALT_STATUSES`; `_plan_nego` also fails closed on `success=False`; `_broker_modify` LIB/LIVE gate (quote unreadable / quote-symbol ≠ order symbol / needed side empty → `QUOTE_UNAVAILABLE`, driver never called, symbol handed down); `_handle_nego` breaks the batch on a halt and pushes `cards.unavailable_card()` instead of `nego_card` (+ `halted`/`halt_status` in the result dict).
+  - `tests/test_liberator_change_order.py` (+11 tests), `tests/test_line_cli_flow.py` (+8 tests).
+  - Docs (zero-contradiction): `learned_workflows/liberator/liberator_portfolio.md` §8, `rca/liberator/rca_liberator.md` (`LIB-RCA-019`).
+- Summary: LIB quote is now either a proven board reading or an explicit `QUOTE_UNAVAILABLE` envelope (no sentinel that still looks like a quote); `/nego lib` verifies the order's identity + price basis twice (plan-time and again at amend-time, LIVE) and, on any unproven basis, presses nothing, stops the batch and reports honestly with the “อ่านไม่ได้” card. No order-placing path was touched; KSS/QuickTrade untouched.
 - Tests run + result:
+  - `pytest tests/test_liberator_change_order.py -q` → **31 passed** (unit 1+2+3)
+  - `pytest tests/test_line_cli_flow.py -q` → **87 passed** (unit 4)
+  - `scripts/verify_changes.py app/brokers/liberator/driver.py app/brokers/liberator/plugin.py app/services/line_cli/handlers.py` → **PASS** (compileall OK, 164 targeted tests passed, exit 0)
 - Open questions:
+  1. 2 doc files were updated despite not being in the 5-file scope — mandated by Zero-Contradiction (old text documented `_unknown_quote`). Revert if you want docs in a separate commit.
+  2. `_broker_modify` LIB/LIVE adds one extra board read per amended order (second gate). Accepted for fail-closed; revisit if the LIB board read is slow.
+  3. Out of scope, still fail-open: `app/mcp/pillars/pillar6_strategy.py:64-66` and `app/services/price_negotiation_service.py:89+` do `quote.get("bid_1") or order_price` — with the new envelope they now receive `None` and still fall back to the order's own price. Suggest a follow-up card.
+  4. LIB depth-table selector wording is still not live-verified (pre-existing); after this change an unverified selector surfaces as `QUOTE_UNAVAILABLE` (honest) instead of a bogus quote. Live proof belongs to TASK-loop1-4.
+  5. Batch halt = whole batch stops (by design). Remaining orders are not listed as “skipped” on the card — confirm whether you want an explicit “ยกเลิกที่เหลือ N รายการ” line.
 
 ---
 
 ## Cline Verification & Stepwise Approval
-- [ ] Stage A (Code Audit) · [ ] Stage B (Verify) · [ ] Stage C (Visual/HITL) · [ ] Stage D (Verdict + Merge)
-- Verdict: PASS / CHANGES_REQUESTED
+- [x] Stage A (Code Audit) · [x] Stage B (Verify) · [ ] Stage C (Visual/HITL — TASK-loop1-4) · [ ] Stage D (Verdict + Merge)
+- Verdict: PASS (unit/mock) — CHANGES_REQUESTED only for the 2 doc files if you want them dropped
 
 ---
 
