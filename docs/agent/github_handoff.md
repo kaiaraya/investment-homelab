@@ -25,7 +25,7 @@
 
 ## 2. GitHub เป็น shared medium
 
-- Argon อ่าน/เขียนไฟล์ใน repo ได้เองผ่าน GitHub integration → **ไม่ต้อง automate browser** (กัน selector เปราะ)
+- Argon อ่าน/เขียนไฟล์ใน repo ได้เองผ่าน GitHub connector → **ไม่ต้อง automate browser** (กัน selector เปราะ)
 - Argon **เขียน "แผน" เอง (PHASE 1)** แล้ว **อ่าน "ผล" (PHASE 4–5)** — ไม่รันโค้ด ไม่เห็น live browser
   (Anti-Mock Guardrail §8 · 4 งานวิเคราะห์ดู §5)
 - Branch convention:

@@ -2,7 +2,8 @@
 
 - Created: YYYY-MM-DD by Argon (Complex Task Owner)
 - Broker: <Krungsri / Click2Win / Liberator / N/A>
-- Git Branch: `task/<task-slug>`
+- Plan Branch (Argon): `plan/<slug>`
+- Git Branch (Cline): `task/<task-slug>`
 - Worktree: `~/.cline/worktrees/<task-slug>`
 - Status: DRAFT | READY | IN_PROGRESS | REVIEW | DONE  (state machine: `docs/agent/github_handoff.md` §7)
 - Plan PR: <GitHub PR url> · Issue: #<n>   (Argon เปิดตอน PHASE 1 — human merge = gate #1)
@@ -65,7 +66,7 @@
 
 ---
 
-## Argon Analysis (Argon เขียน — PHASE 5 · เห็นแค่ "แผน + ผล")
+## Argon Analysis (Argon เขียน — PHASE 5 · เขียนแผนเอง + เห็นผล)
 > Input = แผน (§Context / §Scope / §Steps / §Acceptance) + ผล (§Cline Report + §Cline Verification) เท่านั้น
 > ข้อ 2–3 ที่ Argon พบเป็น "สมมติฐาน" → ต้อง live-verify (broker + LINE, headed) ก่อน merge (Anti-Mock)
 
