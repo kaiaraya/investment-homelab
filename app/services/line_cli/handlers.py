@@ -176,6 +176,9 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
     (D1 - TASK-loop1-2). ``lib`` LIVE keeps the native WebTrade ``Change``
     (LIB-RCA-016/017). The dispatcher's LIVE route is bound to ``TRADING_PLATFORM`` and
     cannot address both brokers in one loop, so LIVE goes straight to the owning driver.
+    LIB also re-checks the board quote here (Loop 1 D3): the reading taken during planning may
+    have died, and the price basis must still be provable — an unreadable / wrong-symbol /
+    empty-side reading aborts the amend with ``QUOTE_UNAVAILABLE`` before the driver is called.
     """
     from app.services.trade_dispatcher import trade_dispatcher
     if not trade_dispatcher.is_live:
@@ -190,8 +193,34 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
             order_no, symbol=symbol, side=side, balance=int(volume) or None)
         res["path"] = "QUICKTRADE_INPLACE"
         return res
+    # ── LIB (LIVE) ───────────────────────────────────────────────────────────────
+    # Fail-closed second gate (Loop 1 D3): the quote may have died between planning and the
+    # amend, and the price basis must still be provable. If the board cannot be read, or the
+    # reading is not for this symbol, or the side we need is empty → ABORT with
+    # ``QUOTE_UNAVAILABLE`` and press nothing (the caller shows the honest "อ่านไม่ได้" card).
     from app.brokers import liberator_plugin
-    return await liberator_plugin.change_order(order_no=order_no, new_price=new_price)
+    quote = await _broker_quote(broker, symbol)
+    if quote.get("success") is False or quote.get("source") == "unavailable":
+        return {
+            "success": False, "status": "QUOTE_UNAVAILABLE", "unavailable": True,
+            "error": str(quote.get("error") or f"อ่านราคา {symbol} จาก {BROKER_LABEL[broker]} ไม่ได้"),
+        }
+    if str(quote.get("symbol") or "").upper() != str(symbol or "").upper():
+        return {
+            "success": False, "status": "QUOTE_UNAVAILABLE", "unavailable": True,
+            "error": (f"ราคาที่อ่านได้เป็น {quote.get('symbol') or '-'} ไม่ใช่ {symbol}"
+                      " — ไม่แก้ราคา (fail-closed)"),
+        }
+    needed = "bid_1" if str(side or "").upper() in ("BUY", "COVER") else "offer_1"
+    if quote.get(needed) is None:
+        return {
+            "success": False, "status": "QUOTE_UNAVAILABLE", "unavailable": True,
+            "error": f"อ่าน {needed} ของ {symbol} ไม่ได้ — ไม่แก้ราคา (fail-closed)",
+        }
+    # The driver re-reads the live order row and refuses when its symbol is not ``symbol``
+    # (status SYMBOL_MISMATCH) — nothing is pressed in that case either.
+    return await liberator_plugin.change_order(
+        order_no=order_no, new_price=new_price, symbol=symbol)
 
 
 # --------------------------------------------------------------------------- #
@@ -756,6 +785,13 @@ async def _handle_read(
 # --------------------------------------------------------------------------- #
 # /nego
 # --------------------------------------------------------------------------- #
+#: Amend outcomes that must HALT the /nego batch (fail-closed, Loop 1 D3): the price basis
+#: could not be read, or the order's identity could not be proven. Those are pushed as the
+#: honest "อ่านไม่ได้" card — a normal ``skip``/``fail`` row would look like a routine policy
+#: decision and would hide a broker/session problem.
+_NEGO_HALT_STATUSES = ("QUOTE_UNAVAILABLE", "SYMBOL_MISMATCH")
+
+
 def _tick_distance_exceeds(old: float, new: float, n: int) -> bool:
     """G5 — is ``new`` more than ``n`` SET ticks away from ``old``?"""
     from app.services.validator import validator
@@ -785,7 +821,9 @@ async def _plan_nego(broker: str, o: Dict[str, Any], max_ticks: int) -> Dict[str
 
     Never mutates anything — returns a row with ``status`` in
     ``{"planned", "skip"}`` and a human ``reason``. Anti-Mock: any unavailable
-    quote fails closed (skip), never a guessed price.
+    quote fails closed (skip), never a guessed price — both the legacy
+    ``source="unavailable"`` marker and the explicit ``success=False``
+    ``QUOTE_UNAVAILABLE`` envelope (Loop 1 D1) mean "no price basis".
     """
     from app.services.validator import validator
     order_no = str(o.get("broker_order_no") or o.get("order_no") or "")
@@ -801,7 +839,7 @@ async def _plan_nego(broker: str, o: Dict[str, Any], max_ticks: int) -> Dict[str
     quote = await _broker_quote(broker, symbol)
     bid1, offer1, last = quote.get("bid_1"), quote.get("offer_1"), quote.get("last")
     new_price = bid1 if side in ("BUY", "COVER") else (offer1 if side in ("SELL", "SHORT") else None)
-    if quote.get("source") == "unavailable" or not new_price:
+    if quote.get("success") is False or quote.get("source") == "unavailable" or not new_price:
         row.update(status="skip", reason="อ่านราคาตลาดไม่ได้ (fail-closed)")
         return row
     new_price = float(new_price)
@@ -884,6 +922,10 @@ async def _handle_nego(
     max_ticks = int(getattr(settings, "LINE_NEGO_MAX_TICKS", 3))
     ok = skipped = failed = 0
     results: List[Dict[str, Any]] = []
+    #: Fail-closed stop signal: set when an amend reports "no price basis / identity unproven"
+    #: (``_NEGO_HALT_STATUSES``) — the batch then breaks and the honest card is pushed.
+    halted = False
+    halt_status = ""
     async with lock:
         _STARTED[key] = _now_bkk().strftime("%H:%M:%S")
         try:
@@ -918,6 +960,8 @@ async def _handle_nego(
                     else:
                         row["status"] = "fail"
                         row["reason"] = str(res.get("error") or res.get("message") or "ล้มเหลว")[:40]
+                        if str(res.get("status") or "") in _NEGO_HALT_STATUSES:
+                            halted, halt_status = True, str(res["status"])   # fail-closed
                     row.setdefault("submitted", res.get("submitted"))
                 if row["status"] == "ok":
                     ok += 1
@@ -927,11 +971,25 @@ async def _handle_nego(
                     failed += 1
                 results.append(row)
                 await _audit_nego(db, broker, row)
+                if halted:
+                    # Stop the batch: the board (or the order's identity) could not be proven,
+                    # so nothing else may be pressed. The honest "อ่านไม่ได้" card is pushed
+                    # below instead of a per-order table.
+                    logger.warning(
+                        "LINE CLI /nego %s halted (%s) on #%s: %s",
+                        broker, halt_status, row.get("order_no"), row.get("reason"),
+                    )
+                    break
 
             ts = _now_bkk().strftime("%H:%M:%S")
             is_test = not trade_dispatcher.is_live
             single = results[0] if len(results) == 1 else None
-            if single is not None and str(parsed.target or "").isdigit():
+            if halted:
+                # Fail-closed: no price basis (or an unproven order identity) ⇒ the honest
+                # read-failure card, never a "normal" per-order summary.
+                card = cards.unavailable_card(
+                    broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
+            elif single is not None and str(parsed.target or "").isdigit():
                 # One explicit order_no -> the focused one-order card (D2), filled from
                 # the row that mirrors what the broker actually did.
                 card = cards.negotiate_card(
@@ -958,7 +1016,8 @@ async def _handle_nego(
                 to_user_id=push_target)
         finally:
             _STARTED.pop(key, None)
-    return {"status": "CLI_NEGO", "broker": broker, "ok": ok, "skipped": skipped, "failed": failed}
+    return {"status": "CLI_NEGO", "broker": broker, "ok": ok, "skipped": skipped, "failed": failed,
+            "halted": halted, "halt_status": halt_status}
 
 
 # --------------------------------------------------------------------------- #

@@ -141,7 +141,9 @@ sequenceDiagram
     else Already at Target Price
         Driver-->>Timer: action: NONE (no amend needed)
     else Open Order Away From Target
-        Driver->>WebTrade: Row = tr:has(input[id='<order_no>']) -> click "Change"
+        Driver->>WebTrade: Row = tr:has(input[id='<order_no>'])
+        Driver->>Driver: Guard — row.symbol == requested symbol? (else SYMBOL_MISMATCH, 0 clicks)
+        Driver->>WebTrade: click "Change" (only once the order identity is proven)
         Driver->>WebTrade: div.overlay -> fill #price (scoped!) + #pin -> #confirmDialogActiveButton
         Driver->>WebTrade: Re-read #OrderTableList -> verify SAME order_no + new price
         Driver->>Phone: Alert "ต่อราคาสำเร็จ (order number คงเดิม): #11894 ฿12.00 -> ฿11.70"
@@ -152,9 +154,13 @@ sequenceDiagram
 1. **Schedule**: Evaluated twice daily at **11:00 BKK** (Round 1) and **15:30 BKK** (Round 2) by
    `app/services/action_exit_dispatcher.py::_run_autonomous_negotiation()`.
 2. **Identification**: `scrape_portfolio()` → orders where `balance > 0` and status is not `Matched`/`Cancelled`.
-3. **Amend IN PLACE** — `LiberatorDriver.change_order(order_no, new_price)` presses the broker's native
-   **`Change`** control. It **never** cancels and **never** submits a replacement: the original order number
+3. **Amend IN PLACE** — `LiberatorDriver.change_order(order_no, new_price, symbol=<symbol>)` presses the broker's
+   native **`Change`** control. It **never** cancels and **never** submits a replacement: the original order number
    *and* its queue slot are preserved (a re-placed order would show a new `Order #` **and** a new `Time`).
+   **Identity gate (revised 2026-10-15, `LIB-RCA-019`):** pass `symbol=<symbol>` — the driver re-reads the row and
+   if its symbol ≠ the requested symbol it returns `status="SYMBOL_MISMATCH"` with `expected_symbol`/`actual_symbol`
+   **before** the `Change` control is pressed (**0 clicks**, and no portfolio re-read either). Identity outranks
+   state: the symbol check runs **before** the status guard.
 4. **Proven selectors** (live 2026-10-09, order `#11894` BCH SELL ฿12.00 → ฿11.70, `status=Changed`):
 
    | Step | Selector |
@@ -173,7 +179,14 @@ sequenceDiagram
 6. **Response contract**: `action="AMENDED_IN_PLACE"` + `order_no` (**unchanged**) + `old_price`/`new_price`;
    `action="NONE"` when already at target (no pointless submission); `action="AMEND_UNVERIFIED"` when the grid
    does not confirm the new price (**Anti-Mock** — success is reported only after re-reading `#OrderTableList`).
+   Refusals are explicit too: `status="SYMBOL_MISMATCH"` (the row is another stock) and `"QUOTE_UNAVAILABLE"`
+   (no price basis) — in both cases **nothing was pressed** on the broker.
 7. **Audit Trail**: the unchanged order number + old/new price are logged and pushed to LINE / KDE Connect.
+8. **LINE CLI `/nego lib` (revised 2026-10-15, `LIB-RCA-019`)**: `_broker_modify('lib')` re-reads the board quote
+   **before** amending (fail-closed: unreadable / wrong symbol / empty needed side ⇒ `status="QUOTE_UNAVAILABLE"`
+   with `unavailable=True`, the driver is never called). A `QUOTE_UNAVAILABLE` or `SYMBOL_MISMATCH` result **halts
+   the whole batch** and pushes the honest "อ่านไม่ได้" card (`cards.unavailable_card`) instead of a per-order
+   summary; `_handle_nego()` returns `{"halted": True, "halt_status": ...}`.
 
 ---
 
@@ -204,31 +217,52 @@ await current_orders(platform="LIBERATOR")
 
 ---
 
-## 8. Market Quote — Bid1 / Offer1 (/ last) for the LINE CLI `/nego lib` (2026-10-13)
+## 8. Market Quote — Bid1 / Offer1 (/ last) for the LINE CLI `/nego lib` (2026-10-13 · revised 2026-10-15 → quote API)
 
 **Change:** `LiberatorDriver.get_market_bid_offer(symbol)` (passthrough:
 `LiberatorBrokerPlugin.get_market_bid_offer`) — added for the LINE slash-command CLI so
 `/nego lib` can apply the same guardrails as KSS (G5 tick distance / G6 SHORT uptick).
 
-**Method**
-1. Reuse the active Portfolio page (never auto-logins — Invariant 7).
-2. Select the symbol on the footer buy/sell form: `#SearchSymbolList-setBuySellFooter` + `Enter`
-   (same proven selector used by `execute_order`).
-3. In-page JS isolates the depth table **by header** (thead contains both `bid` and `offer`) —
-   the same deterministic-table-isolation pattern as `_extract_portfolio_from_page`
-   (see LIB-RCA-005, "5-Bid/Offer Depth" = Table 1). `last` is read only from a column whose
-   header contains `last`; it is **not** substituted from the holdings market price.
+**Method (revised 2026-10-15 — `LIB-RCA-020`, re-verified live with a headed browser + network capture)**
+1. Reuse the active page's session (never auto-logins — Invariant 7). No navigation and **no board
+   interaction** is needed: `page.request` shares the cookie jar with the browser context.
+2. Resolve the symbol to its authoritative `orderBookId` — the board is keyed by `orderBookId`,
+   **never** by symbol text. `GET /vb/config` →
+   `result.data.config.set.securities` = positional rows `[SYMBOL, orderBookId, market, kind, …]`
+   (3,956 SET rows live; `tfex.securities` holds 1,433 TFEX rows and is searched **last**).
+3. Read the quote for that exact id: `POST /vb/stock/info` `{"orderBookIds":[<id>]}` →
+   `result.list[0]` = `n` (symbol) · `ne` (company) · `l` (last) · `bp`/`bv` (Bid1 price/volume) ·
+   `op`/`ov` (Offer1 price/volume) · `prior` (prior close) · `cl` (ceiling) · `fl` (floor).
+   These are exactly what the board renders (verified: `BCH` = orderBookId `65566`).
+4. **Symbol gate (fail-closed):** the record is trusted **only** when `n == <requested symbol>`.
+   Otherwise `QUOTE_UNAVAILABLE` with `SYMBOL_MISMATCH` in `error`, and every number stays `None`.
 
-**Anti-Mock / fail-closed:** when the page is not open, the depth table cannot be found, or the
-parse yields nothing → returns `_unknown_quote()` (`bid_1/offer_1/last = None`,
-`source="unavailable"`). Callers MUST skip the order, never trade on a guess.
+> ⚠️ Why not the on-screen depth table (superseded 2026-10-15): the `Bid`/`Offer` table carries **no
+> symbol identity**, and the `/Portfolio` board keeps rendering its *previous* symbol while the new
+> quote loads — observed live: asked `BCH`, but the board fired
+> `POST /vb/stock/bid-offer {"orderBookId": 65781}` → `n:"A"`, `ne:"AREEYA PROPERTY PUBLIC COMPANY LIMITED"`.
+> `POST /vb/stock/bid-offer` is therefore the raw 10-level depth source only (`bp/bv/op/ov`
+> arrays, `[0]` = Bid1/Offer1) — **never** the identity proof.
 
-> ⚠️ Selector-heuristic status: the header-isolation rule is evidence-anchored (LIB-RCA-005) but the
-> depth table's exact `<th>` wording has **not** yet been re-verified on a live headed session.
-> Pending live confirmation — see TASK-line-cli Open questions.
+**Anti-Mock / fail-closed (revised 2026-10-15, `LIB-RCA-019`):** when the page is not open, the symbol is
+missing from `/vb/config`, `/vb/stock/info` returns nothing, the record names another symbol, or the API
+call fails → the method returns the **explicit** envelope
+`{"success": False, "status": "QUOTE_UNAVAILABLE", "symbol": <requested>, "source": "unavailable",
+"bid_1": None, "offer_1": None, "last": None, "error": <reason>}`. A symbol-verified reading returns
+`{"success": True, "status": "OK", "symbol": <normalised>, "source": "liberator_api", ...}`.
+Callers may test either `success is False` **or** `source == "unavailable"` (both are honoured by `_plan_nego()`),
+and they MUST skip the order rather than trade on a guess; `/nego lib` additionally halts the whole batch (§5).
+
+> ✅ Re-check live (read-only, headless, no OTP):
+> `.venv/bin/python scripts/liberator/live_check_quote_gate.py` → expects `BCH` verified + `ZZZZ` fail-closed (`RESULT: PASS`).
+> Schema probes: `scripts/liberator/probe_liberator_board_symbol.py` (headed, network capture),
+> `scripts/liberator/probe_liberator_quote_api.py`.
 
 ```python
 # LINE CLI handler (Broker Isolation)
 quote = await liberator_plugin.get_market_bid_offer("PTT")
-# {"symbol": "PTT", "bid_1": ..., "offer_1": ..., "last": ..., "source": "liberator_board"|"unavailable"}
+# OK          -> {"success": True, "status": "OK", "symbol": "PTT", "source": "liberator_api",
+#                 "bid_1": ..., "offer_1": ..., "last": ..., "prior_close": ..., "ceiling": ..., "floor": ...}
+# fail-closed -> {"success": False, "status": "QUOTE_UNAVAILABLE", "symbol": "PTT",
+#                 "source": "unavailable", "bid_1": None, "offer_1": None, "last": None, "error": "..."}
 ```

@@ -48,8 +48,8 @@ Worked example — Loop 1 (rollback + re-plan 2026-10-15):
 | Card | Content | Mode |
 |---|---|---|
 | loop1-1 | Pillar 2 orders / margin lock | INTERACTIVE (การ์ด start ไม่ได้ → §3 fallback) |
-| loop1-2 | unify `/nego kss` → QuickTrade in-place | HYBRID `2b7ff` + live amend (room) |
-| loop1-3 | Liberator quote hardening | HYBRID `045ac` + live quote (room) |
+| loop1-2 | unify `/nego kss` → QuickTrade in-place | INTERACTIVE (ห้องนี้ · ไม่มี session ของการ์ด `2b7ff`) + live amend (room) |
+| loop1-3 | Liberator quote hardening | INTERACTIVE (ห้องนี้ · การ์ด `045ac` ถูกลบ → §3 fallback) + live quote = live witness ใน loop1-4 |
 | loop1-4 | Live Round B witness | INTERACTIVE 100% (no card) |
 
 ## §3 Headless → create the Kanban card

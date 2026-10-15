@@ -3,7 +3,7 @@
 - Created: 2026-10-15 by Argon (Complex Task Owner)
 - Broker: Liberator WebTrade (LIB · CASH)
 - Status: DRAFT
-- Run mode: HYBRID — โค้ด+unit = HEADLESS (Kanban card `045ac`) · live quote = INTERACTIVE (ห้อง Antigravity)
+- Run mode: INTERACTIVE (ห้องนี้ · `stepwise-approval`) — โค้ด+unit รันในห้องนี้; การ์ด `045ac` ถูกลบ 2026-10-15 ตาม `.agents/skills/task-router/SKILL.md` §3 fallback (kanban session start จาก agent terminal ถูก cancel; root cause ยังเปิด) · live quote = live witness ใน `TASK-loop1-4`
 - Depends on: TASK-loop1-1
 - Unblocks: TASK-loop1-4
 - Closes Acceptance (`loop_acceptance_and_tasks.md` §1): D2 (lib), D3, D4 (lib)
@@ -36,10 +36,12 @@
 ## Steps / Task Decomposition (Loop Engineering — บังคับ)
 | # | Atomic Step | Expected Outcome | Verify | Status |
 |---|---|---|---|---|
-| 1 | `get_market_bid_offer` fail-closed | อ่าน DOM ไม่ได้ → `QUOTE_UNAVAILABLE` ไม่คืนราคาเดา | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ⬜ |
-| 2 | `change_order` ยืนยัน symbol | symbol ไม่ตรง → ไม่กด + error | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ⬜ |
-| 3 | `_broker_modify` (lib) fail-closed | ไม่มีราคา/ไม่ตรง → `unavailable_card` | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ⬜ |
-| 4 | verify ครบ 3 ไฟล์ | PASS | `.venv/bin/python scripts/verify_changes.py …` | ⬜ |
+| 1 | `get_market_bid_offer` fail-closed (D1 → **D3 ย้ายไป quote API**) | อ่าน quote ไม่ได้/ไม่ตรง symbol → `QUOTE_UNAVAILABLE` ไม่คืนราคาเดา | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ✅ D1+D3 (35) |
+| 2 | `change_order` ยืนยัน symbol | symbol ไม่ตรง → ไม่กด + error | `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` | ✅ D3 |
+| 3 | `_broker_modify` (lib) fail-closed | ไม่มีราคา/ไม่ตรง → `unavailable_card` | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ✅ D1+D3 |
+| 4 | verify ครบ 3 ไฟล์ | PASS | `.venv/bin/python scripts/verify_changes.py …` | ✅ PASS (162) |
+| 5 | **D3: quote ต้องพิสูจน์ตัวหุ้นได้จริง** | `n == symbol` จาก `/vb/stock/info`; ไม่ตรง ⇒ `SYMBOL_MISMATCH` | `scripts/liberator/live_check_quote_gate.py` (สด, read-only) | ✅ PASS (live) |
+| 6 | **D3: e2e `/nego lib`** (symbol filter / order_no filter / G5 tick distance) | 3 เคสใหม่ผ่าน | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ✅ (85) |
 
 ## Acceptance / Tests ที่ต้องผ่าน
 - `.venv/bin/python scripts/verify_changes.py app/brokers/liberator/driver.py app/brokers/liberator/plugin.py app/services/line_cli/handlers.py`
@@ -52,11 +54,43 @@
 ---
 
 ## Cline Report
-- Git Commit(s): `TASK-loop1-N: <type>(<scope>): <summary>`
+- Git Commit(s): _ยังไม่ commit_ — เสนอ `TASK-loop1-3: fix(liberator): symbol-verified quote API + fail-closed /nego lib` (รออนุมัติขอบเขต)
 - Files changed:
+  - `app/brokers/liberator/driver.py` — `get_market_bid_offer()` อ่านผ่าน quote API + **symbol gate** (D3);
+    helper ใหม่ `_to_float`/`_to_int`/`_extract_order_book_id`/`_resolve_order_book_id`/`_fetch_stock_info`
+  - `app/brokers/liberator/plugin.py` — passthrough (D1/D3, รอบก่อนหน้า)
+  - `app/services/line_cli/handlers.py` — fence ชั้น 2 + `/nego` batch halt (D1/D3, รอบก่อนหน้า)
+  - `tests/test_liberator_change_order.py` — 7 เคส quote API (แทน 5 เคส DOM เดิม)
+  - `tests/test_line_cli_flow.py` — +3 e2e `/nego lib` (symbol filter / order_no filter / G5 "ห่างเกิน 3 tick")
+  - `scripts/liberator/probe_liberator_board_symbol.py` **(ใหม่)** — headed probe + ดัก XHR (หลักฐาน DOM/HTTP)
+  - `scripts/liberator/probe_liberator_quote_api.py` **(ใหม่)** — ยืนยัน schema ของ quote API (headless)
+  - `scripts/liberator/live_check_quote_gate.py` **(ใหม่)** — live check ของโค้ด production (read-only, exit code)
+  - `rca/liberator/rca_liberator.md` — +`LIB-RCA-020` (registry + deep dive), ปรับรายละเอียด D1 ของ `LIB-RCA-019`
+  - `learned_workflows/liberator/liberator_portfolio.md` — §8 เขียนใหม่ทั้งหัวข้อ (DOM depth table → quote API)
 - Summary:
+  - **Root cause (live-proven)**: กระดาน WebTrade key ด้วย **`orderBookId`** ไม่ใช่ symbol text และ depth table
+    บนจอไม่มีข้อมูล identity เลย ⇒ หลักฐานสด: ขอ `BCH` แต่กระดานยิง
+    `POST /vb/stock/bid-offer {"orderBookId": 65781}` → `n:"A"` / AREEYA = **คนละหุ้น**
+  - **Fix**: `GET /vb/config` (map symbol→orderBookId; `set` ก่อน `tfex`) → `POST /vb/stock/info`
+    → **gate `n == symbol`**; ไม่ตรงหรืออ่านไม่ได้ ⇒ `QUOTE_UNAVAILABLE` + `SYMBOL_MISMATCH` โดยทุกตัวเลขเป็น `None`
+  - Bonus: `prior_close`/`ceiling`/`floor` มีค่าจริงจาก API (`prior`/`cl`/`fl` — ตรวจแล้วตรงกับ ±30% ของ prior ทั้ง 3 ตัว)
 - Tests run + result:
+  - `tests/test_liberator_change_order.py` → **35 passed**
+  - `tests/test_line_cli_flow.py` → **85 passed** (82 → +3)
+  - `verify_changes.py app/brokers/liberator/driver.py tests/test_liberator_change_order.py tests/test_line_cli_flow.py` → **PASS (162 tests)**
+  - `verify_changes.py --full` (task close) → **PASS (677 passed, 214s)**
+  - `scripts/liberator/live_check_quote_gate.py` (โค้ด production + broker สด) → **RESULT: PASS** (exit 0)
 - Open questions:
+  1. ✅ `verify_changes.py --full` → **PASS (677 passed, 214s)** — รอบนี้ไม่ค้างที่ ~87% (log: `/tmp/verify_full.log`)
+  2. **ขอบเขต commit**: commit เฉพาะ 3 ไฟล์ D3 (driver + 2 test) หรือรวม D1 ที่ยังไม่ commit (`plugin.py`, `handlers.py`) ด้วย?
+     (working tree ยังมี `directive/*`, `.agents/skills/task-router/SKILL.md`, `docs/handoff/TASK-loop1-4*` ที่ **ไม่ใช่** งานการ์ดนี้)
+  3. `board_lot`/`flag` ยังเป็น `None` — ไม่พบ field ใน `/vb/stock/info` (ต้อง probe เพิ่มถ้าจะใช้)
+  4. `bp`/`op` = `"0"` (halt/pre-close) ถูกตีความเป็น `0.0` ไม่ใช่ `None` — ตรงกับพฤติกรรมเดิม; ถ้าต้องการ fail-closed
+     ตอน halt ต้องตกลงนโยบายก่อน (นอก scope การ์ดนี้)
+  5. `/Portfolio` ตั้งต้นที่ `orderBookId 65781` = `A` — ยังไม่รู้ว่ามาจาก workspace/watchlist ไหน (ไม่มีผลต่อ fix แล้ว เพราะ gate ที่ API)
+  6. ✅ **ปิดแล้ว (user, 2026-10-15)**: หลักฐานของการ์ดนี้ = headless network capture ×2 (`probe_liberator_quote_api.py`,
+     `live_check_quote_gate.py`) + unit/e2e + `--full` PASS; **screen witness (headed, ดูกับตา) ยกไปการ์ด 4 / `TASK-loop1-4`**
+     (Live Round B) ตามที่ตกลง
 ---
 
 ## Cline Verification & Stepwise Approval

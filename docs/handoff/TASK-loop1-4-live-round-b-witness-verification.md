@@ -16,7 +16,7 @@
 การ์ด 1–3 พิสูจน์แค่ระดับ unit/mock ยังไม่ยืนยันว่าของจริงทำงาน การ์ดนี้ต้องรันกับตลาดจริง โดยมี Admin เฝ้าหน้าจอ (witness) ทุกขั้น ห้ามเชื่อ log อย่างเดียว
 
 ## Gate เงื่อนไขก่อนเริ่ม (ต้องครบทุกข้อ) — **ยังไม่เช็คในรอบ RE-PLAN นี้ (ต้อง re-check ใหม่ก่อนเริ่มขั้น 1)**
-> ⚠️ **RE-PLAN 2026-10-15:** รอบก่อนถูก rollback ทั้งหมดที่ tag `archive/loop1-v1` (kanban cards `26e91`/`3dc72`/`2a3ef`/`d6c3e` ถูกลบ) → commit `1fe7cf8` / `6c6819b` / `a666015` ไม่มีบน `main` ⇒ ผล Gate/witness ของรอบก่อน **เป็นโมฆะ** ต้อง re-check Gate ใหม่ทั้งหมดหลัง Card 1–3 (รอบใหม่: `5596a`→interactive ในห้องนี้ /`2b7ff`/`045ac`) merge ครบ
+> ⚠️ **RE-PLAN 2026-10-15:** รอบก่อนถูก rollback ทั้งหมดที่ tag `archive/loop1-v1` (kanban cards `26e91`/`3dc72`/`2a3ef`/`d6c3e` ถูกลบ) → commit `1fe7cf8` / `6c6819b` / `a666015` ไม่มีบน `main` ⇒ ผล Gate/witness ของรอบก่อน **เป็นโมฆะ** ต้อง re-check Gate ใหม่ทั้งหมดหลัง Card 1–3 (รอบใหม่) merge ครบ — รอบใหม่นี้ทั้งสามรัน **interactive ในห้องนี้** ตาม `.agents/skills/task-router/SKILL.md` §3 fallback: loop1-1 `5596a` (การ์ดถูกลบ) · loop1-2 `2b7ff` (การ์ดยังค้างใน backlog — รอ trash) · loop1-3 `045ac` (การ์ดถูกลบ 2026-10-15)
 - [ ] การ์ด 1–3 (รอบใหม่) merge + `verify_changes.py` PASS → ต้องมี commit **ใหม่** บน `main`
 - [ ] Gateway รันอยู่ที่ `app.main:app` (`curl http://127.0.0.1:8000/health` ตอบ) — **Admin start เองจาก main checkout** (`scripts/start_homelab.py`); agent ห้าม start/restart (Invariant 7/9 · LINE-RCA-011)
 - [ ] ตลาดเปิด (KSS/LIB) มี volume จริง พอทำ 6 ขั้น witness

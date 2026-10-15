@@ -1240,3 +1240,215 @@ async def test_live_port_card_lib_shows_real_account_no(monkeypatch):
     holdings.assert_awaited_with(platform="LIBERATOR")
     assert "1234567" in _flex_text(card)
 
+
+
+# --------------------------------------------------------------------------- #
+# Loop 1 D3 — the LIB broker edges (fail-closed quote + symbol gate)
+# --------------------------------------------------------------------------- #
+def _lib_quote(**over):
+    """A real Liberator board reading (the shape ``get_market_bid_offer`` returns now)."""
+    quote = {"success": True, "status": "OK", "symbol": "BCH", "source": "liberator_api",
+             "bid_1": 11.60, "offer_1": 11.70, "last": 11.65}
+    quote.update(over)
+    return quote
+
+
+def _quote_unavailable(symbol="BCH", error="no active Liberator page (session not open)"):
+    """The driver's explicit fail-closed envelope — NOT a quote."""
+    return {"success": False, "status": "QUOTE_UNAVAILABLE", "symbol": symbol,
+            "source": "unavailable", "bid_1": None, "offer_1": None, "last": None,
+            "error": error}
+
+
+def _patch_lib_change_order(monkeypatch, result=None):
+    import app.brokers as brokers_pkg
+    spy = AsyncMock(return_value=result or {"success": True, "action": "AMENDED_IN_PLACE"})
+    monkeypatch.setattr(brokers_pkg.liberator_plugin, "change_order", spy)
+    return spy
+
+
+def _live_mode():
+    from unittest.mock import PropertyMock, patch
+    from app.services.trade_dispatcher import trade_dispatcher
+    return patch.object(type(trade_dispatcher), "is_live", new_callable=PropertyMock, return_value=True)
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_lib_live_fails_closed_when_the_quote_dies(monkeypatch):
+    """Anti-Mock: an unreadable board aborts the amend — the driver is never called."""
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_quote_unavailable()))
+    spy = _patch_lib_change_order(monkeypatch)
+
+    with _live_mode():
+        res = await REAL_BROKER_MODIFY('lib', order_no='11894', new_price=11.70,
+                                       symbol='BCH', side='SELL', volume=4000)
+
+    assert res['success'] is False
+    assert res['status'] == 'QUOTE_UNAVAILABLE'
+    assert res['unavailable'] is True
+    spy.assert_not_awaited()                     # nothing was pressed on the broker
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_lib_live_fails_closed_when_the_quote_is_another_symbol(monkeypatch):
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_lib_quote(symbol='PTT')))
+    spy = _patch_lib_change_order(monkeypatch)
+
+    with _live_mode():
+        res = await REAL_BROKER_MODIFY('lib', order_no='11894', new_price=11.70,
+                                       symbol='BCH', side='SELL', volume=4000)
+
+    assert res['success'] is False and res['status'] == 'QUOTE_UNAVAILABLE'
+    assert 'PTT' in res['error'] and 'BCH' in res['error']
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_lib_live_fails_closed_when_the_needed_side_is_empty(monkeypatch):
+    """A BUY/Cover needs Bid1: an empty side is no price basis → fail-closed."""
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_lib_quote(bid_1=None)))
+    spy = _patch_lib_change_order(monkeypatch)
+
+    with _live_mode():
+        res = await REAL_BROKER_MODIFY('lib', order_no='11894', new_price=11.70,
+                                       symbol='BCH', side='BUY', volume=4000)
+
+    assert res['success'] is False and res['status'] == 'QUOTE_UNAVAILABLE'
+    assert 'bid_1' in res['error']
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_broker_modify_lib_live_passes_the_symbol_for_positive_identification(monkeypatch):
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_lib_quote()))
+    spy = _patch_lib_change_order(monkeypatch)
+
+    with _live_mode():
+        res = await REAL_BROKER_MODIFY('lib', order_no='11894', new_price=11.70,
+                                       symbol='BCH', side='SELL', volume=4000)
+
+    assert res['success'] is True
+    spy.assert_awaited_once()
+    assert spy.await_args.kwargs == {'order_no': '11894', 'new_price': 11.70, 'symbol': 'BCH'}
+
+
+@pytest.mark.asyncio
+async def test_nego_lib_halts_and_shows_the_unavailable_card_when_the_quote_dies(
+        service, db_session, monkeypatch):
+    """Fail-closed: no price basis ⇒ stop the batch and show the honest read-failure card."""
+    orders = [_open_order(order_no='1', symbol='BCH'), _open_order(order_no='2', symbol='PTT')]
+    monkeypatch.setattr(handlers, '_broker_open_orders', AsyncMock(return_value=orders))
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value=_quote(bid_1=34.25, offer_1=34.50)))
+    monkeypatch.setattr(handlers, '_broker_modify', AsyncMock(return_value={
+        'success': False, 'status': 'QUOTE_UNAVAILABLE', 'unavailable': True,
+        'error': 'อ่านราคา BCH จาก Liberator ไม่ได้'}))
+
+    res = await _run(service, '/nego lib', db=db_session)
+
+    assert res['halted'] is True and res['halt_status'] == 'QUOTE_UNAVAILABLE'
+    assert res['ok'] == 0 and res['failed'] == 1
+    handlers._broker_modify.assert_awaited_once()            # the batch stopped after the halt
+    card = service.pushes[-1][0]
+    assert 'อ่านข้อมูลไม่ได้' in card['altText']              # honest read-failure card
+    assert 'ผลต่อราคา' not in card['altText']                # never a "normal" per-order summary
+
+
+@pytest.mark.asyncio
+async def test_nego_lib_halts_when_the_order_identity_is_unproven(service, db_session, monkeypatch):
+    """SYMBOL_MISMATCH from the driver also halts the batch (never amend the wrong stock)."""
+    monkeypatch.setattr(handlers, '_broker_open_orders', AsyncMock(return_value=[_open_order(order_no='1')]))
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value=_quote(bid_1=34.25, offer_1=34.50)))
+    monkeypatch.setattr(handlers, '_broker_modify', AsyncMock(return_value={
+        'success': False, 'status': 'SYMBOL_MISMATCH', 'error': 'row is PTT, not BCH'}))
+
+    res = await _run(service, '/nego lib', db=db_session)
+
+    assert res['halted'] is True and res['halt_status'] == 'SYMBOL_MISMATCH'
+    assert 'อ่านข้อมูลไม่ได้' in service.pushes[-1][0]['altText']
+
+
+@pytest.mark.asyncio
+async def test_nego_lib_batch_reports_normally_when_quotes_are_readable(service, db_session, monkeypatch):
+    """The halt is an exception path — a readable batch still shows the per-order summary."""
+    monkeypatch.setattr(handlers, '_broker_open_orders', AsyncMock(return_value=[
+        _open_order(order_no='11894', symbol='BCH', side='SELL', price=12.00)]))
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value=_lib_quote()))
+    monkeypatch.setattr(handlers, '_broker_modify', AsyncMock(return_value={'success': True}))
+
+    res = await _run(service, '/nego lib', db=db_session)
+
+    assert res['halted'] is False and res['ok'] == 1 and res['failed'] == 0
+    assert 'ผลต่อราคา' in service.pushes[-1][0]['altText']
+
+
+@pytest.mark.asyncio
+async def test_plan_nego_skips_on_the_explicit_quote_unavailable_envelope(monkeypatch):
+    """The new LIB envelope (success=False, no ``source`` marker needed) also fails closed."""
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value={
+        'success': False, 'status': 'QUOTE_UNAVAILABLE', 'symbol': 'BCH',
+        'bid_1': None, 'offer_1': None, 'last': None}))
+
+    row = await handlers._plan_nego('lib', _open_order(symbol='BCH', side='SELL'), 3)
+
+    assert row['status'] == 'skip' and 'fail-closed' in row['reason']
+
+
+
+# --------------------------------------------------------------------------- #
+# Loop 1 D3 — `/nego lib` end-to-end: target filter + G5 tick distance
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_nego_lib_symbol_filter_amends_only_that_symbol(service, db_session, monkeypatch):
+    """`/nego lib BCH` amends the BCH order only — a PTT row is never touched."""
+    monkeypatch.setattr(handlers, '_broker_open_orders', AsyncMock(return_value=[
+        _open_order(order_no='11894', symbol='BCH', side='SELL', price=12.00),
+        _open_order(order_no='22222', symbol='PTT', side='SELL', price=12.00)]))
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value=_lib_quote()))
+    spy = AsyncMock(return_value={'success': True})
+    monkeypatch.setattr(handlers, '_broker_modify', spy)
+
+    res = await _run(service, '/nego lib BCH', db=db_session)
+
+    assert res['status'] == 'CLI_NEGO'
+    assert res['ok'] == 1 and res['skipped'] == 0 and res['failed'] == 0
+    spy.assert_awaited_once()                                   # PTT was filtered out
+    assert spy.await_args.kwargs['symbol'] == 'BCH'
+    assert spy.await_args.kwargs['order_no'] == '11894'
+    assert 'ผลต่อราคา' in service.pushes[-1][0]['altText']
+
+
+@pytest.mark.asyncio
+async def test_nego_lib_order_no_filter_amends_only_that_order(service, db_session, monkeypatch):
+    """`/nego lib 11894` amends exactly that order and pushes the focused one-order card."""
+    monkeypatch.setattr(handlers, '_broker_open_orders', AsyncMock(return_value=[
+        _open_order(order_no='11894', symbol='BCH', side='SELL', price=12.00),
+        _open_order(order_no='22222', symbol='PTT', side='SELL', price=12.00)]))
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value=_lib_quote()))
+    spy = AsyncMock(return_value={'success': True})
+    monkeypatch.setattr(handlers, '_broker_modify', spy)
+
+    res = await _run(service, '/nego lib 11894', db=db_session)
+
+    assert res['ok'] == 1 and res['failed'] == 0
+    spy.assert_awaited_once()
+    assert spy.await_args.kwargs['order_no'] == '11894'
+    text = _flex_text(service.pushes[-1][0])
+    assert '#11894' in text and 'BCH' in text                   # the focused card (D2)
+
+
+@pytest.mark.asyncio
+async def test_nego_lib_skips_when_the_target_is_more_than_three_ticks_away(
+        service, db_session, monkeypatch):
+    """G5 on LIB: a Bid/Offer far from the order price is a skip, never a forced amend."""
+    monkeypatch.setattr(handlers, '_broker_open_orders', AsyncMock(return_value=[
+        _open_order(order_no='11894', symbol='BCH', side='SELL', price=30.00, balance=100)]))
+    monkeypatch.setattr(handlers, '_broker_quote', AsyncMock(return_value=_lib_quote()))
+    spy = AsyncMock(return_value={'success': True})
+    monkeypatch.setattr(handlers, '_broker_modify', spy)
+
+    res = await _run(service, '/nego lib', db=db_session)
+
+    assert res['ok'] == 0 and res['skipped'] == 1 and res['halted'] is False
+    spy.assert_not_awaited()                                    # nothing was pressed
+    assert 'ห่างเกิน 3 tick' in _flex_text(service.pushes[-1][0])
+

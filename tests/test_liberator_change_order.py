@@ -408,3 +408,285 @@ async def test_negotiate_price_propagates_amend_failure():
     assert res["action"] == "AMEND_UNVERIFIED"
     assert res["order_no"] == ORDER_NO
     assert "not confirmed" in res["error"]
+
+
+# ─── get_market_bid_offer — symbol-verified quote API (QUOTE_UNAVAILABLE) ────────────
+
+class _FakeApiResponse:
+    def __init__(self, payload, status=200):
+        self.payload = payload
+        self.status = status
+
+    async def json(self):
+        return self.payload
+
+
+class _FakeApiRequest:
+    """Stand-in for ``page.request`` (the Playwright APIRequestContext bound to the page)."""
+
+    def __init__(self, config=None, info=None, error=None, status=200):
+        self.config = config if config is not None else _config_with_config({})
+        self.info = info
+        self.error = error
+        self.status = status
+        self.calls = []
+
+    async def get(self, url, **kwargs):
+        self.calls.append(("GET", url))
+        if self.error:
+            raise RuntimeError(self.error)
+        return _FakeApiResponse(self.config, self.status)
+
+    async def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs.get("data")))
+        if self.error:
+            raise RuntimeError(self.error)
+        payload = {"result": {"list": [self.info] if self.info is not None else []}}
+        return _FakeApiResponse(payload, self.status)
+
+
+def _config_with_config(config):
+    return {"result": {"data": {"config": config}}}
+
+
+def _config_with(symbol="BCH", order_book_id="65566", group="set"):
+    """A `/vb/config` master list holding one positional `[SYMBOL, orderBookId, …]` row."""
+    return _config_with_config(
+        {group: {"indexes": [], "securities": [[symbol, order_book_id, "SET", "STOCK"]]}})
+
+
+def _info_record(symbol="BCH", **over):
+    """A real `/vb/stock/info` record for BCH (captured live 2026-10-15, LIB-RCA-020)."""
+    record = {
+        "orderBookId": 65566, "n": symbol,
+        "ne": "BANGKOK CHAIN HOSPITAL PUBLIC COMPANY LIMITED",
+        "l": 11.3, "bp": "11.3", "bv": 1177700, "op": "11.4", "ov": 355900,
+        "prior": 11.2, "cl": 14.5, "fl": 7.85,
+    }
+    record.update(over)
+    return record
+
+
+class FakeQuotePage:
+    """Minimal Page stand-in for the quote path (``page.request`` carries the session)."""
+
+    def __init__(self, request=None, closed=False,
+                 url="https://webtrade.liberator.co.th/Portfolio"):
+        self.request = request if request is not None else _FakeApiRequest()
+        self.url = url
+        self.log = []
+        self._closed = closed
+
+    def is_closed(self):
+        return self._closed
+
+
+def _quote_driver(page):
+    drv = LiberatorDriver()
+    drv.page = page
+    return drv
+
+
+def _assert_unavailable(res):
+    """Anti-Mock: the envelope must be explicitly NOT a quote, with no numbers at all."""
+    assert res["success"] is False
+    assert res["status"] == LiberatorDriver.QUOTE_UNAVAILABLE == "QUOTE_UNAVAILABLE"
+    assert res["source"] == "unavailable"
+    assert (res["bid_1"], res["offer_1"], res["last"]) == (None, None, None)
+    assert res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_without_a_page():
+    """The board cannot be read without a live page — and must NOT auto-login."""
+    res = await _quote_driver(None).get_market_bid_offer("BCH")
+    _assert_unavailable(res)
+    assert "No active Liberator page" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_for_a_blank_symbol():
+    page = FakeQuotePage()
+    res = await _quote_driver(page).get_market_bid_offer("   ")
+    _assert_unavailable(res)
+    assert page.request.calls == []             # nothing was touched — no HTTP at all
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_when_the_symbol_is_unknown():
+    """A symbol missing from the `/vb/config` master list is never guessed (no /stock/info)."""
+    page = FakeQuotePage(request=_FakeApiRequest(config=_config_with(symbol="BCH")))
+    res = await _quote_driver(page).get_market_bid_offer("ZZZZ")
+
+    _assert_unavailable(res)
+    assert "master symbol list" in res["error"]
+    assert [c[1] for c in page.request.calls].count(LiberatorDriver.STOCK_INFO_URL) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_when_the_record_is_empty():
+    page = FakeQuotePage(request=_FakeApiRequest(config=_config_with(), info=None))
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)
+    assert "/vb/stock/info record" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_is_quote_unavailable_when_there_are_no_prices():
+    page = FakeQuotePage(request=_FakeApiRequest(
+        config=_config_with(), info=_info_record(l=None, bp=None, op=None)))
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)
+    assert "no readable Bid/Offer/Last" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_returns_the_symbol_verified_quote():
+    page = FakeQuotePage(request=_FakeApiRequest(config=_config_with(), info=_info_record()))
+    res = await _quote_driver(page).get_market_bid_offer(" bch ")
+
+    assert res["success"] is True and res["status"] == "OK"
+    assert res["symbol"] == "BCH"               # normalised, not echoed raw
+    assert (res["bid_1"], res["offer_1"], res["last"]) == (11.3, 11.4, 11.3)
+    assert (res["prior_close"], res["ceiling"], res["floor"]) == (11.2, 14.5, 7.85)
+    assert res["source"] == "liberator_api"
+    # the orderBookId resolved from /vb/config is the one actually quoted
+    posts = [c for c in page.request.calls if c[0] == "POST"]
+    assert posts == [("POST", LiberatorDriver.STOCK_INFO_URL, '{"orderBookIds": [65566]}')]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_fails_closed_when_the_quote_is_another_symbol():
+    """D3 core (LIB-RCA-020): the record must name the requested symbol, else no quote.
+
+    Live evidence: the /Portfolio board kept rendering orderBookId 65781 ("A") while BCH
+    was being requested — a stale/other-symbol depth must never be priced as BCH.
+    """
+    page = FakeQuotePage(request=_FakeApiRequest(
+        config=_config_with(symbol="BCH"),
+        info=_info_record(symbol="A", ne="AREEYA PROPERTY PUBLIC COMPANY LIMITED",
+                          orderBookId=65781, l=1.5, bp="1.5", op="1.95")))
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)                    # every number dropped, not just relabelled
+    assert "SYMBOL_MISMATCH" in res["error"]
+    assert "A" in res["error"] and "65781" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_fails_closed_on_a_request_error():
+    """An HTTP/JS failure is reported as QUOTE_UNAVAILABLE, never raised at the caller."""
+    page = FakeQuotePage(request=_FakeApiRequest(error="Execution context was destroyed"))
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)
+    assert "Execution context was destroyed" in res["error"]
+
+
+def test_extract_order_book_id_resolves_symbols_and_prefers_set_over_tfex():
+    """`/vb/config` rows are positional — and an equity lookup must never pick a TFEX row."""
+    config = _config_with_config({
+        "tfex": {"securities": [["ADVANC", "999", "TFX"]]},
+        "set": {"securities": [["ADVANC", "458753", "SET"]]},
+    })
+    assert LiberatorDriver._extract_order_book_id(config, "advanc") == 458753
+    assert LiberatorDriver._extract_order_book_id(config, "NOPE") is None
+    assert LiberatorDriver._extract_order_book_id(config, "   ") is None
+    assert LiberatorDriver._extract_order_book_id({}, "BCH") is None
+
+    indexes = _config_with_config({"set": {"indexes": [["SET50", "125573", "INDEX"]]}})
+    assert LiberatorDriver._extract_order_book_id(indexes, "SET50") == 125573
+
+
+# ─── change_order — symbol confirmation BEFORE pressing Change (fail-closed) ─────────
+
+@pytest.mark.asyncio
+async def test_change_order_refuses_when_the_row_is_a_different_symbol(weekday_clock):
+    """Loop 1 D3: an order whose live row is not the requested symbol must NOT be touched."""
+    page, parts = _build_page()
+    drv = _driver(page)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", expected_symbol="PTT")
+
+    assert res["success"] is False
+    assert res["status"] == "SYMBOL_MISMATCH"
+    assert res["expected_symbol"] == "PTT" and res["actual_symbol"] == "BCH"
+    assert parts["change"].clicks == 0          # the Change control was never pressed
+    assert parts["confirm"].clicks == 0         # ...and nothing was confirmed
+    assert parts["price"].filled == []
+    drv.scrape_portfolio.assert_not_awaited()   # no verification read after a refusal
+
+
+@pytest.mark.asyncio
+async def test_change_order_amends_when_the_expected_symbol_matches(weekday_clock):
+    page, parts = _build_page()
+    drv = _driver(page, verified_price=11.70)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", expected_symbol=" bch ")
+
+    assert res["success"] is True
+    assert parts["change"].clicks == 1
+
+
+@pytest.mark.asyncio
+async def test_change_order_symbol_guard_is_checkable_before_the_status_guard(weekday_clock):
+    """Identity outranks state: a mismatch is reported even when it could not be amended."""
+    page, parts = _build_page(status="Matched")
+    drv = _driver(page)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", expected_symbol="PTT")
+
+    assert res["status"] == "SYMBOL_MISMATCH"
+    assert parts["change"].clicks == 0
+
+
+@pytest.mark.asyncio
+async def test_negotiate_price_passes_the_selected_symbol_to_change_order():
+    """The negotiation path must prove the symbol it selected, not just the order number."""
+    drv = LiberatorDriver()
+    drv.scrape_portfolio = AsyncMock(return_value={"orders": [_open_order_row(12.0)]})
+    drv.change_order = AsyncMock(return_value={
+        "success": True, "action": "AMENDED_IN_PLACE",
+        "order_no": ORDER_NO, "old_price": 12.0, "new_price": 11.70,
+    })
+
+    await drv.negotiate_price(order_no=ORDER_NO, target_price=11.70)
+
+    assert drv.change_order.await_args.kwargs["expected_symbol"] == "BCH"
+
+
+# ─── plugin passthrough (LiberatorBrokerPlugin) ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_plugin_change_order_forwards_the_symbol_as_expected_symbol(monkeypatch):
+    """Loop 1 D3: the plugin must hand the caller's symbol down to the driver's guard."""
+    import app.brokers.liberator.plugin as plugin_mod
+    from app.brokers.liberator.plugin import LiberatorBrokerPlugin
+
+    drv = AsyncMock()
+    drv.change_order = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr(plugin_mod, "liberator_driver", drv)
+
+    res = await LiberatorBrokerPlugin().change_order(
+        order_no=ORDER_NO, new_price=11.70, symbol="BCH")
+
+    assert res["success"] is True
+    assert drv.change_order.await_args.kwargs == {
+        "order_no": ORDER_NO, "new_price": 11.70, "new_volume": None, "expected_symbol": "BCH",
+    }
+
+
+@pytest.mark.asyncio
+async def test_plugin_change_order_without_a_symbol_keeps_the_old_behaviour(monkeypatch):
+    """Backwards compatible: no symbol ⇒ the driver's symbol guard stays inactive."""
+    import app.brokers.liberator.plugin as plugin_mod
+    from app.brokers.liberator.plugin import LiberatorBrokerPlugin
+
+    drv = AsyncMock()
+    monkeypatch.setattr(plugin_mod, "liberator_driver", drv)
+
+    await LiberatorBrokerPlugin().change_order(order_no=ORDER_NO, new_price=11.70)
+
+    assert drv.change_order.await_args.kwargs["expected_symbol"] is None

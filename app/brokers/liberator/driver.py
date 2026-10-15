@@ -747,116 +747,200 @@ class LiberatorDriver:
             };
         }""")
 
+    #: Explicit status returned by ``get_market_bid_offer`` when the Liberator board cannot be
+    #: read (LIB fail-closed). Anti-Mock (Invariant 1): callers MUST halt on this status — never
+    #: substitute a guess and never fall back to the order's own price.
+    QUOTE_UNAVAILABLE = "QUOTE_UNAVAILABLE"
+
     @staticmethod
-    def _unknown_quote(symbol: str) -> Dict[str, Any]:
-        """
-        Anti-Mock sentinel for the Liberator board: every numeric field is None and
-        ``source`` is "unavailable". Callers MUST treat this as "do not trade" —
-        never substitute a guess and never fall back to the order's own price.
-        (Mirrors ``TradeManDriver._unknown_quote``.)
+    def _quote_unavailable(symbol: str, reason: str) -> Dict[str, Any]:
+        """Fail-closed result for ``get_market_bid_offer`` — this is NOT a quote.
+
+        Every numeric field is None *and* the envelope is explicitly marked
+        ``success=False`` / ``status=QUOTE_UNAVAILABLE``, so no caller can mistake a read
+        failure for a board reading, nor silently price an amend from it (Anti-Mock).
+        ``source="unavailable"`` is kept for the pre-existing ``_plan_nego`` guard.
         """
         return {
             "symbol": (symbol or "").strip().upper(),
+            "success": False,
+            "status": LiberatorDriver.QUOTE_UNAVAILABLE,
             "bid_1": None, "offer_1": None, "last": None,
             "prior_close": None, "ceiling": None, "floor": None,
             "board_lot": None, "flag": None,
             "source": "unavailable",
+            "error": reason,
         }
+
+    # --- Live-proven Liberator quote API (LIB-RCA-020, verified live 2026-10-15) --------
+    #: Master list: ``result.data.config.<group>.securities|indexes`` = positional rows
+    #: ``[SYMBOL, orderBookId, market, kind, …]`` → the board is keyed by orderBookId.
+    CONFIG_URL = "https://webtrade.liberator.co.th/vb/config"
+    #: Per-orderBookId snapshot: ``result.list[0]`` = ``n``(symbol) ``ne``(name)
+    #: ``l``(last) ``bp``/``bv``(bid1) ``op``/``ov``(offer1) ``prior`` ``cl`` ``fl``.
+    STOCK_INFO_URL = "https://webtrade.liberator.co.th/vb/stock/info"
+    QUOTE_API_TIMEOUT_MS = 8000
+
+    @staticmethod
+    def _to_float(value: Any) -> Optional[float]:
+        """Best-effort numeric cast for the broker's mixed str/number quote fields."""
+        if value is None:
+            return None
+        try:
+            return float(str(value).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _to_int(value: Any) -> Optional[int]:
+        """Best-effort int cast for ``orderBookId`` values (arrive as str *or* int)."""
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extract_order_book_id(config_json: Optional[Dict[str, Any]], symbol: str) -> Optional[int]:
+        """Map ``symbol -> orderBookId`` from the ``GET /vb/config`` master list.
+
+        ``set`` is searched before ``tfex`` so an equity lookup can never resolve to a
+        TFEX contract that happens to share the name (type-safe broker isolation).
+        """
+        target = (symbol or "").strip().upper()
+        if not target:
+            return None
+        config = (config_json or {}).get("result", {}).get("data", {}).get("config", {})
+        if not isinstance(config, dict):
+            return None
+        ordered = ["set", "set50if", "tfex"] + [g for g in config if g not in ("set", "set50if", "tfex")]
+        for group in ordered:
+            node = config.get(group)
+            if not isinstance(node, dict):
+                continue
+            for key in ("securities", "indexes"):
+                for row in node.get(key) or []:
+                    if (isinstance(row, list) and len(row) >= 2
+                            and isinstance(row[0], str) and row[0].strip().upper() == target):
+                        resolved = LiberatorDriver._to_int(row[1])
+                        if resolved is not None:
+                            return resolved
+        return None
+
+    async def _resolve_order_book_id(self, page, symbol: str) -> Optional[int]:
+        """Fetch ``/vb/config`` and resolve ``symbol``; ``None`` = unknown (fail-closed)."""
+        resp = await page.request.get(self.CONFIG_URL, timeout=self.QUOTE_API_TIMEOUT_MS)
+        if resp.status != 200:
+            logger.warning("/vb/config HTTP %s — cannot resolve %s", resp.status, symbol)
+            return None
+        return self._extract_order_book_id(await resp.json(), symbol)
+
+    async def _fetch_stock_info(self, page, order_book_id: int) -> Optional[Dict[str, Any]]:
+        """POST ``/vb/stock/info`` for one orderBookId → the board's own quote record."""
+        resp = await page.request.post(
+            self.STOCK_INFO_URL,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps({"orderBookIds": [int(order_book_id)]}),
+            timeout=self.QUOTE_API_TIMEOUT_MS,
+        )
+        if resp.status not in (200, 201):
+            logger.warning("/vb/stock/info HTTP %s for orderBookId %s", resp.status, order_book_id)
+            return None
+        rows = ((await resp.json()).get("result") or {}).get("list") or []
+        return rows[0] if rows else None
 
     async def get_market_bid_offer(self, symbol: str) -> Dict[str, Any]:
         """
-        Fetch Bid1 / Offer1 (/ last) for ``symbol`` from the Liberator WebTrade board.
+        Fetch Bid1 / Offer1 (/ last) for ``symbol`` from the Liberator quote API.
 
-        Evidence (LIB-RCA-005): the Portfolio page renders a **5-Bid/Offer Depth**
-        table (Table 1) alongside the Holdings/Orders tables; symbol selection uses
-        the proven footer input ``#SearchSymbolList-setBuySellFooter`` (see
-        ``execute_order``). We isolate the depth table by its header (contains both
-        "bid" and "offer") exactly like ``_extract_portfolio_from_page`` isolates
-        the Holdings/Orders tables — no hard-coded positional selector.
+        Evidence (LIB-RCA-020, re-verified live 2026-10-15 with a headed browser plus
+        network capture): the board is keyed by **orderBookId**, never by symbol text.
+        ``GET /vb/config`` exposes the master list (``set.securities`` = 3,956 rows of
+        ``[SYMBOL, orderBookId, …]``) and ``POST /vb/stock/info {"orderBookIds":[id]}``
+        returns exactly the record the board renders — including ``n`` (the symbol
+        itself), ``l``/``bp``/``op`` (Last/Bid1/Offer1). Reading the on-screen depth
+        table alone was unsafe: that table carries **no symbol identity**, and the
+        ``/Portfolio`` board keeps rendering its previous symbol's depth while the new
+        quote loads (observed: asked BCH → board served orderBookId 65781 = ``A``).
 
-        Anti-Mock / fail-closed: if the page is not open, login was not performed,
-        or the depth table cannot be found, return ``_unknown_quote`` (all None,
-        ``source="unavailable"``). This method NEVER auto-logs-in (Invariant 7) and
-        NEVER invents a price.
+        Because ``n`` is authoritative, a quote is trusted **only** when it identifies
+        itself as ``symbol``; otherwise ``QUOTE_UNAVAILABLE`` (fail-closed / mismatch).
+
+        Anti-Mock: no active page, unknown symbol, empty payload, symbol mismatch or an
+        API error all return ``_quote_unavailable(...)`` — ``success=False`` /
+        ``status="QUOTE_UNAVAILABLE"`` with every numeric field None. This method NEVER
+        auto-logs-in (Invariant 7) and NEVER invents a price.
+
+        The envelope is ``success=True`` / ``status="OK"`` / ``source="liberator_api"``
+        only when a symbol-verified record was read.
         """
         clean_sym = (symbol or "").strip().upper()
         if not clean_sym:
-            return self._unknown_quote("")
+            return self._quote_unavailable("", "Blank symbol - nothing to quote (fail-closed).")
 
         if not self.page or self.page.is_closed():
             logger.warning("get_market_bid_offer(%s): no active Liberator page — fail-closed", clean_sym)
-            return self._unknown_quote(clean_sym)
+            return self._quote_unavailable(clean_sym, "No active Liberator page - fail-closed.")
 
         page = self.page
         try:
-            if "portfolio" not in page.url.lower():
-                await page.goto(
-                    "https://webtrade.liberator.co.th/Portfolio",
-                    wait_until="domcontentloaded", timeout=20000,
-                )
-                await page.wait_for_timeout(1500)
+            # 1. Resolve the requested symbol to its authoritative ``orderBookId`` from the
+            #    master list — the board is keyed by orderBookId, not by symbol text.
+            order_book_id = await self._resolve_order_book_id(page, clean_sym)
+            if order_book_id is None:
+                logger.warning(
+                    "get_market_bid_offer(%s): symbol not in the master list — fail-closed", clean_sym)
+                return self._quote_unavailable(
+                    clean_sym,
+                    f"{clean_sym} is not in the Liberator master symbol list (/vb/config).")
 
-            # Select the symbol on the footer buy/sell form (proven selector).
-            sym_input = await page.query_selector("#SearchSymbolList-setBuySellFooter")
-            if sym_input:
-                await sym_input.fill("")
-                await sym_input.fill(clean_sym)
-                await page.keyboard.press("Enter")
-                await page.wait_for_timeout(1500)
+            # 2. Read the quote for that exact orderBookId — the payload the board renders,
+            #    and the only place that states which symbol the numbers actually belong to.
+            record = await self._fetch_stock_info(page, order_book_id)
 
-            quote = await page.evaluate("""() => {
-                function clean(v) {
-                    if (v === undefined || v === null) return null;
-                    const n = parseFloat(String(v).replace(/,/g, '').replace(/–/g, '-').trim());
-                    return isNaN(n) ? null : n;
-                }
-                function colIndex(head, needle) {
-                    if (!head) return -1;
-                    const ths = Array.from(head.querySelectorAll('th')).map(x => x.innerText.toLowerCase().trim());
-                    return ths.findIndex(h => h.includes(needle));
-                }
-                const tables = Array.from(document.querySelectorAll('table'));
-                let bid_1 = null, offer_1 = null, last = null;
-                for (const t of tables) {
-                    const head = t.querySelector('thead');
-                    const txt = head ? head.innerText.toLowerCase() : '';
-                    if (bid_1 === null && offer_1 === null && txt.includes('bid') && txt.includes('offer')) {
-                        const row = t.querySelector('tbody tr');
-                        if (row) {
-                            const tds = Array.from(row.querySelectorAll('td'));
-                            const bi = colIndex(head, 'bid');
-                            const oi = colIndex(head, 'offer');
-                            if (bi >= 0 && bi < tds.length) bid_1 = clean(tds[bi].innerText);
-                            if (oi >= 0 && oi < tds.length) offer_1 = clean(tds[oi].innerText);
-                        }
-                    }
-                    if (last === null && txt.includes('last')) {
-                        const row = t.querySelector('tbody tr');
-                        if (row) {
-                            const tds = Array.from(row.querySelectorAll('td'));
-                            const li = colIndex(head, 'last');
-                            if (li >= 0 && li < tds.length) last = clean(tds[li].innerText);
-                        }
-                    }
-                }
-                return { bid_1, offer_1, last };
-            }""")
         except Exception as e:
             logger.warning(f"get_market_bid_offer({clean_sym}) failed: {e} — fail-closed")
-            return self._unknown_quote(clean_sym)
+            return self._quote_unavailable(
+                clean_sym, f"Failed to read the Liberator quote API (/vb/stock/info): {e}")
 
-        if quote.get("bid_1") is None and quote.get("offer_1") is None and quote.get("last") is None:
-            logger.warning(f"get_market_bid_offer({clean_sym}): depth table unavailable — fail-closed")
-            return self._unknown_quote(clean_sym)
+        if record is None:
+            logger.warning(f"get_market_bid_offer({clean_sym}): empty /vb/stock/info — fail-closed")
+            return self._quote_unavailable(
+                clean_sym, f"No /vb/stock/info record for {clean_sym} (orderBookId {order_book_id}).")
+
+        # Fail-closed symbol gate: the record must identify itself as the requested symbol
+        # before any price is trusted (LIB-RCA-020 — the /Portfolio board can still be showing
+        # another symbol's depth at page load, e.g. orderBookId 65781 "A" while BCH is asked).
+        board_sym = str(record.get("n") or "").strip().upper()
+        if board_sym != clean_sym:
+            returned_id = record.get("orderBookId") or order_book_id
+            logger.warning(
+                "get_market_bid_offer(%s): board quote is for %r — fail-closed", clean_sym, board_sym or None)
+            return self._quote_unavailable(
+                clean_sym,
+                f"Board quote is for {board_sym or '<unknown>'} "
+                f"(orderBookId {returned_id}, requested {order_book_id}), "
+                f"not {clean_sym} — fail-closed (SYMBOL_MISMATCH).")
+
+        bid_1 = self._to_float(record.get("bp"))
+        offer_1 = self._to_float(record.get("op"))
+        last = self._to_float(record.get("l"))
+        if bid_1 is None and offer_1 is None and last is None:
+            logger.warning(f"get_market_bid_offer({clean_sym}): no Bid/Offer/Last — fail-closed")
+            return self._quote_unavailable(
+                clean_sym, f"{clean_sym} has no readable Bid/Offer/Last (orderBookId {order_book_id}).")
 
         return {
             "symbol": clean_sym,
-            "bid_1": quote.get("bid_1"),
-            "offer_1": quote.get("offer_1"),
-            "last": quote.get("last"),
-            "prior_close": None, "ceiling": None, "floor": None,
+            "success": True,
+            "status": "OK",
+            "bid_1": bid_1,
+            "offer_1": offer_1,
+            "last": last,
+            "prior_close": self._to_float(record.get("prior")),
+            "ceiling": self._to_float(record.get("cl")),
+            "floor": self._to_float(record.get("fl")),
             "board_lot": None, "flag": None,
-            "source": "liberator_board",
+            "source": "liberator_api",
         }
 
     async def scrape_portfolio(self, force_refresh: bool = False, headless: bool = True) -> Dict[str, Any]:
@@ -1217,6 +1301,7 @@ class LiberatorDriver:
         new_price: float,
         new_volume: Optional[int] = None,
         pin: Optional[str] = None,
+        expected_symbol: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Amends a resting Liberator order **in place** via the row's native `Change` control
@@ -1233,6 +1318,11 @@ class LiberatorDriver:
            no whitespace between cells ("1189410:03:21BCH...") so word boundaries never match.
         ⚠️ LIB-RCA-017: `#volume`/`#price`/`#pin` exist TWICE (Buy/Sell footer first, amend
            overlay second) — the amend fields MUST be scoped inside `div.overlay`.
+
+        ``expected_symbol`` (Loop 1 D3, fail-closed): the symbol the caller believes this order
+        is for. When it is given, the live row is re-read and a mismatch refuses the amend with
+        ``status="SYMBOL_MISMATCH"`` **before** the Change control is pressed (0 clicks) — an
+        order whose identity is unproven is never amended.
 
         Anti-Mock (Invariant 1): success is only reported after the order table is re-read and
         the new price is confirmed on the SAME order number.
@@ -1267,7 +1357,7 @@ class LiberatorDriver:
 
         try:
             return await self._amend_order_in_place(
-                str(order_no), float(new_price), new_volume, str(order_pin)
+                str(order_no), float(new_price), new_volume, str(order_pin), expected_symbol
             )
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error amending Liberator order #{order_no}: {e}")
@@ -1279,6 +1369,7 @@ class LiberatorDriver:
         new_price: float,
         new_volume: Optional[int],
         order_pin: str,
+        expected_symbol: Optional[str] = None,
     ) -> Dict[str, Any]:
         """DOM half of change_order(): press Change, fill the amend overlay, confirm, verify."""
         page = self.page
@@ -1299,6 +1390,30 @@ class LiberatorDriver:
 
         # 2. Read the row as it is now (evidence + amendability guard)
         parsed = self._parse_order_row_cells(await row.locator("td").all_inner_texts())
+
+        # 2a. Fail-closed symbol confirmation (Loop 1 D3): the caller told us which symbol this
+        #     order should be — if the live row disagrees, the identity of the order we are
+        #     about to amend is unproven, so NOTHING is pressed (never amend the wrong stock).
+        #     Checked BEFORE the status guard: identity first, then state.
+        want = str(expected_symbol or "").strip().upper()
+        actual = str(parsed["symbol"] or "").upper()
+        if want and actual != want:
+            logger.warning(
+                "change_order(%s): symbol mismatch — row is %r, expected %r — fail-closed",
+                order_no, actual, want,
+            )
+            return {
+                "success": False,
+                "status": "SYMBOL_MISMATCH",
+                "order_no": str(order_no),
+                "expected_symbol": want,
+                "actual_symbol": actual,
+                "error": (
+                    f"Order #{order_no} is {actual or 'unknown'} on the broker, not {want}"
+                    " - the Change control was NOT pressed (fail-closed)."
+                ),
+            }
+
         status = parsed["status"]
         if status.lower() not in self.LIB_AMENDABLE_STATUSES:
             return {
@@ -1467,11 +1582,14 @@ class LiberatorDriver:
                 "message": f"Order #{ord_no} ({ord_symbol}) is already at ฿{new_price:.2f} - no amend needed."
             }
 
-        # Amend the resting order IN PLACE (ต่อราคา) — order number + queue slot preserved
+        # Amend the resting order IN PLACE (ต่อราคา) — order number + queue slot preserved.
+        # Fail-closed: hand the symbol we selected in with the request so change_order can
+        # refuse if the live row is a different stock (Loop 1 D3).
         amend_res = await self.change_order(
             order_no=str(ord_no),
             new_price=new_price,
             new_volume=None,
+            expected_symbol=ord_symbol,
         )
         if not amend_res.get("success", False):
             return {
