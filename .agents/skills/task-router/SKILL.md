@@ -111,6 +111,21 @@ Code + full evidence: `rca/shared/rca_kanban_hub_daemon.md`.
 `--smoke` = spawn the real daemon on a free port). The shim source lives in that script
 (single source of truth, covered by `tests/test_install_entry_shim.py`).
 
+**Second stacked bug fixed by the same command (KB-RCA-002 · `cline/kanban#232`):** a card can now
+start yet dies in turn 1 with `AI_MissingToolResultsError` ("Tool results are missing for tool
+calls: …") → session `status: failed`. Cause: `@clinebot/agents@0.0.38` runs tools via
+`Promise.all` whenever `maxParallelToolCalls >= 2`, and `kanban/dist/cli.js` hard-codes that zod
+default to `8` with **no user-facing config** (cards only expose `startInPlanMode`,
+`autoReviewEnabled/Mode`, `baseRef`). The same one command removes the `Promise.all` branch so tools
+run sequentially (the agent's own default), tagged with a `/*kb-seq-tools*/` marker.
+`--check` prints `seq-tools: needs-patch | current`; `--no-sequential-tools` opts out.
+⚠️ **Restart kanban/daemon after applying** — a running process keeps the already-imported module.
+Correct restart: `systemctl --user restart cline-kanban.service` (do not kill/nohup by hand). ⚠️ That
+unit has no `--skip-shutdown-cleanup`, so a restart moves any pending/review session to `trash` and
+deletes its worktree — check `kanban task list` first or commit inside the worktree.
+Acceptance test for this bug must force **≥2 tool calls in one turn** (a single-tool turn passes even
+unpatched).
+
 Evidence (verified **twice**, 2026-10-15): `node dist/entry.js --cwd /tmp --port 45999` binds the
 port with no error · `hub-daemon.log` stopped growing (8 → 8 `MODULE_NOT_FOUND`, mtime frozen at
 13:48) · two smoke cards (`f76e7` → `DONE 9ed1f5a`, `11c9e` → `PWD …/worktrees/11c9e/InvestmentHomelab`

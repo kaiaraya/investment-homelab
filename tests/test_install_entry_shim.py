@@ -25,7 +25,8 @@ import scripts.kanban.install_entry_shim as shim
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _fake_npm_root(tmp_path: Path, *, with_core: bool = True, with_ai: bool = True) -> Path:
+def _fake_npm_root(tmp_path: Path, *, with_core: bool = True, with_ai: bool = True,
+                   with_agents: bool = True) -> Path:
     """สร้างโครง <root>/kanban/dist + (optional) @clinebot/core + ai ให้เหมือนเครื่องจริง."""
     root = tmp_path / "node_modules"
     (root / "kanban" / "dist").mkdir(parents=True)
@@ -38,7 +39,21 @@ def _fake_npm_root(tmp_path: Path, *, with_core: bool = True, with_ai: bool = Tr
         pkg = root / "kanban" / "node_modules" / "ai"
         pkg.mkdir(parents=True)
         (pkg / "package.json").write_text('{"name": "ai"}', encoding="utf-8")
+    if with_agents:
+        _write_agents_loop(root, body=shim.PARALLEL_BRANCH)
     return root
+
+
+def _write_agents_loop(root: Path, *, body: str, hoisted: bool = False) -> Path:
+    """เขียน bundle ปลอมที่มีรูปเดียวกับ @clinebot/agents@0.0.38 (ติดกับดัก byte เป๊ะ)."""
+    base = Path(root) if hoisted else (Path(root) / "kanban")
+    loop = base / "node_modules" / "@clinebot" / "agents" / "dist" / "index.js"
+    loop.parent.mkdir(parents=True, exist_ok=True)
+    loop.write_text(
+        f'async executeToolCalls(r){{let i=[];for(let v of r)i.push(await this.prepareToolExecution(v));'
+        f'{body}let o=[];for(let v of i)o.push(await this.executePreparedTool(v));return o}}\n',
+        encoding="utf-8")
+    return loop
 
 
 class _Proc:
@@ -257,3 +272,132 @@ def test_parser_defaults():
     args = shim.parse_args([])
     assert args.check is False and args.smoke is False and args.print_shim is False
     assert args.node_bin == "node" and args.port is None and args.json is False
+    assert args.sequential_tools is True
+
+
+# --------------------------------------------------------------------------- #
+# Sequential tool execution patch (KB-RCA-002 · cline/kanban#232)
+# --------------------------------------------------------------------------- #
+def test_patch_constants_match_upstream_bundle_shape():
+    assert shim.PARALLEL_BRANCH.count('toolExecution==="parallel"') == 1
+    assert "Promise.all" in shim.PARALLEL_BRANCH
+    assert shim.PARALLEL_BRANCH not in shim.SEQ_MARKER
+    assert shim.SEQ_MARKER.startswith("/*") and shim.SEQ_MARKER.endswith("*/")
+    assert shim.PARALLEL_BRANCH not in shim.SHIM_JS
+
+
+def test_sequential_upstream_issue_is_referenced():
+    for issue in shim.SEQ_UPSTREAM_ISSUES:
+        assert issue in shim.__doc__
+
+
+def test_agents_loop_locator_finds_nested_and_hoisted(tmp_path):
+    nested = _fake_npm_root(tmp_path / "nested")
+    assert shim.agents_loop_path(nested) == (
+        nested / "kanban" / "node_modules" / "@clinebot" / "agents" / "dist" / "index.js")
+    hoisted_root = tmp_path / "hoisted" / "node_modules"
+    (hoisted_root / "kanban" / "dist").mkdir(parents=True)
+    _write_agents_loop(hoisted_root, body=shim.PARALLEL_BRANCH, hoisted=True)
+    assert shim.agents_loop_path(hoisted_root) == (
+        hoisted_root / "node_modules" / "@clinebot" / "agents" / "dist" / "index.js")
+
+
+def test_sequential_state_missing_needs_patch_current_unknown(tmp_path):
+    root_without = _fake_npm_root(tmp_path / "none", with_agents=False)
+    assert shim.sequential_tools_state(root_without) == "missing"
+    root = _fake_npm_root(tmp_path / "main")
+    assert shim.sequential_tools_state(root) == "needs-patch"
+    shim.install_sequential_tools(root, verify_syntax=False)
+    assert shim.sequential_tools_state(root) == "current"
+    shim.agents_loop_path(root).write_text("// upstream refactor\n", encoding="utf-8")
+    assert shim.sequential_tools_state(root) == "unknown-shape"
+
+
+def test_sequential_patch_removes_parallel_branch_and_backs_up(tmp_path):
+    root = _fake_npm_root(tmp_path)
+    target = shim.agents_loop_path(root)
+    original = target.read_text(encoding="utf-8")
+    res = shim.install_sequential_tools(root, verify_syntax=False)
+    assert res["ok"] is True and res["action"] == "patched"
+    assert res["state_before"] == "needs-patch" and res["state_after"] == "current"
+    patched = target.read_text(encoding="utf-8")
+    assert shim.PARALLEL_BRANCH not in patched and shim.SEQ_MARKER in patched
+    assert Path(res["backup"]).read_text(encoding="utf-8") == original
+    # ต้องยังรัน tool ตัวเดิมเสมอ — ลบแค่เส้นทาง Promise.all
+    assert "executePreparedTool" in patched and "prepareToolExecution" in patched
+
+
+def test_sequential_patch_is_idempotent(tmp_path):
+    root = _fake_npm_root(tmp_path)
+    shim.install_sequential_tools(root, verify_syntax=False)
+    again = shim.install_sequential_tools(root, verify_syntax=False)
+    assert again["action"] == "already-current"
+    assert again["backup"] is None and again["ok"] is True
+
+
+def test_sequential_patch_dry_run_never_touches_filesystem(tmp_path):
+    root = _fake_npm_root(tmp_path)
+    target = shim.agents_loop_path(root)
+    before = target.read_text(encoding="utf-8")
+    res = shim.install_sequential_tools(root, dry_run=True, verify_syntax=False)
+    assert res["action"] == "would-patch" and res["ok"] is True
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_sequential_patch_refuses_unknown_bundle_shape(tmp_path):
+    root = _fake_npm_root(tmp_path, with_agents=False)
+    target = _write_agents_loop(root, body="// some refactor\n")
+    res = shim.install_sequential_tools(root, verify_syntax=False)
+    assert res["action"] == "failed" and res["ok"] is False
+    assert "เปลี่ยนรูปแบบ" in res["reason"]
+    assert target.read_text(encoding="utf-8") == (
+        "async executeToolCalls(r){let i=[];for(let v of r)i.push("
+        "await this.prepareToolExecution(v));// some refactor\n"
+        "let o=[];for(let v of i)o.push(await this.executePreparedTool(v));return o}\n")
+
+
+def test_sequential_patch_fails_honestly_without_agents(tmp_path):
+    root = _fake_npm_root(tmp_path, with_agents=False)
+    res = shim.install_sequential_tools(root, verify_syntax=False)
+    assert res["ok"] is False and res["action"] == "failed" and res["file"] is None
+
+
+def test_sequential_patch_reports_node_check_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(shim.shutil, "which", lambda *a, **k: "/usr/bin/node")
+    root = _fake_npm_root(tmp_path)
+    runner = _recording_runner(returncode=1, stderr="SyntaxError: bad patch")
+    res = shim.install_sequential_tools(root, node_bin="node", runner=runner)
+    assert res["syntax_ok"] is False and res["ok"] is False
+    assert "SyntaxError" in res["syntax"]
+
+
+def test_sequential_patch_reports_missing_node_instead_of_passing(tmp_path, monkeypatch):
+    monkeypatch.setattr(shim.shutil, "which", lambda *a, **k: None)
+    root = _fake_npm_root(tmp_path)
+    res = shim.install_sequential_tools(root, node_bin="node")
+    assert res["syntax_ok"] is False and res["ok"] is False
+
+
+def test_check_mode_reports_sequential_patch_status(tmp_path, capsys):
+    root = _fake_npm_root(tmp_path)
+    assert shim.main(["--check", "--npm-root", str(root), "--no-syntax"]) == 0
+    assert "seq-tools: needs-patch -> would-patch" in capsys.readouterr().out
+    assert shim.PARALLEL_BRANCH in shim.agents_loop_path(root).read_text(encoding="utf-8")
+
+
+def test_main_action_needed_when_agents_missing(tmp_path, capsys):
+    root = _fake_npm_root(tmp_path, with_agents=False)
+    shim.install(root, verify_syntax=False)
+    assert shim.main(["--npm-root", str(root), "--no-syntax"]) == 1
+    out = capsys.readouterr().out
+    assert "ACTION NEEDED" in out and "sequential-tools patch" in out
+
+
+def test_no_sequential_tools_flag_skips_patch(tmp_path, capsys):
+    root = _fake_npm_root(tmp_path, with_agents=False)
+    shim.install(root, verify_syntax=False)
+    assert shim.main(["--npm-root", str(root), "--no-syntax", "--no-sequential-tools",
+                      "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True and "sequential_tools" not in payload
+    assert "cline/kanban#232" in payload["sequential_tools_upstream_issues"]

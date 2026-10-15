@@ -11,6 +11,12 @@ crash-loop ใน `~/.cline/data/logs/hub-daemon.log`) → `kanban task start` �
 Upstream: cline/kanban#495, cline/kanban#590 (ยังไม่ลง release ใด ๆ)
 รายละเอียดเต็ม + หลักฐาน: rca/shared/rca_kanban_hub_daemon.md
 
+bug ตัวที่ 3 (KB-RCA-002): แม้ daemon ขึ้นแล้ว การ์ดใหม่ยังตายด้วย
+`AI_MissingToolResultsError` ("Tool results are missing for tool calls ...") เพราะ
+`@clinebot/agents` รัน tool แบบ `Promise.all` เมื่อ `maxParallelToolCalls >= 2`
+(kanban ฝัง default 8, ไม่มี config ให้ผู้ใช้ตั้ง) → patch ให้เป็น sequential
+Upstream: cline/kanban#232 (ยัง open) — ดู SEQUENTIAL patch ด้านล่าง
+
 สคริปต์นี้เขียน shim กลับให้อัตโนมัติ — **รันซ้ำทุกครั้งหลัง `npm i -g kanban`
 หรือ npm upgrade** จนกว่าจะมี release > 0.1.70 ที่ ship ไฟล์เอง
 
@@ -18,6 +24,7 @@ Usage:
   .venv/bin/python scripts/kanban/install_entry_shim.py --check     # ดูสถานะ ไม่เขียน
   .venv/bin/python scripts/kanban/install_entry_shim.py             # ติดตั้ง/ซ่อม
   .venv/bin/python scripts/kanban/install_entry_shim.py --smoke     # + ลองสตาร์ท daemon จริง
+  .venv/bin/python scripts/kanban/install_entry_shim.py --no-sequential-tools
   .venv/bin/python scripts/kanban/install_entry_shim.py --json
 
 Exit code: 0 = ติดตั้งแล้ว/เป็นปัจจุบัน · 1 = ยังต้องแก้ (หรือ syntax/smoke ไม่ผ่าน)
@@ -83,6 +90,34 @@ await import("@clinebot/core/hub/daemon-entry");
 
 
 # --------------------------------------------------------------------------- #
+# Sequential-tool-execution patch (KB-RCA-002 · cline/kanban#232)
+# --------------------------------------------------------------------------- #
+# `@clinebot/agents@0.0.38` (dependency ของ @clinebot/core ที่ kanban 0.1.70 ลากมา)
+# เลือกเส้นทาง execute tool ใน method `executeToolCalls` แบบนี้ (minified):
+#
+#   if (this.config.toolExecution === "parallel")
+#     return Promise.all(i.map((v) => this.executePreparedTool(v)));
+#   let o = []; for (let v of i) o.push(await this.executePreparedTool(v)); return o;
+#
+# default ในตัว agent เองคือ "sequential" แต่ `dist/cli.js` ของ kanban ฝัง zod
+# `maxParallelToolCalls` default = 8 (ไม่มี config/flag ให้ผู้ใช้ตั้ง) → resolver
+# `f >= 2 ? "parallel" : "sequential"` → เข้าเส้นทาง Promise.all → พอเทิร์นเดียวมี
+# tool call หลายอัน ผลลัพธ์ (`tool_result`) ไม่ถูกผูกกลับเข้า history →
+# Vercel AI SDK `convertToLanguageModelPrompt` โยน `AI_MissingToolResultsError`
+# ("Tool results are missing for tool calls: ...") → retry → "6 consecutive mistakes"
+# → session จบ `status: failed` / `exit_code: 1` โดย transcript ไม่โชว์สาเหตุ
+#
+# Patch = ตัดเส้นทาง Promise.all ออก (เหลือ sequential ที่ SDK รองรับอยู่แล้ว) แล้วฝัง
+# marker ไว้เช็ค idempotency · ปลอดภัย: tool ทุกตัวยังรันครบ เพียง await ทีละตัว
+# ต้องรันซ้ำหลัง `npm i -g kanban` ทุกครั้ง (ไฟล์อยู่ใน node_modules)
+AGENTS_LOOP_REL = Path("node_modules") / "@clinebot" / "agents" / "dist" / "index.js"
+PARALLEL_BRANCH = ('if(this.config.toolExecution==="parallel")'
+                   'return Promise.all(i.map((v)=>this.executePreparedTool(v)));')
+SEQ_MARKER = "/*kb-seq-tools*/"
+SEQ_UPSTREAM_ISSUES = ("cline/kanban#232",)
+
+
+# --------------------------------------------------------------------------- #
 # Locators (pure-ish: filesystem + optional subprocess for `npm root -g`)
 # --------------------------------------------------------------------------- #
 def npm_global_root(npm_bin: str = "npm", runner: Callable = subprocess.run) -> Optional[Path]:
@@ -145,6 +180,36 @@ def shim_state(root: Path) -> str:
         return "current" if entry.read_text(encoding="utf-8") == SHIM_JS else "stale"
     except OSError:
         return "stale"
+
+
+def agents_loop_candidates(root: Path) -> List[Path]:
+    """path ที่เป็นไปได้ของ @clinebot/agents/dist/index.js (nested หรือ hoisted)."""
+    nested = kanban_package_dir(root) / AGENTS_LOOP_REL
+    hoisted = Path(root) / AGENTS_LOOP_REL
+    return [nested, hoisted] if nested != hoisted else [nested]
+
+
+def agents_loop_path(root: Path) -> Optional[Path]:
+    for cand in agents_loop_candidates(root):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def sequential_tools_state(root: Path) -> str:
+    """'missing' = ไม่มี bundle · 'current' = patch แล้ว · 'needs-patch' = ยัง parallel · 'unknown-shape' = bundle เปลี่ยนรูป."""
+    path = agents_loop_path(root)
+    if path is None:
+        return "missing"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "unknown-shape"
+    if PARALLEL_BRANCH in text:
+        return "needs-patch"
+    if SEQ_MARKER in text:
+        return "current"
+    return "unknown-shape"
 
 
 # --------------------------------------------------------------------------- #
@@ -287,6 +352,67 @@ def install(root: Path, *, dry_run: bool = False, node_bin: str = "node",
 
 
 # --------------------------------------------------------------------------- #
+# Sequential tool execution (KB-RCA-002)
+# --------------------------------------------------------------------------- #
+def install_sequential_tools(root: Path, *, dry_run: bool = False, node_bin: str = "node",
+                             verify_syntax: bool = True,
+                             runner: Callable = subprocess.run) -> Dict:
+    """
+    บังคับให้ `@clinebot/agents` รัน tool แบบ sequential (ตัดเส้นทาง Promise.all ออก)
+    — idempotent · backup ของเดิม · ไม่เดารูปแบบ bundle ที่ไม่รู้จัก (Anti-Mock)
+    """
+    root = Path(root)
+    target = agents_loop_path(root)
+    state_before = sequential_tools_state(root)
+    result: Dict = {
+        "file": str(target) if target else None,
+        "state_before": state_before,
+        "action": "none",
+        "backup": None,
+        "syntax_ok": None,
+        "syntax": None,
+    }
+    if target is None:
+        result.update(action="failed", ok=False,
+                      reason="ไม่พบ @clinebot/agents/dist/index.js — ติดตั้ง kanban ก่อน")
+        return result
+    if state_before == "unknown-shape":
+        result.update(action="failed", ok=False,
+                      reason="bundle ของ @clinebot/agents เปลี่ยนรูปแบบ — patch ไม่ได้ (ห้ามเดา, รอ upstream)")
+        return result
+
+    if state_before == "current":
+        result["action"] = "already-current"
+    elif dry_run:
+        result["action"] = "would-patch"
+    else:
+        text = target.read_text(encoding="utf-8")
+        hits = text.count(PARALLEL_BRANCH)
+        if hits != 1:
+            result.update(action="failed", ok=False,
+                          reason=f"เจอ parallel branch {hits} จุด (คาด 1) — ไม่เขียนไฟล์")
+            return result
+        backup = target.with_name(f"{target.name}.bak.{int(time.time())}")
+        shutil.copy2(target, backup)
+        result["backup"] = str(backup)
+        target.write_text(text.replace(PARALLEL_BRANCH, SEQ_MARKER), encoding="utf-8")
+        result["action"] = "patched"
+        result["state_after"] = sequential_tools_state(root)
+
+    if verify_syntax and not dry_run:
+        ok_syntax, out = syntax_check(target, node_bin=node_bin, runner=runner)
+        result["syntax_ok"], result["syntax"] = ok_syntax, out
+
+    ok_final = result["action"] in {"already-current", "would-patch", "patched"}
+    if result.get("syntax_ok") is False:
+        ok_final = False
+    if not dry_run and sequential_tools_state(root) != "current":
+        ok_final = False
+    result["ok"] = ok_final
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def run(args) -> Dict:
@@ -295,7 +421,8 @@ def run(args) -> Dict:
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "npm_root": str(root) if root else None,
         "upstream_issues": list(UPSTREAM_ISSUES),
-        "rca": "rca/shared/rca_kanban_hub_daemon.md (KB-RCA-001)",
+        "sequential_tools_upstream_issues": list(SEQ_UPSTREAM_ISSUES),
+        "rca": "rca/shared/rca_kanban_hub_daemon.md (KB-RCA-001, KB-RCA-002)",
     }
     if root is None:
         summary.update(ok=False, reason="หาตำแหน่ง global npm ไม่ได้ — ระบุ --npm-root เอง")
@@ -303,9 +430,14 @@ def run(args) -> Dict:
     summary["kanban_dist_exists"] = dist_dir(root).is_dir()
     summary["install"] = install(root, dry_run=args.check, node_bin=args.node_bin,
                                  verify_syntax=not args.no_syntax)
+    if getattr(args, "sequential_tools", True):
+        summary["sequential_tools"] = install_sequential_tools(
+            root, dry_run=args.check, node_bin=args.node_bin,
+            verify_syntax=not args.no_syntax)
     if args.smoke and not args.check:
         summary["smoke"] = smoke(shim_path(root), node_bin=args.node_bin, port=args.port)
     summary["ok"] = bool(summary["install"].get("ok")) and \
+        bool(summary.get("sequential_tools", {}).get("ok", True)) and \
         bool(summary.get("smoke", {}).get("ok", True))
     return summary
 
@@ -323,13 +455,22 @@ def _render(summary: Dict) -> str:
         lines.append("  WARN     : หา @clinebot/core hub daemon entry ไม่เจอ — shim จะ import ไม่ได้")
     if inst.get("ai_package") is None:
         lines.append("  WARN     : หา package `ai` ไม่เจอ — globalThis.AI จะไม่ถูก set")
+    seq = summary.get("sequential_tools")
+    if seq is not None:
+        lines.append(f"  seq-tools: {seq.get('state_before')} -> {seq.get('action')}"
+                     + (f" (backup {seq['backup']})" if seq.get("backup") else ""))
+        if seq.get("syntax") is not None:
+            lines.append(f"  seq syntax: {'OK' if seq.get('syntax_ok') else 'FAIL'} — {seq['syntax']}")
+        if not seq.get("ok"):
+            lines.append(f"  WARN     : sequential-tools patch — {seq.get('reason', 'ยังไม่ใช่ current')}")
     if "smoke" in summary:
         lines.append(f"  smoke    : {'OK' if summary['smoke'].get('ok') else 'FAIL'}"
                      f" (port {summary['smoke'].get('port')})")
     if summary.get("ok"):
         lines.append("  VERDICT  : OK (ติดตั้งแล้ว/เป็นปัจจุบัน)")
     else:
-        lines.append(f"  VERDICT  : ACTION NEEDED — {inst.get('reason', summary.get('reason', ''))}")
+        lines.append(f"  VERDICT  : ACTION NEEDED — "
+                     + (inst.get("reason") or (seq or {}).get("reason") or summary.get("reason", "")))
     return "\n".join(lines)
 
 
@@ -345,6 +486,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="ระบุ global node_modules เอง (ข้าม auto-detect)")
     parser.add_argument("--node-bin", default="node", help="path ของ node ที่จะใช้")
     parser.add_argument("--no-syntax", action="store_true", help="ข้าม node --check")
+    parser.add_argument("--no-sequential-tools", dest="sequential_tools",
+                        action="store_false", default=True,
+                        help="ข้าม patch บังคับ sequential tool execution (KB-RCA-002)")
     parser.add_argument("--print-shim", action="store_true",
                         help="พิมพ์เนื้อหา shim แล้วออก (ไม่เขียนไฟล์)")
     parser.add_argument("--json", action="store_true", help="พิมพ์ผลแบบ JSON")

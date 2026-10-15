@@ -112,3 +112,100 @@ await import("@clinebot/core/hub/daemon-entry");   // ต้องเป็น d
 **User Feedback & Context**: พบ root cause หลังรื้อ `hub-daemon.log` + เทียบ tarball ทุกเวอร์ชัน ·
 ผู้ใช้ยืนยันให้ค้นในเน็ตก่อน แล้วเจอ `cline/kanban#495`/`#590` ตรงกับอาการทุกข้อ (รวม ~30 วิ timeout) ·
 สรุปค้างไว้ใน `.agents/skills/task-router/SKILL.md` §"Starting a card"
+
+---
+
+## KB-RCA-002 (2026-10-15) — การ์ด start ได้แล้ว แต่ session ตายในเทิร์นแรกด้วย `AI_MissingToolResultsError` (parallel tool calls)
+
+**Symptom**
+
+1. การ์ด start ปกติ (daemon ขึ้น, session มี `pid`, worktree ถูกสร้าง) แต่จบเร็วด้วย
+   `status: "failed"`, `exit_code: 1` — transcript มี `user` + `assistant` (thinking + `tool_use` **2 อัน
+   ในเทิร์นเดียว**) แล้ว **ไม่มี `tool_result`** ตามมาเลย
+2. ใน transcript/session ต่อมาโผล่ `AI_MissingToolResultsError`:
+   `Tool results are missing for tool calls: call_00_…, call_01_…` (retry → "6 consecutive mistakes"
+   → ตัวช่วยตอบว่าง/มีแค่ `?` กลางเทิร์น)
+3. `~/.cline/kanban/workspaces/<workspace>/sessions.json` เก็บ error นี้ซ้ำทุกครั้งที่ start/reply
+
+**Root cause (3 จุด — ตรวจจาก bundle จริง ไม่เดา)**
+
+- **session/context**: ไม่เกี่ยวกับ cookie/session ของโบรกเกอร์และไม่เกี่ยวกับ gateway — อยู่ใน process
+  ของ kanban เอง (คนละ bug กับ KB-RCA-001 ที่ daemon spawn ไม่ขึ้น)
+- **live bundle**: `@clinebot/agents@0.0.38` (nested ที่ `<npm-global>/kanban/node_modules/@clinebot/agents`
+  — ทั้งเครื่องมีสำเนาเดียว และ `@clinebot/core` ทั้ง 3 entry import ตัวนี้ตอนรัน ไม่ได้ inline) ใน
+  `Agent.executeToolCalls`:
+  ```js
+  let i=…; if(this.config.toolExecution==="parallel")
+    return Promise.all(i.map(v=>this.executePreparedTool(v)));
+  let o=[]; for(let v of i) o.push(await this.executePreparedTool(v)); return o
+  ```
+  ⇒ เทิร์นที่มี tool call หลายอันจะรันพร้อมกัน (`Promise.all`) แล้วผลไม่ถูกผูกกลับเข้า history ครบ
+  → Vercel AI SDK `convertToLanguageModelPrompt` (ใน `streamStep`) โยน `MissingToolResultsError`
+- **config/schema**: `maxParallelToolCalls` เป็น zod ใน `kanban/dist/cli.js` = `.number().int().positive()
+  .default(8)` และ **ไม่มี config/flag/การ์ด-field ให้ผู้ใช้ตั้ง** (การ์ดมีแค่ `startInPlanMode`,
+  `autoReviewEnabled/Mode`, `baseRef`) → resolver `f>=2?"parallel":"sequential"` จึงได้ `"parallel"`
+  เสมอ · ขณะที่ default ในตัว agent เองเป็น `"sequential"`
+
+**Upstream**: `cline/kanban#232` — "MissingToolResultsError with parallel tool calls (all providers)",
+open, ยังไม่มี fix · ไม่มี release ใหม่ให้อัป (kanban 0.1.70 = latest)
+
+**Proven solution** — patch ให้เหลือเส้นทาง sequential เท่านั้น (สคริปต์เดิมของ KB-RCA-001):
+```bash
+.venv/bin/python scripts/kanban/install_entry_shim.py --check   # seq-tools: needs-patch | current
+.venv/bin/python scripts/kanban/install_entry_shim.py           # apply (backup .bak.<ts> + node --check)
+```
+ตัด `if(this.config.toolExecution==="parallel")return Promise.all(…);` ออก ฝัง marker
+`/*kb-seq-tools*/` ไว้เช็ค idempotency · tool ทุกตัวยังรันครบ เพียง `await` ทีละตัว · ไม่รู้จักรูป
+bundle → `failed` + reason (ไม่เดา — Anti-Mock) · ⚠️ re-apply หลัง `npm i -g kanban` ทุกครั้ง
+
+**Edge cases**
+
+- ต้อง **restart kanban/daemon** หลัง patch — process ที่ import โมดูลไปแล้วไม่รับไฟล์ใหม่
+- bundle เปลี่ยนรูป (มี `Promise.all` 0/หลายจุด) → สคริปต์ **ไม่เขียนไฟล์** และรายงาน reason
+- `node --check` ไม่ผ่าน → ถือว่า fail (ไม่รายงานผ่านเงียบ ๆ)
+- patch นี้ *ลด* parallel execution ของ tool = agent ช้าลงเล็กน้อย — ยอมรับได้จนกว่า upstream จะแก้
+
+**Evidence (2026-10-15 22:32 · เครื่องนี้)**
+
+| ขั้น | ผล |
+|---|---|
+| `--check` (ก่อน) | `seq-tools: needs-patch -> would-patch` · parallel branch 1 จุด · 323199 bytes |
+| `install_entry_shim.py` | `seq-tools: needs-patch -> patched` + backup `index.js.bak.1792078350` · `seq syntax: OK` |
+| หลัง patch | parallel branch **0** จุด · marker **1** จุด · 323113 bytes (= −102 +16 ตรงเป๊ะ) |
+| `node -e "import(...)"` ก่อน/หลัง | `LOAD_OK` เท่ากัน · exports เดิม `Agent,AgentRuntime,createAgent,createAgentRuntime,createTool` |
+| `--check` (ซ้ำ) | `seq-tools: current -> already-current` (idempotent) |
+| tests | `tests/test_install_entry_shim.py` 38 passed · `verify_changes.py` (2 ไฟล์) PASS |
+
+**Live acceptance test (2026-10-15 22:43 · การ์ด smoke `a9e1a` บน service ที่ restart แล้ว)**
+
+การ์ด smoke สั่งให้ agent ยิง **2 tool calls ในเทิร์นเดียว** (`run_commands` + `read_files`) =
+trigger ของเส้นทาง `Promise.all` ตรง ๆ · transcript จริงจาก
+`~/.cline/data/sessions/a9e1a-*/a9e1a-*.messages.json`:
+
+```
+[1] assistant: thinking | tool_use:run_commands | tool_use:read_files   <<< MULTI-TOOL TURN
+[2] user: tool_result
+[3] user: tool_result
+[4] assistant: thinking | tool_use:run_commands
+[5] user: tool_result
+[6] assistant: text:SMOKE2_OK d830a01
+```
+
+`MissingToolResults occurrences: 0` · session `status: completed` / `exit_code: 0` ·
+`cwd = ~/.cline/worktrees/a9e1a/InvestmentHomelab` (isolation เดิม) · journal ไม่มี error
+(เทียบ session ก่อน patch `9bcb1-…` = `status: failed`, `exit_code: 1`) · parser ที่ใช้ตรวจอยู่ที่
+`/tmp/kb_parse.py` (ไม่ใช่ artifact ถาวร — สร้างใหม่ได้ตามนี้)
+💡 smoke #1 (`83692`) ที่ยิง **1 tool call** ผ่านแม้ยังไม่ patch → **ไม่ใช่ acceptance test**
+ของ bug นี้ ต้องบังคับ ≥2 tool calls ในเทิร์นเดียวเสมอ
+
+**⚠️ บทเรียนจากการ restart service** — `cline-kanban.service` ไม่มี `--skip-shutdown-cleanup`
+⇒ `systemctl --user restart` จะ **ย้าย session ที่ค้าง (รวม `awaiting_review`/`review`) เข้า `trash`
+และลบ task worktree** (การ์ด `9bcb1` โดนจริงรอบนี้ · start จาก trash ไม่ได้ตาม edge case ข้อ 5 →
+ต้องลากออกจาก trash ใน UI) · ก่อน restart ครั้งถัดไป: ตรวจ `kanban task list` ให้บอร์ดว่าง หรือ
+commit/push งานใน worktree ก่อน · restart ที่ถูกต้องคือ
+`systemctl --user restart cline-kanban.service` (อย่า kill/nohup เอง — unit มี `Restart=on-failure`)
+
+**User Feedback & Context**: ผู้ใช้ยืนยันให้แก้ต่อหลัง KB-RCA-001 · พบ upstream ตรงอาการเป๊ะ
+(`cline/kanban#232`) · ผู้ใช้อนุมัติให้ restart kanban service + รันการ์ดจริงพิสูจน์ (ทำแล้วด้านบน) ·
+ต้อง re-apply patch ทุกครั้งหลัง `npm i -g kanban`
+
