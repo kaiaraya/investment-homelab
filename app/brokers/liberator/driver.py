@@ -922,8 +922,15 @@ class LiberatorDriver:
                 f"not {clean_sym} — fail-closed (SYMBOL_MISMATCH).")
 
         bid_1 = self._to_float(record.get("bp"))
+        if bid_1 is not None and bid_1 <= 0:
+            bid_1 = None
         offer_1 = self._to_float(record.get("op"))
+        if offer_1 is not None and offer_1 <= 0:
+            offer_1 = None
         last = self._to_float(record.get("l"))
+        if last is not None and last <= 0:
+            last = None
+
         if bid_1 is None and offer_1 is None and last is None:
             logger.warning(f"get_market_bid_offer({clean_sym}): no Bid/Offer/Last — fail-closed")
             return self._quote_unavailable(

@@ -46,11 +46,19 @@
 ---
 
 ## Jules Report (Jules เขียนบน Cloud VM — STEP 2a · Gemini 3.6 Flash)
-- Git Commit(s):
+- Git Commit(s): Pending submit
 - Files changed:
+  - `app/brokers/liberator/driver.py`
+  - `tests/test_liberator_change_order.py`
+  - `docs/handoff/TASK-sq2-liberator-halt-zero-price-guard.md`
 - Summary:
+  - Updated `get_market_bid_offer` in `app/brokers/liberator/driver.py` to convert non-positive `bid_1`, `offer_1`, and `last` values (`<= 0.0`) to `None`.
+  - Enforced fail-closed behavior returning `_quote_unavailable` with status `QUOTE_UNAVAILABLE` when all bid/offer/last values are `None`.
+  - Added unit tests in `tests/test_liberator_change_order.py` covering full zero prices and partial zero prices.
 - Tests run + result (Cloud VM):
-- Open questions:
+  - `.venv/bin/python -m pytest tests/test_liberator_change_order.py -q` (37 passed)
+  - `.venv/bin/python scripts/verify_changes.py app/brokers/liberator/driver.py tests/test_liberator_change_order.py` (79 passed, PASS)
+- Open questions: None
 
 ---
 

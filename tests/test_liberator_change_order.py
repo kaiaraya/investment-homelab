@@ -543,6 +543,33 @@ async def test_get_market_bid_offer_is_quote_unavailable_when_there_are_no_price
 
 
 @pytest.mark.asyncio
+async def test_get_market_bid_offer_sanitizes_zero_prices_to_none_and_fails_closed_when_all_zero():
+    """Halt / Pre-Open guard (TASK-sq2): "0" string / 0.0 values for bp, op, l become None.
+
+    If all three are <= 0, get_market_bid_offer fails closed with QUOTE_UNAVAILABLE.
+    """
+    page = FakeQuotePage(request=_FakeApiRequest(
+        config=_config_with(), info=_info_record(l="0", bp="0", op="0")))
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    _assert_unavailable(res)
+    assert "no readable Bid/Offer/Last" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_market_bid_offer_sanitizes_partial_zero_prices():
+    """Halt / Pre-Open guard (TASK-sq2): bp="0" is sanitized to None while valid op/l are kept."""
+    page = FakeQuotePage(request=_FakeApiRequest(
+        config=_config_with(), info=_info_record(l="11.3", bp="0", op="11.4")))
+    res = await _quote_driver(page).get_market_bid_offer("BCH")
+
+    assert res["success"] is True and res["status"] == "OK"
+    assert res["bid_1"] is None
+    assert res["offer_1"] == 11.4
+    assert res["last"] == 11.3
+
+
+@pytest.mark.asyncio
 async def test_get_market_bid_offer_returns_the_symbol_verified_quote():
     page = FakeQuotePage(request=_FakeApiRequest(config=_config_with(), info=_info_record()))
     res = await _quote_driver(page).get_market_bid_offer(" bch ")
