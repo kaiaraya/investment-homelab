@@ -375,6 +375,7 @@ def nego_card(
     failed: int,
     ts: str,
     is_test: bool,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """``results`` = [{"status": "ok|skip|fail", "order_no", "side", "symbol",
     "old_price", "new_price", "reason"}]"""
@@ -400,9 +401,13 @@ def nego_card(
                     UP if failed == 0 else DOWN))
     body.append(_cell(f"🕒 {ts}", MUTED, align="end"))
     footer = [_msg_button(f"📋 /orders {broker} sync", f"/orders {broker} sync")]
+
+    badge = "DRY-RUN" if dry_run else ("TEST" if is_test else None)
+    badge_bg = WARN if dry_run else TEST_COLOR
+
     return _flex(f"⚡ ผลต่อราคา {broker}: สำเร็จ {ok} ข้าม {skipped} ล้มเหลว {failed}",
-                 _bubble(title=f"⚡ ผลต่อราคา {broker.upper()}", badge="TEST" if is_test else None,
-                         badge_bg=TEST_COLOR, body=body, footer=footer))
+                 _bubble(title=f"⚡ ผลต่อราคา {broker.upper()}", badge=badge,
+                         badge_bg=badge_bg, body=body, footer=footer))
 
 
 # --------------------------------------------------------------------------- #
@@ -436,6 +441,7 @@ def negotiate_card(
     submitted: Optional[bool],
     ts: str,
     is_test: bool,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """One-order result card for ``/negotiate`` (Quick Trade in-place amendment).
 
@@ -466,9 +472,13 @@ def negotiate_card(
         _msg_button(f"⚡ /negotiate {order_no}", f"/negotiate {order_no}", color="#b45309"),
         _msg_button("📋 /orders kss sync", "/orders kss sync"),
     ]
+
+    badge = "DRY-RUN" if dry_run else ("TEST" if is_test else None)
+    badge_bg = WARN if dry_run else TEST_COLOR
+
     return _flex(f"⚡ ต่อราคา #{order_no}: {label}",
                  _bubble(title=f"⚡ Quick Trade #{order_no}",
-                         badge="TEST" if is_test else None, badge_bg=TEST_COLOR,
+                         badge=badge, badge_bg=badge_bg,
                          body=body, footer=footer))
 
 
