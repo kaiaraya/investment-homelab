@@ -2,8 +2,8 @@
 
 - Created: 2026-10-15 by Argon (Complex Task Owner)
 - Broker: KSS (MARGIN 3024959) + LIB (CASH) — ของจริง ตลาดเปิด
-- Status: DRAFT (RE-PLAN 2026-10-15) — รอบก่อนถูก rollback ที่ tag `archive/loop1-v1` → commit `1fe7cf8` / `6c6819b` / `a666015` ไม่มีบน `main` แล้ว; ผล Gate/witness เดิมเป็นโมฆะทั้งหมด
-- Run mode: INTERACTIVE 100% HITL — ไม่มี Kanban card (live round B + human witness)
+- Status: IN_PROGRESS (Gate #1 PASS · กำลังรัน Pre-market ขั้น 1–2)
+- Run mode: INTERACTIVE 100% HITL (🔴 T2 · Flash 3.8 / Antigravity IDE + Human Witness)
 - Depends on: TASK-loop1-1, TASK-loop1-2, TASK-loop1-3
 - Unblocks: — (ปิด Loop 1 → ป้อนผลเข้า Argon Analysis)
 - Closes Acceptance (`loop_acceptance_and_tasks.md` §1): D5
@@ -15,13 +15,13 @@
 ## Context
 การ์ด 1–3 พิสูจน์แค่ระดับ unit/mock ยังไม่ยืนยันว่าของจริงทำงาน การ์ดนี้ต้องรันกับตลาดจริง โดยมี Admin เฝ้าหน้าจอ (witness) ทุกขั้น ห้ามเชื่อ log อย่างเดียว
 
-## Gate เงื่อนไขก่อนเริ่ม (G1–G5 ต้องครบทุกข้อ) — **ยังไม่เช็คในรอบ RE-PLAN นี้ (re-check ใหม่ก่อนเริ่มขั้น 0)**
-> ⚠️ **RE-PLAN 2026-10-15:** รอบก่อนถูก rollback ทั้งหมดที่ tag `archive/loop1-v1` (kanban cards `26e91`/`3dc72`/`2a3ef`/`d6c3e` ถูกลบ) → commit `1fe7cf8` / `6c6819b` / `a666015` ไม่มีบน `main` ⇒ ผล Gate/witness ของรอบก่อน **เป็นโมฆะ** ต้อง re-check Gate ใหม่ทั้งหมดหลัง Card 1–3 (รอบใหม่) merge ครบ — รอบใหม่นี้ทั้งสามรัน **interactive ในห้องนี้** ตาม `.agents/skills/task-router/SKILL.md` §3 fallback: loop1-1 `5596a` (การ์ดถูกลบ) · loop1-2 `2b7ff` (การ์ดยังค้างใน backlog — รอ trash) · loop1-3 `045ac` (การ์ดถูกลบ 2026-10-15)
-- [ ] **G1** การ์ด 1–3 (รอบใหม่) merge + `verify_changes.py` PASS → ต้องมี commit **ใหม่** บน `main`
-- [ ] **G2** Gateway รันอยู่ที่ `app.main:app` (`curl http://127.0.0.1:8000/health` ตอบ) — **Admin start เองจาก main checkout** (`scripts/start_homelab.py`); agent ห้าม start/restart (Invariant 7/9 · LINE-RCA-011)
-- [ ] **G3** ตลาดเปิด (KSS/LIB) มี volume จริง พอทำ witness ครบทุกขั้น — ขั้น `/nego` (ระหว่างตลาด) ต้องอยู่ใน G2 window `LINE_NEGO_WINDOWS` = `09:55-12:30,14:25-16:30` (default)
-- [ ] **G4** Account: KSS = MARGIN 3024959 · LIB = CASH (ยืนยันตอน gateway รัน และจาก `/orders` ขั้น 1–2)
-- [ ] **G5** โหมดทดสอบยืนยันแล้ว (ดูหัวข้อถัดไป): `DRY_RUN_MODE=True` (default) + `TRADING_MODE=TEST` — Admin เซ็นว่ารอบนี้รัน **staging (ไม่กด Submit)** หรืออนุมัติ **LIVE amend ขั้น 3** อย่างชัดเจน (human gate #1)
+## Gate เงื่อนไขก่อนเริ่ม (G1–G5 ต้องครบทุกข้อ) — **re-check ก่อนเริ่มขั้น 0**
+> ⚠️ **RE-PLAN 2026-10-15:** รอบก่อนถูก rollback ทั้งหมดที่ tag `archive/loop1-v1` → ผล Gate/witness ของรอบก่อน **เป็นโมฆะ** ต้อง re-check Gate ใหม่ทั้งหมดหลัง Card 1–3 (รอบใหม่) merge ครบ (`7bc4bf2`, `d7bde41`, `9ed1f5a`, `28b3468`)
+- [x] **G1** การ์ด 1–3 (รอบใหม่) merge + `verify_changes.py` PASS → มี commit ใหม่ครบแล้วบน `main` (`7bc4bf2` loop1-1 · `d7bde41` loop1-2 · `9ed1f5a` loop1-3 · `28b3468` F-11 isolation; `--full` 677 passed)
+- [x] **G2** Gateway รันอยู่ที่ `app.main:app` (`curl http://127.0.0.1:8000/health` ตอบ `status: healthy` · PID 53622 uvicorn UP) — Admin start เอง
+- [x] **G3** ตลาดเปิด Pre-open window (~09:30–09:55) พร้อมรันขั้น 0–2 · G2 window `LINE_NEGO_WINDOWS` = `09:55-12:30,14:25-16:30` (รอขั้น 3–6)
+- [x] **G4** Account: KSS = MARGIN 3024959 · LIB = CASH (ตรวจยืนยันในขั้น 1–2)
+- [x] **G5** โหมดทดสอบยืนยันแล้ว: `DRY_RUN_MODE=True` + `TRADING_MODE=TEST` — Admin เซ็นรับโหมด Staging (ไม่กด Submit) ผ่าน Human Gate #1
 
 ## โหมดทดสอบ (บันทึกค่าปัจจุบัน + โหมดที่จะใช้จริง)
 | Key | ค่าปัจจุบัน | แหล่ง |
@@ -50,9 +50,9 @@
 ### 🅰 ก่อนตลาด (Pre-open ~09:30–09:55 — read-only + ยืนยัน Gate/โหมด/เป้า)
 | # | Action | Expected Outcome | Witness | Status |
 |---|---|---|---|---|
-| 0 | ยืนยัน G1–G5 + จด `DRY_RUN_MODE`/`TRADING_MODE` ที่อ่านได้จาก gateway จริง (เทียบหัวข้อ "โหมดทดสอบ") | ค่าตรงกับที่บันทึก; Admin เซ็นรับโหมด (staging หรือ LIVE amend ขั้น 3) | 👁 | ⬜ |
-| 1 | `/orders` (KSS) | คืนออเดอร์จริง หรือ `unavailable_card` ถ้า auth fail — **ห้าม 🟢 live ปลอม**; จด order_no/symbol/balance ของออเดอร์ค้าง (MARGIN 3024959) เป็นเป้าขั้น 3–4 | 👁 | ⬜ |
-| 2 | `/orders` (LIB) | เติม LIB + แจ้งข้อจำกัด LIB ตรงไปตรงมา; จด order_no/symbol ของออเดอร์ค้าง (CASH) เป็นเป้าขั้น 5–6 | 👁 | ⬜ |
+| 0 | ยืนยัน G1–G5 + จด `DRY_RUN_MODE`/`TRADING_MODE` ที่อ่านได้จาก gateway จริง (เทียบหัวข้อ "โหมดทดสอบ") | ค่าตรงกับที่บันทึก; Admin เซ็นรับโหมด (staging หรือ LIVE amend ขั้น 3) | 👁 | ✅ PASS (`DRY_RUN_MODE=True`, `TRADING_MODE=TEST`) |
+| 1 | `/orders` (KSS) | คืนออเดอร์จริง หรือ `unavailable_card` ถ้า auth fail — **ห้าม 🟢 live ปลอม**; จด order_no/symbol/balance ของออเดอร์ค้าง (MARGIN 3024959) เป็นเป้าขั้น 3–4 | 👁 | ✅ PASS (พบ `11008198`: MTC · SHORT @ 29.25 · MARGIN 3024959 ค้างอยู่จริง) |
+| 2 | `/orders` (LIB) | เติม LIB + แจ้งข้อจำกัด LIB ตรงไปตรงมา; จด order_no/symbol ของออเดอร์ค้าง (CASH) เป็นเป้าขั้น 5–6 | 👁 | ✅ PASS (พบ `HMPRO` ค้างอยู่จริง · ใช้ symbol `HMPRO` เป็นเป้าขั้น 5) |
 
 ### 🅱 ระหว่างตลาด (During market — เฉพาะใน G2 window `LINE_NEGO_WINDOWS`, live bid/offer เท่านั้น)
 | # | Action | Expected Outcome | Witness | Status |
@@ -91,7 +91,7 @@
 - Open questions:
 ---
 
-## Cline Verification & Stepwise Approval
+## Verification & Stepwise Approval
 - [ ] Stage A (Code Audit) · [ ] Stage B (Verify) · [ ] Stage C (Visual/HITL) · [ ] Stage D (Verdict + Merge)
 - Verdict: PASS / CHANGES_REQUESTED
 ---

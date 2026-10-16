@@ -2,7 +2,7 @@
 
 - Created: 2026-10-15 by Argon (Complex Task Owner)
 - Broker: Krungsri TradeMan (KSS · MARGIN 3024959) + Liberator WebTrade (LIB · CASH)
-- Status: IN PROGRESS (interactive, 2026-10-15)
+- Status: DONE (unit level · merged `7bc4bf2` / `14e31de`; live witness in `TASK-loop1-4`)
 - Run mode: INTERACTIVE (ห้องนี้ · `.agents/skills/stepwise-approval`) — โค้ด+unit 100% · ห้าม live/HITL (live witness = การ์ด 4)
   - ⚠️ Kanban card `5596a` **start ไม่ได้** (session ถูก cancel ~38–49 วิ · `start` ไม่มี flag detach) → re-route มาทำในห้องนี้ ตาม `.agents/skills/task-router/SKILL.md` §3 fallback; การ์ดถูกลบออกจากบอร์ดแล้ว (zero-contradiction)
 - Depends on: —
@@ -61,7 +61,7 @@
 ---
 
 ## Cline Report
-- Git Commit(s): _ยังไม่ commit — รันในห้อง interactive (working tree; `main` ยังอยู่ที่ `0515a98`)_
+- Git Commit(s): `7bc4bf2` (`TASK-loop1-1: fix(pillar2): no cross-broker fallback + real auth flags + MARGIN read lock`) · `14e31de` (`TASK-loop1-1: docs(rca): close CLI-RCA P4 + loop1 handoff plans/report`)
 - Files changed:
   - `app/browser/trademan_driver.py` — `switch_account()` branch "browser not active" → `{"success": False, "status": "BROWSER_NOT_ACTIVE"}` (Anti-Mock) + public `is_page_authenticated()` (RCA-008/009, single source of truth)
   - `app/mcp/pillars/pillar2_portfolio.py` — ลบ `else: CLICK2WIN` ใน `portfolio_holdings` / `current_open_orders` / `current_orders` → explicit `CLICK2WIN/C2W` + `raise ValueError` (รวม alias `LIB`); `current_orders` คืน `"authenticated"`; `portfolio_holdings` (LIBERATOR) คืน `account_no` + `authenticated`
@@ -81,14 +81,18 @@
   5. **พบ test pollution ใหม่ (นอก scope)**: `scripts/verify_changes.py --full` (633 passed) ทำให้เทสต์กลุ่ม annealing เขียนทับ runbook ที่ git track ไว้ — `learned_workflows/click2win/click2win_order_submit.md` และ `learned_workflows/shared/test_anneal_wf.md` เปลี่ยน `Recorded At` → 2026-10-15 + ต่อท้ายข้อความ "Self-Annealed: …" ซ้ำขึ้นอีก 1 ชุด. **ผม revert 2 ไฟล์นั้นแล้ว** (ไม่ได้ตั้งใจแก้ runbook) ⇒ ควรตั้งการ์ด/แก้เทสต์ให้เขียนลง tmp/fixture แทนไฟล์จริง (เกี่ยวเนื่องกับ F-11 "Self-Annealed ซ้ำ 75×")
 ---
 
-## Cline Verification & Stepwise Approval
+## Verification & Stepwise Approval
 - [x] Stage A (Code Audit) — diff ตรง scope 4 ไฟล์ + 3 ไฟล์เทสต์; invariants ตรวจแล้ว (Anti-Mock: ไม่มีค่าปลอม/`0.00`/`success=True` จาก settings · Zero-OTP: ไม่มี login/OTP ถูกเรียกในเทสต์ · Broker Isolation: ไม่มี fallback ข้ามโบรกเกอร์ · ไม่แตะ order/tick-size/uptick)
 - [x] Stage B (Verify) — `.venv/bin/python scripts/verify_changes.py <4 ไฟล์>` = **PASS (134 tests, compileall OK)** + `--full` = **PASS (633 passed)**
 - [x] Stage C (Visual/HITL) — **n/a รอบนี้**: ไม่มี headed browser/live ตาม scope (`ห้าม live/HITL`); พฤติกรรมการ์ดถูกยืนยันด้วย flex-JSON assertions แทน (2-line row, `md` symbol, `unavailable_card` เมื่อ `authenticated is False`)
-- [ ] Stage D (Verdict + Merge) — รอ human gate: commit/PR + merge `main` (ยังไม่ commit; รอคำตอบ A3 clause ด้านบน)
+- [x] Stage D (Verdict + Merge) — merged เข้า `main` (`7bc4bf2`, `14e31de`)
 - Verdict: **PASS (unit level)** / live witness = `TASK-loop1-4`
 ---
 
 ## Argon Analysis
-- Direction verdict: ...
-- Next loop focus: ...
+- **Direction alignment**: PASS — ปิดช่องโหว่ Pillar 2 ครบทั้ง 4 จุด (`else: CLICK2WIN` fallback, `authenticated` flag ใน `current_orders`, `account_no` จริงของ LIB ใน `portfolio_holdings`, และ `switch_account` Anti-Mock `BROWSER_NOT_ACTIVE`) พร้อมล็อก `MARGIN (3024959)` เป็น default ของ KSS read paths โดยไม่บิดเบือน `account_context` จริงบนหน้าจอ
+- **Directive consistency**: สอดคล้องกับ `directive/master_directive_v2.md` §2 Pillar 2 และ §4 Invariants 1–4 ครบถ้วน (Close A3, C2, C4 ในระดับโค้ด/unit)
+- **Code vulnerability scan**:
+  - ระวังกรณีส่ง `platform=""` (empty string) ในเทสต์ที่เคยตกลง default platform แล้วเรียก `scrape_portfolio()` จริงจน quarantine `data/session_state.json` — ตอนนี้ normalize platform ให้ raise `ValueError` ทันทีเมื่อไม่ตรง `KRUNGSRI`/`LIBERATOR`/`CLICK2WIN` แล้ว แต่ตอนเริ่ม `TASK-loop1-4` ต้องเช็ค/กู้คืน `data/session_state.json` หากยังติด `.stale.bak.json`
+  - ปัญหา test pollution ใน `learned_workflows/` (Open question #5 / F-11) ได้รับการแก้ไขแยกใน commit `28b3468` (`tests/conftest.py` redirect `WORKFLOWS_DIR` ลง `tmp_path` sandbox · `C2W-RCA-006`)
+- **Next loop improvement**: ยืนยันผลแสดงการ์ด `/orders kss`, `/orders lib`, และหัวการ์ดเลขบัญชี `/port lib` บนมือถือจริงใน `TASK-loop1-4` ขั้นที่ 1–2

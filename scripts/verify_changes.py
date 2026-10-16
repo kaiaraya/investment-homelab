@@ -157,6 +157,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     ],
     "scripts/dev_resume_session.py": ["tests/test_dev_resume_session.py"],
     "scripts/hooks/token_guard.py": ["tests/test_token_guard.py"],
+    "scripts/jules_bridge.py": ["tests/test_jules_bridge.py"],
     "scripts/krungsri/probe_account_info.py": ["tests/test_probe_account_info.py"],
     "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
     # Shared test harness — conftest.py holds fixtures (no tests of its own). Changed fixtures

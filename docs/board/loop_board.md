@@ -1,60 +1,70 @@
-# Loop Board — Loop <N>
+# Loop Board — Loop 1
 
 > **แทน Kanban** (ปลดระวาง cline-kanban แล้ว) · เจ้าของบอร์ด: **Argon** (Antigravity)
-> 1 board = 1 loop · ทั้ง 3 app (Argon · Antigravity IDE/Flash · Cline plugin) ชี้ **folder เดียวกัน**
+> **4-Agent Hybrid Loop**: **Argon** (Plan/Eval) · **Flash 3.8** (STEP 0a DOM Probe + STEP 3 T2 Witness) · **Jules** (STEP 2a Cloud T0/T1) · **Cline** (STEP 2b Local Triage + Side-Quests)
 > รายละเอียดงานต่อใบ → `docs/handoff/TASK-<slug>.md` (ตัวกลางเดียวของ loop)
 
-- **Loop:** 2
-- **Opened:** 2026-10-16
+- **Loop:** 1
+- **Opened:** 2026-10-15
 - **Closed:** —
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 
 ## วิธีใช้
-- **Argon** = เจ้าของบอร์ด: ย้ายการ์ดระหว่างคอลัมน์ + เพิ่ม/ลบการ์ด (ดูใน Antigravity)
-- **Cline / Flash** = อัปเดตแค่ `Status` ใน handoff md ของตัวเอง → Argon sync ลง board (ไม่ต้องแก้ board ตรงๆ)
-- **Human** = gate: อ่านแผน → flip `Status` (gate #1) · squash `task/<slug>` → `main` (gate #2)
-- ปิด loop → archive ไฟล์นี้เป็น `docs/board/archive/LOOP-<N>.md` แล้ว reset สำหรับ loop ถัดไป
+- **Argon** = เจ้าของบอร์ด: ย้ายการ์ดระหว่างคอลัมน์ + เพิ่ม/ลบการ์ด + กำหนดโมเดล Jules (`3.6 Flash` / `3.1 Pro`) และสถานะ `PROBE_NEEDED`
+- **Flash 3.8 + Human** = รัน **STEP 0a (Pre-Coding Read-Only Probe)** เติม `## DOM / API Contract` ก่อนส่งให้ Jules และรัน **STEP 3 (T2 Live Witness)**
+- **Jules (Cloud VM)** = เขียนโค้ด + Unit Test งานหลัก `🟢T0` (`Gemini 3.6 Flash`) / `🟡T1` (`Gemini 3.1 Pro`) ผ่าน `scripts/jules_bridge.py`
+- **Cline (Local)** = **(1) STEP 2b Local Triage**: ดึง branch จาก Jules มาตรวจ Diff + รัน `verify_changes.py` กรองก่อนส่ง Argon · **(2) เลนที่ 6 (`🔧 Side-Quests`)**: เคลียร์งาน Low-Priority จาก `Open questions` โดยไม่บล็อก Loop หลัก
+- **Human** = gate: อ่านแผน + ยืนยัน Probe → flip `Status` (gate #1) · squash `task/<slug>` → `main` (gate #2)
 
 ---
 
-## 🔴 1. Backlog (Argon)
-| # | Task | Tier | Owner | Status | Handoff |
-|---|------|------|-------|--------|---------|
-| 1 | `<slug>` | 🟢T0 | Cline | DRAFT | `docs/handoff/TASK-<slug>.md` |
+## 🔴 1. Backlog (Argon — Main Loop Candidates)
+| # | Task | Tier / Model | Probe | Owner | Status | Handoff |
+|---|------|--------------|-------|-------|--------|---------|
+| — | — | — | — | — | — | — |
 
-> หมายเหตุ Loop 2: `loop-redesign-local-handoff` = งาน bootstrap ของ SOP นี้ (ดูคอลัมน์ 4)
+## 🟡 2. Ready / Planning (Argon + STEP 0a Flash Probe — รอ gate #1)
+| # | Task | Tier / Model | Probe | Owner | Status | Handoff |
+|---|------|--------------|-------|-------|--------|---------|
+| 4 | `loop1-4-live-round-b-witness-verification` | 🔴T2 (`Flash 3.8`) | NONE | Flash | READY | `docs/handoff/TASK-loop1-4-live-round-b-witness-verification.md` |
 
-## 🟡 2. Ready / Planning (Argon — รอ gate #1)
-| # | Task | Tier | Owner | Status | Handoff |
-|---|------|------|-------|--------|---------|
-| — | — | — | — | — | — |
-
-## 🔵 3. In Progress (Cline T0/T1 · Flash T2)
-| # | Task | Tier | Owner | Status | Handoff |
-|---|------|------|-------|--------|---------|
-| — | — | — | — | — | — |
+## 🔵 3. In Progress & Local Triage (STEP 2a Jules Cloud → STEP 2b Cline Triage · Flash T2)
+| # | Task | Tier / Model | Probe | Owner | Status | Handoff |
+|---|------|--------------|-------|-------|--------|---------|
+| — | — | — | — | — | — | — |
 
 ## 🟢 4. Review / Approval (Flash verify + human witness)
-| # | Task | Tier | Owner | Status | Handoff |
-|---|------|------|-------|--------|---------|
-| 1 | `loop-redesign-local-handoff` | 🟢T0 | Cline | REVIEW | `docs/handoff/TASK-loop-redesign-local-handoff.md` |
+| # | Task | Tier / Model | Probe | Owner | Status | Handoff |
+|---|------|--------------|-------|-------|--------|---------|
+| — | — | — | — | — | — | — |
 
 ## ⚪ 5. Done (human merge แล้ว)
-| # | Task | Tier | Owner | Status | Handoff |
-|---|------|------|-------|--------|---------|
-| — | — | — | — | — | — |
+| # | Task | Tier / Model | Probe | Owner | Status | Handoff |
+|---|------|--------------|-------|-------|--------|---------|
+| 1 | `loop1-1-pillar2-orders-and-margin-lock` (`7bc4bf2`, `14e31de`) | 🟡T1 | DONE | Cline | DONE (unit · live witness in #4) | `docs/handoff/TASK-loop1-1-pillar2-orders-and-margin-lock.md` |
+| 2 | `loop1-2-unify-kss-nego-to-quicktrade-inplace` (`d7bde41`, `cd2a24e`) | 🟡T1 | DONE | Cline | DONE (unit · live witness in #4) | `docs/handoff/TASK-loop1-2-unify-kss-nego-to-quicktrade-inplace.md` |
+| 3 | `loop1-3-liberator-quote-and-nego-hardening` (`9ed1f5a`) | 🟡T1 | DONE | Cline | DONE (unit+quote API · live witness in #4) | `docs/handoff/TASK-loop1-3-liberator-quote-and-nego-hardening.md` |
+
+---
+
+## 🔧 6. Side-Quests / Open Questions (Cline Local — Non-Blocking, WIP ≤ 1, branch `chore/<slug>`)
+> งานเก็บตก Low-Priority จาก `Open questions` ที่ไม่บล็อกวัตถุประสงค์หลักของ Loop ปัจจุบัน (Cline ทำในเครื่อง + กรองส่ง Argon)
+
+| # | Side-Quest | Source Card | Tier | Owner | Status | Branch / Notes |
+|---|------------|-------------|------|-------|--------|----------------|
+| SQ-1 | `nego-policy-unify-and-dryrun-badge` (รวม `_plan_nego` ของ LIB เข้า `plan_negotiation` + ป้ายหัวการ์ด `DRY-RUN` เมื่อ `DRY_RUN_MODE=True`) | `TASK-loop1-2` Open Q#2, Q#5 | 🟡T1 | Cline | QUEUED | `chore/nego-policy-dryrun-badge` |
+| SQ-2 | `liberator-halt-zero-price-guard` (แปลง `bp`/`op` = `"0"` ช่วง Halt/Pre-open ใน `_to_float` ของ `driver.py` เป็น `None` แทน `0.0`) | `TASK-loop1-3` Open Q#4 | 🟢T0 | Cline | QUEUED | `chore/liberator-halt-zero-guard` |
+| SQ-3 | `click2win-runbook-clean-f11` (ล้างข้อความ `(Self-Annealed: ...)` ซ้ำ 75× ที่ค้างใน `learned_workflows/click2win/click2win_order_submit.md`) | `C2W-RCA-006` (`28b3468`) | 🟢T0 | Cline | QUEUED | `chore/c2w-runbook-clean-f11` |
 
 ---
 
 ## Legend
 
-**Tier (ใครทำ):**
-- 🟢 **T0** — code / docs / unit test / headless scrape (ไม่แตะ order/OTP/account) → **Cline plugin** (Act=DeepSeek Flash)
-- 🟡 **T1** — logic ที่ไม่แตะ order / OTP / tick size → **Cline plugin** (Plan=DeepSeek Pro · Act=DeepSeek Flash) + diff audit
+**Tier & Model Routing:**
+- 🔍 **STEP 0a (Pre-Coding Probe)** — งานที่แตะ DOM/XHR โบรกเกอร์ ต้องให้ **Flash 3.8 + Human** อ่านค่าจริงใส่ `## DOM / API Contract` ก่อนส่งให้ Jules (`PROBE_NEEDED → PROBE_DONE`)
+- 🟢 **T0** — code / docs / unit test / selector ที่มี Contract แล้ว → **Jules (`Gemini 3.6 Flash`)** → **Cline Triage**
+- 🟡 **T1** — logic / guardrails / multi-file refactor ที่ไม่แตะ live order/OTP → **Jules (`Gemini 3.1 Pro`)** → **Cline Triage**
+- 🔧 **Side-Quest (T0/T1 Low-Priority)** — ประเด็นจาก `Open questions` นอกเส้นทางหลัก → **Cline (`DeepSeek Pro/Flash`)** บน branch `chore/<slug>`
 - 🔴 **T2** — order · OTP · account switch · SBL · live login · live browser · merge `main` → **Antigravity IDE (Flash 3.8)** + human witness
 
-**Status (ใน handoff md):** `DRAFT → READY → IN_PROGRESS → REVIEW → DONE` (↩ `CHANGES_REQUESTED`)
-
-**Owner:** Cline (T0/T1) · Flash (T2/HITL) · Argon (plan + analysis)
-
-**Gate:** gate #1 = human อนุมัติแผน · gate #2 = human merge `main` (T2 ต้องมี witness ตอน STEP 3)
+**Status (ใน handoff md):** `DRAFT → (PROBE_NEEDED) → READY → IN_PROGRESS → TRIAGE → REVIEW → DONE` (↩ `CHANGES_REQUESTED`)

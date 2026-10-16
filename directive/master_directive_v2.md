@@ -1,7 +1,7 @@
 # Master Directive: InvestmentHomelab — Focused LINE CLI & In-Place Price Negotiation (Pillar 1–3)
 
 **Status:** Canonical Single Source of Truth (Active Development Loop)  
-**Last Synchronized Commit:** `0515a98` (2026-10-15)  
+**Last Synchronized Commit:** `2bf22f8` (2026-10-16)  
 **Target Readers:** Argon (Planner/Reviewer) & Cline (Implementer/Verifier)
 
 > **กฎสูงสุดสำหรับ Agent (Cline & Argon):** เอกสารฉบับนี้คือแม่บทเดียวของ Development Loop ปัจจุบัน (ความยาว < 200 บรรทัด ผ่านเกณฑ์ `token_guard`) หากเนื้อหาใน `directive/idea.md`, `directive/phase3_detail.md`, `directive/kdeconnect.md`, หรือ `directives/sops/*.md` ขัดแย้งกับไฟล์นี้ **ให้ยึดไฟล์นี้เป็นหลักทั้งหมด และห้ามแตะโมดูลที่ถูกระบุว่าเป็น Dormant/Disabled**

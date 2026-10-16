@@ -1,39 +1,36 @@
-# Handoff protocol (Argon → Cline → Flash → Argon)
+# Handoff protocol (Argon → Flash Probe → Jules → Cline Triage → Flash Witness → Argon)
 
-> ย้ายมาจาก AGENTS.md (คำต่อคำ) เมื่อ 2026-10-12 · อัปเดต 2026-10-16 — ต้นฉบับเต็ม: `docs/agent/full/AGENTS_full.md`
-> ⛔ **ไม่มี GitHub/PR แล้ว** — medium = folder เดียวกัน · รายละเอียด loop เต็ม: `docs/agent/local_handoff.md`
+> อัปเดต 2026-10-16 — รองรับ **4-Agent Hybrid Loop** (รายละเอียดเต็ม: `docs/agent/local_handoff.md`)
 
 - งานมาจาก `docs/handoff/TASK-<slug>.md` (template: `docs/handoff/_TEMPLATE.md`) — ทำเฉพาะ scope ที่ระบุ
-- ก่อนเริ่มงาน: เขียน "Steps / Task Decomposition" (atomic steps + per-step verify) ลงในไฟล์ handoff แล้วทำทีละ step (ห้าม batch)
-- เริ่มใน Plan mode, ยืนยันแผนกับผู้ใช้ แล้วจึงสลับเป็น Act mode
+- งานที่แตะหน้าเว็บโบรกเกอร์หรือ XHR API ต้องผ่าน **STEP 0a (Pre-Coding Read-Only Probe)** โดย **Flash 3.8 + Human** เพื่อเขียน `## DOM / API Contract` ก่อนส่งให้ **Jules** เสมอ
+- ก่อนเริ่มเขียนโค้ด: ต้องมี "Steps / Task Decomposition" (atomic steps + per-step verify) ในไฟล์ handoff แล้วทำทีละ step (ห้าม batch)
 
-## Flow — ใครเขียนอะไร (ไฟล์ md เดียวต่อยอดกันทั้ง 3 app)
+## Flow — ใครเขียนอะไร (ต่อยอดกันในไฟล์ `TASK-<slug>.md` เดียว)
 
 | STEP | Actor | เขียน | Status |
 |---|---|---|---|
-| 0 | **Argon** | §Directive delta · §Scope · §Context map · §Steps · §Acceptance (+ การ์ดใน `docs/board/loop_board.md`) | `DRAFT` → `READY` |
-| 1 | **Human** (gate #1) | flip `Status` (ไม่มี PR) | `READY` → `IN_PROGRESS` |
-| 2 | **Cline** (T0/T1) | `## Cline Report` | → `REVIEW` |
-| 3 | **Flash 3.8** (T2/HITL) | `## Verification & Stepwise Approval` (+ `### Live Evidence`) | verdict |
-| 4 | **Human** (gate #2) | squash `task/<slug>` → `main` | → `DONE` |
-| 5 | **Argon** | `## Argon Analysis` (4 งาน) → directive delta | → STEP 0 |
+| **0** | **Argon** | §Directive delta · §Scope · §Context map · §Steps · §Acceptance (+ การ์ดใน `docs/board/loop_board.md`) | `DRAFT` → `PROBE_NEEDED` หรือ `READY` |
+| **0a** | **Flash 3.8 + Human** | `## DOM / API Contract` (Read-Only Probe อ่าน Selector/JSON จริงจากหน้าเว็บ) | `PROBE_NEEDED` → `PROBE_DONE` (`READY`) |
+| **1** | **Human** (gate #1) | flip `Status` + รัน `scripts/jules_bridge.py push-plan` & `prompt` | `READY` → `IN_PROGRESS` |
+| **2a** | **Jules** (Cloud T0/T1) | โค้ด + Unit Test (`T0=Gemini 3.6 Flash` / `T1=Gemini 3.1 Pro`) + `## Jules Report` | → `TRIAGE` |
+| **2b** | **Cline** (Local Triage) | ดึง branch (`jules_bridge.py pull-branch`) → ตรวจ Invariants + รัน `verify_changes.py` ในเครื่อง → `## Cline Triage Report` | → `REVIEW` |
+| **3** | **Flash 3.8 + Human** | (ถ้ามี T2) `## Verification & Stepwise Approval` (+ `### Live Evidence`) | verdict |
+| **4** | **Human** (gate #2) | squash `task/<slug>` → `main` | → `DONE` |
+| **5** | **Argon** | `## Argon Analysis` (4 งาน) → แตกการ์ดรอบถัดไป / ส่ง `Open questions` เข้าเลน `🔧 Side-Quests (Cline)` | → STEP 0 |
 
-## `## Cline Report` (Cline plugin เขียน — STEP 2)
-
+## `## Jules Report` (Jules เขียนบน Cloud VM — STEP 2a)
 - Files changed (path เต็มทุกไฟล์) · Summary ของการเปลี่ยนแปลง
-- คำสั่งเทสต์ที่รัน + ผลลัพธ์
-- Open questions / สิ่งที่ไม่แน่ใจ
-- เจอปัญหานอก scope → บันทึกใน Open questions แทนการแก้เอง
+- คำสั่งเทสต์ที่รันบน Cloud VM + ผลลัพธ์
+- Open questions / สิ่งที่ไม่แน่ใจ (ห้ามแก้เองนอก scope)
+
+## `## Cline Triage Report` (Cline plugin เขียนในเครื่อง — STEP 2b)
+- ดึง branch ลงมาเป็น `task/<slug>` ผ่าน `.venv/bin/python scripts/jules_bridge.py pull-branch <remote_branch> --slug <slug>`
+- ตรวจ `git diff main...task/<slug>` เทียบ Scope, `## DOM / API Contract`, และ Invariants
+- รัน `.venv/bin/python scripts/verify_changes.py <changed files>` ซ้ำในเครื่อง Homelab
+- คัดกรอง `Open questions` ที่เป็น Low-Priority แยกไปลงตาราง **`🔧 6. Side-Quests / Open Questions`** บน `docs/board/loop_board.md` และสรุปผลสั้นกระชับให้ Argon
 
 ## `## Verification & Stepwise Approval` (Flash 3.8 เขียน — STEP 3 · Stage A–D)
-
 - Stage A audit diff vs Invariants (Anti-Mock · Zero-OTP · Uptick) · Stage B `.venv/bin/python scripts/verify_changes.py <files>`
 - Stage C live/HITL ผ่าน `ask_question` · Stage D verdict = `PASS` / `CHANGES_REQUESTED`
 - งาน T2 ต้องมี `### Live Evidence` (screenshot path + human witness) — ภาพอ่านผ่าน vision/OCR → ข้อความ (**ห้าม base64 เข้าโมเดล**)
-- ถ้าไม่ผ่าน: **ห้าม commit ไป `main`** → `CHANGES_REQUESTED` + RCA (`docs/agent/local_handoff.md` §9)
-
-## Token-saving additions
-
-- Argon ต้องเขียนส่วน **`## Context map`** ในไฟล์ handoff: ไฟล์ + ช่วงบรรทัด/ชื่อ symbol ที่ต้องแก้หรืออ่าน + verify command
-  → agent เริ่มงานจาก map นี้ทันที **ไม่ต้อง search ทั้ง repo ใหม่**
-- ถ้า Context map ไม่พอ ให้ค้นแบบเจาะจง (ดู Token budget ใน AGENTS.md) และเติม map กลับลงไฟล์ handoff

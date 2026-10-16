@@ -2,7 +2,7 @@
 
 - Created: 2026-10-15 by Argon (Complex Task Owner)
 - Broker: Liberator WebTrade (LIB · CASH)
-- Status: DRAFT
+- Status: DONE (unit + live quote gate · merged `9ed1f5a`; live amend witness in `TASK-loop1-4`)
 - Run mode: INTERACTIVE (ห้องนี้ · `stepwise-approval`) — โค้ด+unit รันในห้องนี้; การ์ด `045ac` ถูกลบ 2026-10-15 ตาม `.agents/skills/task-router/SKILL.md` §3 fallback (kanban session start จาก agent terminal ถูก cancel; root cause ยังเปิด) · live quote = live witness ใน `TASK-loop1-4`
 - Depends on: TASK-loop1-1
 - Unblocks: TASK-loop1-4
@@ -54,7 +54,7 @@
 ---
 
 ## Cline Report
-- Git Commit(s): _ยังไม่ commit_ — เสนอ `TASK-loop1-3: fix(liberator): symbol-verified quote API + fail-closed /nego lib` (รออนุมัติขอบเขต)
+- Git Commit(s): `9ed1f5a` (`TASK-loop1-3: fix(liberator): symbol-verified quote API + fail-closed /nego lib`)
 - Files changed:
   - `app/brokers/liberator/driver.py` — `get_market_bid_offer()` อ่านผ่าน quote API + **symbol gate** (D3);
     helper ใหม่ `_to_float`/`_to_int`/`_extract_order_book_id`/`_resolve_order_book_id`/`_fetch_stock_info`
@@ -93,14 +93,17 @@
      (Live Round B) ตามที่ตกลง
 ---
 
-## Cline Verification & Stepwise Approval
-- [ ] Stage A (Code Audit) · [ ] Stage B (Verify) · [ ] Stage C (Visual/HITL) · [ ] Stage D (Verdict + Merge)
-- Verdict: PASS / CHANGES_REQUESTED
+## Verification & Stepwise Approval
+- [x] Stage A (Code Audit) · [x] Stage B (Verify — 162 targeted + 677 full PASS) · [x] Stage C (Live Quote API Gate `live_check_quote_gate.py` PASS; headed order-amend witness deferred to `TASK-loop1-4`) · [x] Stage D (Verdict + Merge `9ed1f5a`)
+- Verdict: **PASS (code + unit + live quote gate)** / live amend witness = `TASK-loop1-4`
 ---
 
 ## Argon Analysis
-- Direction verdict: ...
-- Next loop focus: ...
+- **Direction alignment**: PASS — ค้นพบและปิด Root Cause สำคัญ (`LIB-RCA-020`): ตาราง Bid/Offer บน DOM ของ `/Portfolio` ผูกกับ `orderBookId` ตั้งต้น (`65781` = `A`) ไม่ได้เปลี่ยนตามช่องค้นหาเสมอไป การย้าย `get_market_bid_offer()` มาอ่านผ่าน Quote API (`GET /vb/config` → `POST /vb/stock/info`) พร้อมบังคับ Gate `n == symbol` ป้องกันการนำราคาหุ้นผิดตัวมาแก้คำสั่งได้เด็ดขาด
+- **Directive consistency**: ตรงตาม `directive/master_directive_v2.md` §2 Pillar 3 และ §4 Invariant 1 (Anti-Mock Fail-Closed: เมื่อชื่อหุ้นไม่ตรงหรือดึงไม่ได้ คืน `QUOTE_UNAVAILABLE` + ตัวเลข `None` ทั้งหมด และ `handlers.py` หยุดด้วย `unavailable_card`)
+- **Code vulnerability scan**:
+  - Open question #4 (`bp`/`op` = `"0"` ช่วง Halt / Pre-open ถูกแปลงเป็น `0.0`): แม้ G4 (`validate_tick_size(0.0)` = False) และ G5 (`tick_distance_exceeds`) จะช่วยบล็อกไม่ให้ส่งราคา `0.0` ออกไป แต่ควรแปลง `<= 0` ใน `_to_float` ของ `bid_1`/`offer_1` เป็น `None` (หรือ `NO_QUOTE`) ในรอบถัดไปเพื่อความชัดเจนตั้งแต่ชั้น Driver
+- **Next loop improvement**: ยืนยัน `/nego lib <order_no>` และ `/nego lib <sym ผิด>` บนตลาดจริงพร้อมพยานใน `TASK-loop1-4` ขั้นที่ 5–6
 
 ---
 

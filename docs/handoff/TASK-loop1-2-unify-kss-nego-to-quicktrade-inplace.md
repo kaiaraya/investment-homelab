@@ -2,7 +2,7 @@
 
 - Created: 2026-10-15 by Argon (Complex Task Owner)
 - Broker: Krungsri (KSS · QuickTrade Native In-Place Change · MARGIN 3024959)
-- Status: DRAFT
+- Status: DONE (unit level · merged `d7bde41` / `cd2a24e`; live witness in `TASK-loop1-4`)
 - Run mode: HYBRID — โค้ด+unit = HEADLESS (Kanban card `2b7ff`) · live amend = INTERACTIVE (ห้อง Antigravity)
 - Depends on: TASK-loop1-1
 - Unblocks: TASK-loop1-4
@@ -42,11 +42,11 @@
 ## Steps / Task Decomposition (Loop Engineering — บังคับ)
 | # | Atomic Step | Expected Outcome | Verify | Status |
 |---|---|---|---|---|
-| 1 | เพิ่ม `MAX_TICKS_EXCEEDED` + G4/G5 ใน `plan_negotiation` | ราคาห่างเกิน 3 tick → outcome `MAX_TICKS_EXCEEDED` | `.venv/bin/python -m pytest tests/test_quicktrade_negotiation_policy.py -q` | ⬜ |
-| 2 | เพิ่ม `quicktrade_driver.list_open_orders()` | คืนออเดอร์ค้าง MARGIN จาก `#orderBodyEq` | `.venv/bin/python -m pytest tests/test_quicktrade_driver.py -q` | ⬜ |
-| 3 | เปลี่ยน `_broker_modify` (kss) → quicktrade in-place | ไม่มีการเรียก `modify_order_price` ในเส้น LIVE | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ⬜ |
-| 4 | รวม `/negotiate` เป็น alias ของ `/nego kss` | มีเส้นทางเดียว ไม่มีโค้ดซ้ำ | `.venv/bin/python -m pytest tests/test_line_cli_parser.py tests/test_line_cli_flow.py -q` | ⬜ |
-| 5 | verify ครบ 3 ไฟล์ | PASS | `.venv/bin/python scripts/verify_changes.py app/services/quicktrade_negotiation_service.py app/brokers/krungsri/quicktrade_driver.py app/services/line_cli/handlers.py` | ⬜ |
+| 1 | เพิ่ม `MAX_TICKS_EXCEEDED` + G4/G5 ใน `plan_negotiation` | ราคาห่างเกิน 3 tick → outcome `MAX_TICKS_EXCEEDED` | `.venv/bin/python -m pytest tests/test_quicktrade_negotiation_policy.py -q` | ✅ |
+| 2 | เพิ่ม `quicktrade_driver.list_open_orders()` | คืนออเดอร์ค้าง MARGIN จาก `#orderBodyEq` | `.venv/bin/python -m pytest tests/test_quicktrade_driver.py -q` | ✅ |
+| 3 | เปลี่ยน `_broker_modify` (kss) → quicktrade in-place | ไม่มีการเรียก `modify_order_price` ในเส้น LIVE | `.venv/bin/python -m pytest tests/test_line_cli_flow.py -q` | ✅ |
+| 4 | รวม `/negotiate` เป็น alias ของ `/nego kss` | มีเส้นทางเดียว ไม่มีโค้ดซ้ำ | `.venv/bin/python -m pytest tests/test_line_cli_parser.py tests/test_line_cli_flow.py -q` | ✅ |
+| 5 | verify ครบ 3 ไฟล์ | PASS | `.venv/bin/python scripts/verify_changes.py app/services/quicktrade_negotiation_service.py app/brokers/krungsri/quicktrade_driver.py app/services/line_cli/handlers.py` | ✅ PASS (125) |
 
 ## Acceptance / Tests ที่ต้องผ่าน
 - `.venv/bin/python scripts/verify_changes.py app/services/quicktrade_negotiation_service.py app/brokers/krungsri/quicktrade_driver.py app/services/line_cli/handlers.py`
@@ -104,16 +104,19 @@
      now says `DRY-RUN — ยังไม่กดส่ง` — worth aligning with the dispatcher's mode flag in a later card.
 ---
 
-## Cline Verification & Stepwise Approval
-- [x] Stage A (Code Audit) · [x] Stage B (Verify) · [ ] Stage C (Visual/HITL) · [ ] Stage D (Verdict + Merge)
+## Verification & Stepwise Approval
+- [x] Stage A (Code Audit) · [x] Stage B (Verify) · [ ] Stage C (Visual/HITL — deferred to `TASK-loop1-4`) · [x] Stage D (Verdict + Merge `d7bde41`, `cd2a24e`)
 - Verdict: **PASS (code + unit)** — Stage A: diff audited against the allowed scope (3 source files + 3 test files
   + the two broker docs), invariants held (Anti-Mock: refusals are skips and `submitted` is never inferred from
   `success`; Zero-OTP: no login/SMS path touched; Uptick: strict G6 added, not weakened; Broker isolation: LIB
   untouched) · Stage B: `verify_changes.py` PASS 125 targeted + compileall OK.
-- Stage C (live witness) and Stage D (commit/merge = human gate #2) are **open** — live evidence is deliberately
-  deferred to `TASK-loop1-4` (no order was placed or amended).
+- Stage C (live witness) is deliberately deferred to `TASK-loop1-4` (no order was placed or amended).
 ---
 
 ## Argon Analysis
-- Direction verdict: ...
-- Next loop focus: ...
+- **Direction alignment**: PASS — ปิดช่องโหว่วิกฤต D1 (`trademan_driver.modify_order_price` Cancel+Replace ถูกตัดออกจากเส้นทาง LIVE `/nego kss` โดยสมบูรณ์) และรวม `/nego kss` กับ `/negotiate` เป็นเส้นทางเดียวกันผ่าน `quicktrade_negotiation_service` พร้อม `list_open_orders` จากตาราง `#orderBodyEq` ของบัญชี Margin (`3024959`)
+- **Directive consistency**: บังคับใช้ G4 (`validate_tick_size`), G5 (`tick_distance_exceeds` ≤ `LINE_NEGO_MAX_TICKS = 3`), และ G6 (Strict Short Uptick) ครบใน `plan_negotiation()` และอัปเดต `KSS-QT-RCA-004` + Runbook เรียบร้อย (Zero-Contradiction)
+- **Code vulnerability scan**:
+  - Open question #2 (`_plan_nego` ใน `handlers.py` เป็น preview ของ `kss` แต่เป็นตัวตัดสินจริงของ `lib`): ทั้งสองใช้ `tick_distance_exceeds` และ `validate_tick_size` ตัวเดียวกันแล้ว แต่ใน Loop ถัดไปควรแยกหรือรวม policy function ให้ใช้ `plan_negotiation()` ร่วมกันเพื่อกัน drift
+  - Open question #5 (`TRADING_MODE=LIVE` + `DRY_RUN_MODE=True`): แถวออเดอร์แสดง `DRY-RUN — ยังไม่กดส่ง` ชัดเจนแล้ว แต่หัวการ์ดยังขึ้นโหมดตาม `TRADING_MODE` — ควรปรับป้ายหัวการ์ดให้สะท้อน `DRY_RUN_MODE` ใน Loop ถัดไป
+- **Next loop improvement**: ทดสอบสดใน `TASK-loop1-4` ขั้นที่ 3–4 (ทั้งเคสขยับราคา ≤ 3 ช่อง และเคสปฏิเสธ `MAX_TICKS_EXCEEDED` > 3 ช่อง) พร้อมพยานดูหน้าจอจริง
