@@ -29,8 +29,8 @@
 ## Steps / Task Decomposition (Loop Engineering — บังคับ)
 | # | Atomic Step | Expected Outcome | Verify | Status |
 |---|---|---|---|---|
-| 1 | ทำความสะอาด Step 2 และ Step 6 ใน `click2win_order_submit.md` | ข้อความซ้ำ 75 ครั้งหายไป เหลือคำอธิบายภาษาไทยกระชับตามขั้นตอนมาตรฐาน | ตรวจสอบเนื้อหาในไฟล์ | ⬜ |
-| 2 | รัน verify_changes.py | PASS ครบทุกเทสต์ | `.venv/bin/python scripts/verify_changes.py tests/test_annealing_runbook_isolation.py learned_workflows/click2win/click2win_order_submit.md` | ⬜ |
+| 1 | ทำความสะอาด Step 2 และ Step 6 ใน `click2win_order_submit.md` | ข้อความซ้ำ 75 ครั้งหายไป เหลือคำอธิบายภาษาไทยกระชับตามขั้นตอนมาตรฐาน | ตรวจสอบเนื้อหาในไฟล์ | ✅ |
+| 2 | รัน verify_changes.py | PASS ครบทุกเทสต์ | `.venv/bin/python scripts/verify_changes.py tests/test_annealing_runbook_isolation.py learned_workflows/click2win/click2win_order_submit.md` | ✅ |
 
 ## Acceptance / Tests ที่ต้องผ่าน
 - `.venv/bin/python scripts/verify_changes.py tests/test_annealing_runbook_isolation.py learned_workflows/click2win/click2win_order_submit.md`
@@ -43,11 +43,12 @@
 ---
 
 ## Jules Report (Jules เขียนบน Cloud VM — STEP 2a · Gemini 3.6 Flash)
-- Git Commit(s):
-- Files changed:
-- Summary:
+- Git Commit(s): Pending submit
+- Files changed: `learned_workflows/click2win/click2win_order_submit.md`, `docs/handoff/TASK-sq3-click2win-runbook-clean-f11.md`
+- Summary: Cleaned up repeated `(Self-Annealed: ...)` text entries in Step 2 and Step 6 from `click2win_order_submit.md`.
 - Tests run + result (Cloud VM):
-- Open questions:
+  - `.venv/bin/python scripts/verify_changes.py tests/test_annealing_runbook_isolation.py learned_workflows/click2win/click2win_order_submit.md` -> PASS (2 passed in 0.40s, targeted test PASS)
+- Open questions: None
 
 ---
 
