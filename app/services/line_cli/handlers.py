@@ -792,16 +792,6 @@ async def _handle_read(
 _NEGO_HALT_STATUSES = ("QUOTE_UNAVAILABLE", "SYMBOL_MISMATCH")
 
 
-def _tick_distance_exceeds(old: float, new: float, n: int) -> bool:
-    """G5 — is ``new`` more than ``n`` SET ticks away from ``old``?"""
-    from app.services.validator import validator
-    if abs(new - old) < 1e-9:
-        return False
-    if new > old:
-        return new > validator.get_next_tick(old, n) + 1e-6
-    return new < validator.get_next_tick(old, -n) - 1e-6
-
-
 async def _audit_nego(db: Any, broker: str, row: Dict[str, Any]) -> None:
     try:
         from app.db.models import SessionLog
@@ -825,7 +815,8 @@ async def _plan_nego(broker: str, o: Dict[str, Any], max_ticks: int) -> Dict[str
     ``source="unavailable"`` marker and the explicit ``success=False``
     ``QUOTE_UNAVAILABLE`` envelope (Loop 1 D1) mean "no price basis".
     """
-    from app.services.validator import validator
+    from app.services.quicktrade_negotiation_service import OrderSnapshot, Quote, plan_negotiation
+
     order_no = str(o.get("broker_order_no") or o.get("order_no") or "")
     symbol = str(o.get("symbol", "")).upper()
     side = str(o.get("side", "")).upper()
@@ -836,26 +827,28 @@ async def _plan_nego(broker: str, o: Dict[str, Any], max_ticks: int) -> Dict[str
     if vol <= 0:
         row.update(status="skip", reason="ไม่เหลือจำนวนให้ต่อ")
         return row
+
     quote = await _broker_quote(broker, symbol)
-    bid1, offer1, last = quote.get("bid_1"), quote.get("offer_1"), quote.get("last")
-    new_price = bid1 if side in ("BUY", "COVER") else (offer1 if side in ("SELL", "SHORT") else None)
-    if quote.get("success") is False or quote.get("source") == "unavailable" or not new_price:
+    if quote.get("success") is False or quote.get("source") == "unavailable":
         row.update(status="skip", reason="อ่านราคาตลาดไม่ได้ (fail-closed)")
         return row
-    new_price = float(new_price)
-    if abs(new_price - old) < 0.005:
+
+    q_obj = Quote(symbol=symbol, best_bid=quote.get("bid_1"), best_offer=quote.get("offer_1"), last=quote.get("last"))
+    order_snap = OrderSnapshot(order_no=order_no, symbol=symbol, side=side, price=old, balance=vol)
+
+    decision = plan_negotiation(order_snap, q_obj, max_ticks=max_ticks)
+
+    if decision.outcome.value == "OK":
+        row.update(status="planned", new_price=decision.target_price)
+    elif decision.outcome.value == "NO_CHANGE":
         row.update(status="skip", reason="อยู่ที่เป้าหมายแล้ว")
-        return row
-    if not validator.validate_tick_size(new_price)[0]:                 # G4
-        row.update(status="skip", reason="ไม่ผ่าน tick-size")
-        return row
-    if _tick_distance_exceeds(old, new_price, max_ticks):              # G5
-        row.update(status="skip", reason=f"ห่างเกิน {max_ticks} tick")
-        return row
-    if side == "SHORT" and not validator.validate_short_uptick(new_price, last)[0]:  # G6
+    elif decision.outcome.value == "UPTICK_VIOLATION":
         row.update(status="skip", reason="ผิดกฎ uptick")
-        return row
-    row.update(status="planned", new_price=new_price)
+    elif decision.outcome.value == "NO_QUOTE":
+        row.update(status="skip", reason="อ่านราคาตลาดไม่ได้ (fail-closed)")
+    else:
+        row.update(status="skip", reason=decision.reason)
+
     return row
 
 
@@ -983,6 +976,7 @@ async def _handle_nego(
 
             ts = _now_bkk().strftime("%H:%M:%S")
             is_test = not trade_dispatcher.is_live
+            dry_run = getattr(settings, "DRY_RUN_MODE", False)
             single = results[0] if len(results) == 1 else None
             if halted:
                 # Fail-closed: no price basis (or an unproven order identity) ⇒ the honest
@@ -1004,10 +998,11 @@ async def _handle_nego(
                     submitted=single.get("submitted"),
                     ts=ts,
                     is_test=is_test,
+                    dry_run=dry_run,
                 )
             else:
                 card = cards.nego_card(broker=BROKER_LABEL[broker], results=results, ok=ok, skipped=skipped,
-                                       failed=failed, ts=ts, is_test=is_test)
+                                       failed=failed, ts=ts, is_test=is_test, dry_run=dry_run)
             await service.push_message(card, to_user_id=push_target)
         except Exception as e:
             logger.exception(f"LINE CLI /nego {broker} failed")
@@ -1092,4 +1087,4 @@ async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: An
     return {"status": "CLI_UNKNOWN", "cmd": cmd}
 
 
-__all__ = ["handle", "_LOCKS", "_STARTED", "_in_nego_window", "_tick_distance_exceeds", "_plan_nego"]
+__all__ = ["handle", "_LOCKS", "_STARTED", "_in_nego_window", "_plan_nego"]

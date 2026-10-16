@@ -1450,5 +1450,34 @@ async def test_nego_lib_skips_when_the_target_is_more_than_three_ticks_away(
 
     assert res['ok'] == 0 and res['skipped'] == 1 and res['halted'] is False
     spy.assert_not_awaited()                                    # nothing was pressed
-    assert 'ห่างเกิน 3 tick' in _flex_text(service.pushes[-1][0])
+    assert "ticks away from" in _flex_text(service.pushes[-1][0])
+
+
+@pytest.mark.asyncio
+async def test_nego_card_shows_dry_run_badge(service, db_session, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
+    monkeypatch.setattr(handlers, "_broker_open_orders", AsyncMock(return_value=[_open_order()]))
+    monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_quote(bid_1=34.25, offer_1=34.50, last=34.00)))
+    monkeypatch.setattr(handlers, "_broker_modify", AsyncMock(return_value={"success": True}))
+
+    await _run(service, "/nego kss", db=db_session)
+    card_text = _flex_text(service.pushes[-1][0])
+    assert "DRY-RUN" in card_text
+    assert "#facc15" in card_text
+
+
+@pytest.mark.asyncio
+async def test_negotiate_card_shows_dry_run_badge(service, db_session, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
+    _patch_live_kss(monkeypatch, {
+        'success': True, 'outcome': 'OK', 'submitted': False, 'dry_run': True,
+        'current_price': 34.00, 'target_price': 34.25,
+    })
+
+    await _run(service, '/negotiate 11008198', db=db_session)
+    card_text = _flex_text(service.pushes[-1][0])
+    assert "DRY-RUN" in card_text
+    assert "#facc15" in card_text
 

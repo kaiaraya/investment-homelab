@@ -54,10 +54,10 @@
 
 ## Jules Report (Jules เขียนบน Cloud VM — STEP 2a · Gemini 3.1 Pro)
 - Git Commit(s):
-- Files changed:
-- Summary:
-- Tests run + result (Cloud VM):
-- Open questions:
+- Files changed: `app/services/line_cli/cards.py`, `app/services/line_cli/handlers.py`, `tests/test_line_cli_flow.py`
+- Summary: Refactored `_plan_nego` in `handlers.py` to use `quicktrade_negotiation_service.plan_negotiation` for centralized validation logic (tick size, distance, uptick rule). Updated `nego_card` and `negotiate_card` in `cards.py` to accept `dry_run: bool` and display a `DRY-RUN` badge with `#facc15` color. Supplied `dry_run=settings.DRY_RUN_MODE` from `handlers.py`. Removed `_tick_distance_exceeds` which is no longer needed. Updated tests to cover dry-run badges and modified exception text from centralized service.
+- Tests run + result (Cloud VM): `.venv/bin/python scripts/verify_changes.py app/services/line_cli/handlers.py app/services/line_cli/cards.py app/services/quicktrade_negotiation_service.py` -> 117 passed in 18.24s
+- Open questions: None.
 
 ---
 
