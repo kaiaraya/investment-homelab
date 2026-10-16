@@ -30,7 +30,7 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 - Long-output commands: `pytest -q --tb=line`, pipe logs through `| tail -40`; never cat whole logs.
 - STOP & ask the user when a unit exceeds **~20 tool calls**, a failure exceeds **3 attempts**, or the task exceeds **40 tool calls**.
 - Context > **60K tokens** → run skill `compact`, then continue in a new session with skill `resume`.
-- One Kanban card = one TASK = one session. Max **2** cards in parallel.
+- One task = one handoff md = one session (Cline session หรือ Flash room). Max **2** in `[In Progress]` พร้อมกัน.
 - Hook `token_guard` (`.cline/hooks/PreToolUse`, `.agents/hooks.json`) enforces the read/search limits — if denied, follow the reason; don't retry the same call.
 
 ## Response style
@@ -42,7 +42,7 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 
 ## Workflow
 - Loop every unit: DECOMPOSE → EXECUTE → VERIFY → REFLECT → REPEAT (`.agents/rules/loop_engineering.md`).
-- Handoff (Argon → Cline → Argon): work only the scope in `docs/handoff/TASK-xxx.md`; out-of-scope findings go to Open questions. Details: `docs/agent/handoff_protocol.md`.
+- Handoff (Argon → Cline/Flash → Argon): work only the scope in `docs/handoff/TASK-<slug>.md`; out-of-scope findings go to Open questions. Details: `docs/agent/handoff_protocol.md`.
 
 ## Read-when-relevant index
 | Task touches | Read first |
@@ -52,8 +52,9 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 | Daily readiness | `docs/agent/daily_readiness.md`, `.agents/skills/daily-readiness/SKILL.md` |
 | Handoff / Cline report format | `docs/agent/handoff_protocol.md` |
 | Token workflow (planning vs implementation split) | `docs/agent/token_workflow.md` |
-| Workflow SOP (AGY + Cline + Kanban) | `docs/agent/workflow_playbook.md` |
-| Argon ↔ Cline loop / GitHub handoff (PHASE 0–5, PR+Issue handoff, Human gates, Risk-tier) | `docs/agent/github_handoff.md` |
+| Workflow SOP (Argon + Cline + Flash 3.8 + loop board) | `docs/agent/workflow_playbook.md` |
+| Agent loop / local handoff (STEP 0–5, 3 actors, Human gates, Risk-tier) | `docs/agent/local_handoff.md` |
+| Loop board (แทน Kanban) | `docs/board/loop_board.md` |
 | Finding code | `docs/agent/CODEMAP.md` (regenerate: `.venv/bin/python scripts/gen_codemap.py`) |
 | Broker RCA / runbooks | `rca/<broker>/`, `learned_workflows/<broker>/` |
 | Token usage report | `.venv/bin/python scripts/token_report.py [--session <id>]` |

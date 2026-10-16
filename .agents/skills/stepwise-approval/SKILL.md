@@ -4,7 +4,7 @@ description: Co-pilot execution protocol — decompose work into small AI↔user
   state the expected outcome before each step, capture a screenshot at each stage
   when a headed browser is in use, and require real human interaction at every
   high-risk (T2) step — order/OTP/account/live-login/merge — per the risk-tiered
-  gate in `docs/agent/github_handoff.md` §6. Lower-risk work (T0/T1) reports at unit end.
+  gate in `docs/agent/local_handoff.md` §5. Lower-risk work (T0/T1) reports at unit end.
 ---
 
 # Stepwise-Approval Co-Pilot Skill
@@ -19,7 +19,7 @@ to code changes, refactors, bug fixes, and any Playwright-driven browser automat
 
 - Split each task into the smallest independently-verifiable steps
   (one function, one call-site edit, one browser action).
-- **Risk-tiered check-in** (see `docs/agent/github_handoff.md` §6) — do NOT hand control
+- **Risk-tiered check-in** (see `docs/agent/local_handoff.md` §5) — do NOT hand control
   back at every micro-step, or the user becomes the bottleneck:
   - 🟢 **T0** (code/docs/unit test/headless scrape): execute the whole unit, report at unit end.
   - 🟡 **T1** (logic not touching order/OTP/tick): batch within the unit, report diff + evidence.
@@ -72,10 +72,10 @@ to code changes, refactors, bug fixes, and any Playwright-driven browser automat
 
 ---
 
-## 6. Handoff Return Protocol (Cline Verification & Live Acceptance)
+## 6. Handoff Return Protocol (Flash 3.8 Verification & Live Acceptance)
 
-When a task card comes back from implementation (`## Cline Report` present in `docs/handoff/TASK-xxx.md`),
-**Cline runs Stage A–D itself** with model **DeepSeek Pro** (not a separate reviewer agent):
+When a handoff comes back from implementation (`## Cline Report` present in `docs/handoff/TASK-<slug>.md`),
+**Flash 3.8 (Antigravity IDE) runs Stage A–D itself** (not a separate reviewer agent) — a **different actor** from the Cline implementer:
 
 1. **Stage A: Automated Audit & Code Review**
    - Check all modified/created files in git status / report against the allowed scope.
@@ -90,16 +90,17 @@ When a task card comes back from implementation (`## Cline Report` present in `d
    - Execute exactly 1 observable action on `DISPLAY=:0`.
    - Prompt user via `ask_question` with recommended options to confirm observable state before proceeding.
 
-4. **Stage D: Cline Verdict & Task Closeout**
-   - Update `## Cline Verification` in `docs/handoff/TASK-xxx.md` to `PASS` or `CHANGES_REQUESTED`.
-   - `PASS` → open the result PR → user merges (Human gate #2) → worktree cleanup.
+4. **Stage D: Flash Verdict & Task Closeout**
+   - Update `## Verification & Stepwise Approval` in `docs/handoff/TASK-<slug>.md` to `PASS` or `CHANGES_REQUESTED`.
+   - `PASS` → user **squash-merges `task/<slug>` into `main`** (Human gate #2) → delete the branch.
 
 ---
 
-## 7. Stepwise Execution Protocol (Cline · DeepSeek Pro for verification)
+## 7. Stepwise Execution Protocol (Flash 3.8 · Antigravity IDE)
 
-Verification (Stage A–D) always runs on **DeepSeek Pro** — reasoning-grade accuracy for audit +
-stepwise HITL. To get consistent, high-fidelity execution:
+Verification (Stage A–D) always runs on **Flash 3.8** in the **Antigravity IDE** — reasoning-grade
+accuracy for audit + stepwise HITL, with multimodal read of the live screen. To get consistent,
+high-fidelity execution:
 
 1. **One Question at a Time**:
    - Always use the `ask_question` tool for user decisions.
@@ -120,8 +121,8 @@ stepwise HITL. To get consistent, high-fidelity execution:
 
 ## Cross-references
 
-- `docs/agent/github_handoff.md` — PHASE 0–5 loop + §4 Handoff mechanism (PR/Issue) + Risk-Tier (T0/T1/T2) + Human gates.
-- `docs/agent/workflow_playbook.md` — Kanban ownership (Argon) + `[Review / Approval]` column = Cline verify.
+- `docs/agent/local_handoff.md` — STEP 0–5 loop + §5 Risk-Tier (T0/T1/T2) + §7 status state machine + Human gates.
+- `docs/agent/workflow_playbook.md` — loop board ownership (Argon) + `[Review / Approval]` column = Flash 3.8 verify.
 - `watch-and-learn` — 4-Tier Self-Annealing Playwright protocol + PDCA broker
   knowledge loop.
 - `playwright-studio` — MCP tools for headed browser co-piloting and screenshot capture.

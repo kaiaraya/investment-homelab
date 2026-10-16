@@ -1,139 +1,119 @@
-# InvestmentHomelab — Agent Workflow & Kanban Playbook (SOP)
+# InvestmentHomelab — Agent Workflow & Loop Board Playbook (SOP)
 
-คู่มือและข้อกำหนดมาตรฐาน (Standard Operating Procedure) สำหรับการประสานงานระหว่าง **Argon @ Gemini web (Complex Task Owner — directive / แผน / วิเคราะห์ / Kanban)** กับ **Cline Agent (Implementer + Verifier)** โดยมี **มนุษย์เป็น Gate Keeper + Witness** (ไม่มี Gemini Flash ใน loop แล้ว)
+คู่มือ SOP สำหรับ **Development Loop 3-agent บน folder เดียวกัน** ระหว่าง
+**Argon (Antigravity · Complex Task Owner — directive / แผน / วิเคราะห์ / board)**,
+**Flash 3.8 (Antigravity IDE — T2/HITL + verify)**, และ **Cline (Cline plugin — T0/T1 implement)**
+โดยมี **มนุษย์เป็น Gate Keeper + Witness + relay**
+
+> ⛔ ไม่มี GitHub / PR / Issue · ⛔ ไม่มี Kanban (cline-kanban ปลดระวาง)
+> ฉบับเต็ม (loop STEP 0–5 · state machine · git · error handling): **`docs/agent/local_handoff.md`**
 
 ---
 
 ## 1. การแบ่งหน้าที่ (Role Boundaries: Plan vs Act)
 
-| หน้าที่ | Argon @ Gemini web | Cline Agent | Human |
-|---|---|---|---|
-| **Role** | Complex Task Owner — Directive Owner, Planner, Evaluator, Kanban owner | Implementer + Verifier (Unit Tester, RCA fixer) | Gate Keeper (อนุมัติ) + Witness (ยืนยันเหตุการณ์จริง) |
-| **Model** | Argon/Pro (web, GitHub connector) · monthly | DeepSeek Flash → Pro (implement) · **Pro** (verify) | — |
-| **การเข้าถึง** | GitHub repo (เขียนแผน + อ่านผล) เท่านั้น | Worktree + live browser + รูปภาพ (ผ่าน vision tool) | จอจริง + app broker + GitHub |
-| **ขอบเขตงาน** | อัปเดต directive (รับ learning) · วางแผน + self-review · เขียน Context map · วิเคราะห์ direction / consistency / vuln · จัดการ Kanban | ทำตาม Atomic steps ใน Context map · เขียนโค้ด · รัน unit test เจาะจง · verify (stepwise + vision) | merge PR แผน (gate #1) · ยืนยัน T2/live · merge PR ผล (gate #2) |
-| **Workspace** | GitHub (branch `plan/<slug>`) | Dedicated Git Worktree (`~/.cline/worktrees/<task-slug>`) | — |
-| **Output** | `directive/*.md`, `docs/handoff/TASK-xxx.md` (แผน), `## Argon Analysis`, GitHub Issue | Code commits, `## Cline Report`, `## Cline Verification` | การอนุมัติ (merge) |
+| หน้าที่ | Argon (Antigravity) | Flash 3.8 (Antigravity IDE) | Cline (Cline plugin) | Human |
+|---|---|---|---|---|
+| **Role** | Complex Task Owner — Directive Owner, Planner, Evaluator, Board owner | Live Runner + Verifier (stepwise) + RCA | Implementer (code + unit test) | Gate Keeper (อนุมัติ) + Witness (ยืนยันเหตุการณ์จริง) + relay |
+| **Model** | Argon/Pro (local) | Flash 3.8 (multimodal) | **Plan = DeepSeek Pro · Act = DeepSeek Flash** | — |
+| **Tier** | Plan + STEP 5 | 🔴 T2/HITL | 🟢 T0 / 🟡 T1 | gate #1/#2 + witness |
+| **การเข้าถึง** | folder เดียวกัน (เขียนแผน + อ่านผล) | folder + live browser + รูปภาพ | folder + terminal + tests | จอจริง + app broker |
+| **Workspace** | `directive/` · `docs/handoff/` · `docs/board/` | branch `task/<slug>` + `data/screenshots/` | branch `task/<slug>` | `main` (merge) |
+| **Output** | `directive/*.md`, แผนใน `docs/handoff/TASK-*.md`, `docs/board/loop_board.md`, `## Argon Analysis` | `## Verification & Stepwise Approval`, `### Live Evidence`, `rca/`, `learned_workflows/` | code (`app/**`, `tests/**`), `## Cline Report` | flip `Status` · merge `main` |
+
+**Worktree:** ใช้ **single checkout + branch `task/<slug>`** (ไม่ใช้ `git worktree` แยก) — ทั้ง 3 app ชี้ folder เดียวกัน สลับ branch ตามงาน
 
 ---
 
-## 2. โครงสร้าง Kanban Board (5 คอลัมน์)
+## 2. Loop Board แทน Kanban (5 คอลัมน์) — `docs/board/loop_board.md`
 
 ```
-[1. Backlog] ──> [2. Ready / Planning] ──> [3. In Progress] ──> [4. Review / Approval] ──> [5. Done]
-                     (Argon)                  (Cline)              (Cline verify + User)      (Argon + User)
+[1. Backlog] ──> [2. Ready/Planning] ──> [3. In Progress] ──> [4. Review/Approval] ──> [5. Done]
+                  (Argon · gate #1)      (Cline T0/T1 · Flash T2)   (Flash verify + human)   (human merge + Argon)
 ```
 
-**เจ้าของบอร์ด = Argon** (ผ่าน GitHub — commit/PR/Issue) · Cline ทำงานเฉพาะคอลัมน์ 3–4
+**เจ้าของบอร์ด = Argon** (ไฟล์ md ธรรมดา — ไม่มี daemon/CLI) · Cline/Flash อัปเดตแค่ `Status` ใน handoff แล้ว Argon sync ลง board
+- **WIP Limit:** ไม่เกิน **2 การ์ด** ใน `[In Progress]` พร้อมกัน
+- 1 board = 1 loop · ปิด loop → archive เป็น `docs/board/archive/LOOP-<N>.md` แล้ว reset
 
-1. **`[Backlog]` (Argon)**:
-   - บันทึกความต้องการใหม่ (Backlog items) และการ์ดลูก (Spawned child cards) ที่แตกประเด็นจาก §Argon Analysis / Open questions
-2. **`[Ready / Planning]` (Argon) — PHASE 0–3**:
-   - PHASE 0: Argon อัปเดต `directive/*.md` จาก learning ของ loop ที่แล้ว (ดู §Argon Analysis ของการ์ดก่อน)
-   - PHASE 1–2: Argon ร่าง `docs/handoff/TASK-xxx.md` + self-review เองจนโอเค (status: `DRAFT`)
-   - PHASE 3: Argon เปิด PR แผน + GitHub Issue → ผู้ใช้ merge PR → freeze scope (status: `READY`)
-   - ไฟล์ต้องระบุ **Scope**, **Context map** (ไฟล์, symbol, บรรทัด), และ **Atomic Decomposition**
-   - รายละเอียดเต็ม: `docs/agent/github_handoff.md` (§4 Handoff mechanism)
-3. **`[In Progress]` (Cline)**:
-   - **WIP Limit: ไม่เกิน 2 การ์ดพร้อมกัน**
-   - Cline ทำงานแยกใน Git Worktree เฉพาะการ์ด
-   - อ่านและแก้เฉพาะไฟล์ใน Context Map
-   - เพดาน Context: **≤ 60K tokens** (ถ้าเกินให้สั่ง `/compact` แล้วสร้างการ์ดใหม่ด้วย `/resume`)
-4. **`[Review / Approval]` (Cline verify + ผู้ใช้ witness)**:
-   - Cline ดำเนินการตาม **Stepwise-Approval Protocol**:
-     - Stage A: Audit diff เทียบกับ Invariants (Anti-Mock, Invariant 9 Zero-OTP, Uptick rule)
-     - Stage B: Live Headed UI / Hardware check
-     - Stage C: ยืนยันผลลัพธ์ผ่าน `ask_question`
-   - ภาพ UI/hardware → Cline อ่านผ่าน vision tool (Gemini vision → ข้อความ) เทียบ UI landmark
-5. **`[Done]` — PHASE 4c + 5 (Argon + ผู้ใช้)**:
-   - ผู้ใช้ Squash merge PR ผล เข้าสู่ branch `main` (Human gate #2)
-   - ลบ Worktree ชั่วคราว และอัปเดตสถานะใน handoff เป็น `DONE`
-   - PHASE 5: Argon วิเคราะห์ (แผน + ผล) → เขียน `## Argon Analysis` → learning ป้อนกลับ `[Backlog]` / directive ของ loop ถัดไป
+1. **`[Backlog]` (Argon)** — บันทึกความต้องการใหม่ + child cards ที่แตกจาก §Open questions / §Argon Analysis
+2. **`[Ready / Planning]` (Argon) — STEP 0** — อัปเดต directive จาก learning loop ที่แล้ว → ร่าง `docs/handoff/TASK-<slug>.md` (+ Context map, Scope, Atomic Decomposition) → self-review → `Status: READY` → **รอ human gate #1**
+3. **`[In Progress]` (Cline / Flash)** — human flip `Status: IN_PROGRESS` → 🟢🟡 Cline plugin (Plan=Pro · Act=Flash) · 🔴 T2 Flash 3.8 + live · อ่าน/แก้เฉพาะไฟล์ใน Context map · เพดาน context ≤ 60K (เกิน → `compact` → `resume`)
+4. **`[Review / Approval]` (Flash + human)** — Flash เขียน `## Verification & Stepwise Approval`: Stage A audit diff vs Invariants · Stage B `verify_changes.py` · Stage C live/HITL ผ่าน `ask_question` · Stage D verdict + human merge — ภาพ UI อ่านผ่าน vision/OCR → landmark (**ห้าม base64 เข้าโมเดล**)
+5. **`[Done]` (human + Argon) — STEP 4–5** — human **squash** `task/<slug>` → `main` (gate #2) → `Status: DONE` → **Argon** เขียน `## Argon Analysis` (4 งาน) → learning ป้อน directive loop ถัดไป
 
 ---
 
-## 3. กฎการตั้งชื่อและการแยกการ์ด (Card Naming & Branching)
+## 3. กฎการตั้งชื่อและการแยกการ์ด (Naming & Child Cards)
 
-### 3.1 Naming Convention
-ชื่อไฟล์และชื่อการ์ดต้องตรงกันในรูปแบบ:
-```
-TASK-<pillar/area>-<phase/seq>-<short-slug>
-```
-*ตัวอย่าง:*
-- `TASK-cli-p2a-cash-honest-mapping`
-- `TASK-krungsri-cancel-amend-uptick`
-- `TASK-line-otp-relay-kde`
+### 3.1 Naming
+- `TASK-<domain>-<slug>` — ตัวอย่าง: `TASK-line-otp-relay-kde`, `TASK-kss-cancel-amend-uptick`
+- branch: `task/<slug>`
 
 ### 3.2 กฎการแยกการ์ดใหม่ (Child Card Spawning)
-- เมื่อ Cline กำลังทำงาานแล้วพบ Bug แฝง, ปัญหาโครงสร้างนอก Scope, หรือข้อเสนอแนะเพิ่มเติม:
-  - **ห้ามแก้เองเด็ดขาด** (ป้องกัน Context Bloat & Scope Creep)
-  - บันทึกรายละเอียดลงใน `## Cline Report -> Open questions`
-  - Argon จะนำรายการใน Open questions มาแตกเป็นการ์ดใหม่ เช่น `TASK-<slug>_1-<desc>` นำไปวางใน `[Backlog]` เพื่อวางแผนต่อไป
+- เจอ Bug แฝง / ปัญหานอก Scope / ข้อเสนอเพิ่ม → **ห้ามแก้เอง** (กัน Context Bloat + Scope Creep)
+- บันทึกใน `## Cline Report -> Open questions`
+- Argon แตกเป็นการ์ดใหม่ `TASK-<slug>_1-<desc>` → วางใน `[Backlog]`
 
 ---
 
-## 4. กลยุทธ์ Git Worktree และ Commit Lifecycle
+## 4. Git & Commit Lifecycle
 
-### 4.1 Git Worktree Isolation
-Cline ทำงานใน Worktree อิสระต่อ 1 การ์ดเสมอ:
-```bash
-git worktree add ~/.cline/worktrees/<task-slug> -b task/<task-slug>
-```
+### 4.1 Branch
+- **ไม่ใช้ `git worktree`** — single checkout, สลับ branch ตามงาน
+- **ไม่มี git remote** — repo local-only (ห้าม push) · backup ทำเองนอก loop
+- `main` = canonical, **human-owned เท่านั้น** · `task/<slug>` = branch งาน
 
-### 4.2 Conventional Commit ใน Worktree (Cline Worker)
-ทุกครั้งที่จบ Atomic step ให้ commit โค้ดลง branch ประจำการ์ด:
+### 4.2 Conventional Commit
 ```
 TASK-<xxx>: <type>(<scope>): <summary>
 ```
-*ประเภท (Type):* `feat`, `fix`, `test`, `refactor`, `docs`
+*Type:* `feat`, `fix`, `test`, `refactor`, `docs`
 
-### 4.3 Squash & Merge เข้า Main (ผู้ใช้ = Human gate #2)
-หลัง Cline verify ผ่าน (Stepwise Approval) → ผู้ใช้ Squash merge PR ผลเข้าสู่ `main` (GitHub UI หรือคำสั่งด้านล่าง):
+### 4.3 Squash & Merge เข้า Main (human = gate #2)
 ```bash
 git checkout main
-git merge --squash task/<task-slug>
-git commit -m "TASK-<xxx>: <full-feature-summary>"
-git worktree remove ~/.cline/worktrees/<task-slug>
+git merge --squash task/<slug>
+git commit -m "TASK-<xxx>: <full-feature-summary> (live-verified)"
+git branch -D task/<slug>
 ```
 
 ---
 
 ## 5. มาตรการประหยัด Token (Token-Lean Rules)
 
-1. **ห้ามรัน Search กว้างๆ**: ค้นหาเฉพาะชื่อฟังก์ชัน/คลาสเฉพาะเจาะจง (≤ 3 คำต่อครั้ง)
-2. **ห้ามอ่านไฟล์เกิน 400 บรรทัดรวดเดียว**: ต้องระบุช่วงบรรทัดเสมอ (อาศัย `CODEMAP.md`)
-3. **ห้ามส่ง base64 รูปเข้าโมเดลตรงๆ**: Cline อ่านภาพผ่าน **vision tool** (Gemini vision → ข้อความ) แล้วเทียบ UI landmark; หรือตรวจ DOM text แทน
-4. **ตัดทอน Output**: รันเทสต์ด้วย `-q --tb=line` และ pipe log ด้วย `| tail -40`
-5. **Prompt Caching**: รักษา System Prompt ให้คงที่ ห้ามมี Dynamic timestamps ใน `AGENTS.md`
-6. **Hook Token Guard**: ให้เปิดใช้งาน `.cline/hooks/PreToolUse` และ `.agents/hooks.json` ตลอดเวลา
+1. **ห้ามรัน Search กว้างๆ** — ค้นหาเฉพาะ identifier เฉพาะเจาะจง (≤ 3 queries/ครั้ง · ดู `docs/agent/token_workflow.md`)
+2. **ห้ามอ่านไฟล์เกิน 400 บรรทัดรวดเดียว** — ระบุช่วงบรรทัดเสมอ (อาศัย `CODEMAP.md`)
+3. **ห้ามส่ง base64 รูปเข้าโมเดล** — Flash 3.8 อ่านภาพผ่าน vision tool → ข้อความ แล้วเทียบ UI landmark; หรือใช้ DOM text
+4. **ตัดทอน Output** — `pytest -q --tb=line` + pipe `| tail -40`
+5. **Prompt Caching** — System Prompt คงที่ ห้ามมี dynamic timestamp ใน `AGENTS.md`
+6. **Hook Token Guard** — เปิด `.cline/hooks/PreToolUse` + `.agents/hooks.json` ตลอด
 
 ---
 
-## 6. GitHub-Mediated Loop (Argon ↔ Cline + Human)
+## 6. Loop (Argon ↔ Antigravity IDE ↔ Cline + Human)
 
-Loop ใช้ **GitHub เป็น medium กลาง** — Argon (Gemini web) เข้าถึง repo ผ่าน GitHub connector โดยตรง (ไม่ automate browser) · มนุษย์ = ผู้ปลุก agent ณ จุด handoff (ดู `docs/agent/github_handoff.md` §4)
+Loop ใช้ **folder เดียวกันเป็น medium** — ทั้ง 3 app เขียน/อ่านไฟล์ใน repo โดยตรง · มนุษย์ = relay ปลุก agent ณ จุด handoff (ดู `docs/agent/local_handoff.md` §3)
 
 ```
-PHASE 0  Argon อัปเดต directive (รับ learning จาก loop ที่แล้ว)   [Argon · ไม่มีคน]
-PHASE 1  Argon ร่างแผน TASK-xxx.md + Context map (DRAFT)            [Argon · ไม่มีคน]
-PHASE 2  Argon self-review แผน (direction / consistency)            [Argon · ไม่มีคน]
-PHASE 3  คน merge PR แผน → READY (freeze scope)       🔴 Human gate #1
-PHASE 4  Cline implement + test + live test            🔴 Human gates ที่ T2
-PHASE 4b Cline verify (stepwise + vision tool) → verdict [Cline · DeepSeek Pro]
-PHASE 4c คน merge PR ผล → main (squash)                 🔴 Human gate #2
-PHASE 5  Argon วิเคราะห์ (เขียนแผนเอง + เห็นผล) → 4 งาน  [Argon · ไม่มีคน] → กลับ PHASE 0
+STEP 0  Argon อัปเดต directive + ร่างแผน TASK-<slug>.md + Context map + board   [Argon · ไม่มีคน]  DRAFT→READY
+STEP 1  Human อ่านแผน → flip Status (gate #1)                                    🔴 Human gate #1
+STEP 2  Cline plugin implement + unit test (T0/T1) · Flash live (T2)             [Cline/Flash]    → REVIEW
+STEP 3  Flash verify (stepwise + vision) → verdict + Live Evidence               [Flash 3.8 · witness]
+STEP 4  Human squash task/<slug> → main (gate #2)                                🔴 Human gate #2 → DONE
+STEP 5  Argon วิเคราะห์ (แผน + ผล) → ## Argon Analysis → directive delta         [Argon · ไม่มีคน] → STEP 0
 ```
 
-**Human gates — มีแค่ 2 บทบาท (ไม่เป็นคอขวด):**
+**Human gates — 2 บทบาท (ไม่เป็นคอขวด):**
 
 | บทบาท | Gate |
 |---|---|
-| **Gate Keeper (อนุมัติ)** | PHASE 3 อนุมัติ+merge PR แผน · PHASE 4c อนุมัติ+merge PR ผลเข้า main |
-| **Witness (ยืนยันเหตุการณ์จริง)** | live login/OTP · order เงินจริง · account switch/SBL · live test broker+LINE |
+| **Gate Keeper (อนุมัติ)** | STEP 1 อนุมัติแผน (flip `Status` = gate #1) · STEP 4 squash merge `task/<slug>` → `main` (gate #2) |
+| **Witness (ยืนยันเหตุการณ์จริง)** | STEP 3: live login/OTP · order เงินจริง · account switch/SBL · live test broker+LINE |
 
-**Risk-Tier:** 🟢 T0 อัตโนมัติ · 🟡 T1 diff audit + report · 🔴 T2 บังคับมีคน (order / OTP / account / SBL / live login / merge)
+**Risk-Tier:** 🟢 T0 อัตโนมัติ (Cline) · 🟡 T1 diff audit + report (Cline) · 🔴 T2 บังคับ human (order / OTP / account / SBL / live login / live browser / merge `main`)
 
 **Argon เขียนแผนเอง + เห็นผล → 4 งานวิเคราะห์:** (1) Direction alignment · (2) Directive consistency ·
 (3) Code vulnerability scan · (4) Next loop improvement → เขียนใน `## Argon Analysis` ของไฟล์ handoff
 
-> ฉบับเต็ม (status state machine, branch convention, cost policy, Anti-Mock guardrail): **`docs/agent/github_handoff.md`**
+> ฉบับเต็ม (status state machine · branch/merge convention · cost policy · T2 error handling · Anti-Mock guardrail): **`docs/agent/local_handoff.md`**

@@ -1,13 +1,13 @@
 # TASK-xxx: <ชื่องาน>
 
-- Created: YYYY-MM-DD by Argon (Complex Task Owner)
+- Created: YYYY-MM-DD by Argon (Complex Task Owner · Antigravity)
+- Loop: <N>  (board: `docs/board/loop_board.md`)
 - Broker: <Krungsri / Click2Win / Liberator / N/A>
-- Plan Branch (Argon): `plan/<slug>`
-- Git Branch (Cline): `task/<task-slug>`
-- Worktree: `~/.cline/worktrees/<task-slug>`
-- Status: DRAFT | READY | IN_PROGRESS | REVIEW | DONE  (state machine: `docs/agent/github_handoff.md` §7)
-- Plan PR: <GitHub PR url> · Issue: #<n>   (Argon เปิดตอน PHASE 1 — human merge = gate #1)
-- Result PR: <GitHub PR url>                (Cline เปิดตอน PHASE 4b — human merge = gate #2)
+- Tier: 🟢 T0 | 🟡 T1 | 🔴 T2   (T2 = order/OTP/account/SBL/live login/live browser/merge `main`)
+- Run mode: HEADLESS-CLINE (T0/T1) | HITL-FLASH (T2) | HYBRID (ทั้งคู่)
+- Git Branch: `task/<slug>`  (human squash → `main` = gate #2)
+- Status: DRAFT | READY | IN_PROGRESS | REVIEW | DONE  (↩ CHANGES_REQUESTED · state machine: `docs/agent/local_handoff.md` §7)
+- Plan approved (gate #1): <YYYY-MM-DD human OK / —>  ·  Merged to main (gate #2): <commit sha / —>
 
 ## Directive delta (Argon เขียน — PHASE 0)
 > Argon อัปเดต directive จาก learning ของ loop ที่แล้ว ก่อนร่างแผนเอง
@@ -45,7 +45,7 @@
 
 ---
 
-## Cline Report (Cline เขียนเมื่อส่งงานกลับ [Review / Approval] — PHASE 4)
+## Cline Report (Cline plugin เขียนเมื่อส่งงานกลับ [Review / Approval] — STEP 2 · model: DeepSeek Flash)
 - Git Commit(s): `TASK-xxx: <type>(<scope>): <summary>`
 - Files changed:
 - Summary:
@@ -54,15 +54,26 @@
 
 ---
 
-## Cline Verification & Stepwise Approval (Cline เขียน — PHASE 4b · model: DeepSeek Pro)
+## Verification & Stepwise Approval (Flash 3.8 เขียน — STEP 3 · Antigravity IDE · human witness)
 - [ ] **Stage A (Code Audit)**: Diffs match scope, Invariants verified (Anti-Mock, Zero-OTP, Uptick)
 - [ ] **Stage B (Verify)**: `.venv/bin/python scripts/verify_changes.py <changed files>` = PASS
-- [ ] **Stage C (Visual / HITL)**: Observable state checked (screenshot → vision tool → text) via `ask_question`
-- [ ] **Stage D (Verdict + Merge)**: PASS → เปิด PR ผล → ผู้ใช้ merge `main` (gate #2) → clean worktree
+- [ ] **Stage C (Visual / HITL)**: Observable state checked (screenshot path → vision/tool → text) via `ask_question`
+- [ ] **Stage D (Verdict + Merge)**: PASS → ผู้ใช้ squash `task/<slug>` → `main` (gate #2)
 - Spawned Child Cards (ถ้ามีประเด็นแตกย่อย):
   - `TASK-xxx_1-...` -> ย้ายลง `[Backlog]`
 - Verdict: PASS / CHANGES_REQUESTED
 - Notes:
+
+### Live Evidence (T2/HITL เท่านั้น · Anti-Mock — ห้าม base64 เข้าโมเดล)
+| Step | Expected Outcome | หลักฐาน (screenshot path / DOM text) | Human witness |
+|------|------------------|--------------------------------------|---------------|
+| ...  | ...              | `data/screenshots/<file>.png`        | ✅ / ❌ |
+
+### On T2/HITL error (ถ้าพบ error ตอน live)
+1. STOP ทันที (ไม่ทำ step ถัดไป) → 3-point RCA (session/context · live DOM · data schema)
+2. self-anneal ≤ 3 ครั้ง → ถ้าไม่ผ่าน: capture anomaly → บันทึก `rca/<broker>/` ใหม่ + อัปเดต `learned_workflows/<broker>/`
+3. **ห้าม commit ไป `main`** — โค้ดค้างบน `task/<slug>` · Verdict = `CHANGES_REQUESTED` + ลิงก์ RCA
+4. รากเป็น code bug → Cline แก้บน `task/<slug>` → Flash re-verify · รากเป็นแผน/directive → Argon re-plan
 
 ---
 

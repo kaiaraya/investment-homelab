@@ -1,6 +1,6 @@
 # Loop 1 Acceptance Scorecard & Task Breakdown (KSS Margin + LIB Cash · LINE CLI Pillar 1–3)
 
-**วัตถุประสงค์เอกสาร:** ใช้เป็น **(1) เกณฑ์ตรวจรับงาน (Definition of Done)** สำหรับเปรียบเทียบกับ `## Cline Report` / `## Cline Verification` และ **(2) แผนแตกการ์ดงาน (Task Breakdown)** แยกงานที่เสร็จแล้วกับงานที่ยังค้างอยู่เพื่อส่งต่อให้ Cline ทำทีละใบจนจบ Development Loop นี้
+**วัตถุประสงค์เอกสาร:** ใช้เป็น **(1) เกณฑ์ตรวจรับงาน (Definition of Done)** สำหรับเปรียบเทียบกับ `## Cline Report` / `## Verification & Stepwise Approval` และ **(2) แผนแตกการ์ดงาน (Task Breakdown)** แยกงานที่เสร็จแล้วกับงานที่ยังค้างอยู่เพื่อส่งต่อให้ Cline (T0/T1) / Flash 3.8 (T2) ทำทีละใบจนจบ Development Loop นี้
 
 ## 1. ตัวชี้วัดความสำเร็จของ Development Loop นี้ (Loop Acceptance Scorecard)
 
@@ -10,7 +10,7 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 | รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ Handoff ของ Cline | สถานะปัจจุบัน |
 | :--- | :--- | :--- | :---: |
 | **A1** | **Slim Gateway Boot**: รัน `app.main:app` แล้วไม่มี Background Scheduler (`phase3_scheduler`), Action Exit (`action_exit_dispatcher`), Agentic AI (`master_orchestrator`), หรือ Click2Win Polling ทำงานเบื้องหลัง | ตรวจ `app/core/config.py` ว่า Flag ทั้ง 4 ตัวเป็น `False` และไม่มี Task นอกขอบเขตถูกปลุกใน Log | ✅ ผ่านแล้ว |
-| **A2** | **No Console Dependency**: การใช้งานจริงตั้งแต่ต้นจนจบไม่ต้องเปิดหน้าเว็บ `/console` เลย (สั่งผ่าน LINE 100%) | ตรวจใน `## Cline Verification` ว่าไม่มีขั้นตอนที่บังคับให้กดผ่าน `/console` | ✅ ผ่านแล้ว |
+| **A2** | **No Console Dependency**: การใช้งานจริงตั้งแต่ต้นจนจบไม่ต้องเปิดหน้าเว็บ `/console` เลย (สั่งผ่าน LINE 100%) | ตรวจใน `## Verification & Stepwise Approval` ว่าไม่มีขั้นตอนที่บังคับให้กดผ่าน `/console` | ✅ ผ่านแล้ว |
 | **A3** | **Account Scope Lock**: `kss` ทำงานบนบัญชี **`MARGIN (3024959)`** เป็นค่าเริ่มต้นเสมอ และ `lib` ทำงานบนบัญชี **`CASH`** เท่านั้น ไม่มีการหลุดไปดึงข้อมูล `Click2Win` (`else: CLICK2WIN`) | ตรวจโค้ดใน `pillar2_portfolio.py` และ `trademan_driver.py` ว่าไม่มี `else: CLICK2WIN` ค้างอยู่ และล็อกบัญชี `3024959` | 🟡 ค้างเก็บตก (`TASK-loop1-1`) |
 
 ### หมวด B: Pillar 1 — การล็อกอินและการรักษา Session ผ่าน LINE (`/status`, `/login`, `/logout`)
