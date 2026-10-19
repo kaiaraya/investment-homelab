@@ -111,6 +111,17 @@ def test_parse_order_ledger_positional_fallback():
     assert orders[0]["balance"] == 500
 
 
+def test_parse_order_ledger_maps_single_letter_side_codes():
+    """SQ-6: the live ledger renders C/H/B/S instead of COVER/SHORT/BUY/SELL."""
+    rows = [
+        ["", "Order no", "Symbol", "Date", "Time", "Side", "Price", "Volume", "Matched", "Balance", "Cancelled", "Status"],
+        ["", "11012286", "PTTEP", "19/10/2026", "10:39:00", "C", "155.50", "300", "0", "300", "0", "Queuing(O)"],
+        ["", "11008937", "BCPG", "19/10/2026", "10:06:00", "H", "6.80", "100", "0", "100", "0", "Queuing(O)"],
+    ]
+    orders = KrungsriQuickTradeDriver.parse_order_ledger(rows)
+    assert [o["side"] for o in orders] == ["COVER", "SHORT"]
+
+
 def test_find_order():
     orders = [{"order_no": "1"}, {"order_no": "11008198"}]
     assert KrungsriQuickTradeDriver.find_order(orders, "11008198")["order_no"] == "11008198"

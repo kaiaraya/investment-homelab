@@ -89,6 +89,11 @@ _SIDE_ALIASES = {
     "LONG SELL": "SELL", "BUY": "BUY", "SELL": "SELL",
     "SHORT": "SHORT", "OPEN_SHORT": "OPEN_SHORT",
     "LONG": "LONG", "COVER": "COVER",
+    # SQ-6 (2026-10-19): the live #orderBodyEq ledger renders single-letter
+    # Settrade side codes - C = cover, H = short sell, B = buy, S = sell.
+    "B": "BUY", "S": "SELL", "H": "SHORT", "C": "COVER",
+    # Thai labels seen on the same board.
+    "ซื้อ": "BUY", "ขาย": "SELL", "ขายชอร์ต": "SHORT", "ซื้อคืน": "COVER",
 }
 
 

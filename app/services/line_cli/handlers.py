@@ -894,7 +894,7 @@ async def _handle_nego(
     from app.services.kill_switch_service import kill_switch_service
     from app.services.trade_dispatcher import trade_dispatcher
 
-    broker = parsed.broker
+    broker = parsed.broker or ""
     if kill_switch_service.is_active():                       # G1
         await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
         return {"status": "CLI_KILL_SWITCH"}
@@ -940,22 +940,41 @@ async def _handle_nego(
                 f"⚡ [{mode}] กำลังต่อราคา {BROKER_LABEL[broker]} · {len(orders)} ออเดอร์ค้าง…"))
 
             for o in orders:
-                row = await _plan_nego(broker, o, max_ticks)
-                if row["status"] == "planned":
-                    res = await _broker_modify(broker, order_no=row["order_no"], new_price=row["new_price"],
-                                               symbol=row["symbol"], side=row["side"], volume=row["volume"])
-                    if res.get("path") == "QUICKTRADE_INPLACE":
-                        # kss LIVE: report what Quick Trade actually did (its own quote +
-                        # guardrails decide), not the handler's preview.
-                        _apply_quicktrade_result(row, res)
-                    elif res.get("success"):
-                        row["status"] = "ok"
-                    else:
-                        row["status"] = "fail"
-                        row["reason"] = str(res.get("error") or res.get("message") or "ล้มเหลว")[:40]
-                        if str(res.get("status") or "") in _NEGO_HALT_STATUSES:
-                            halted, halt_status = True, str(res["status"])   # fail-closed
+                if broker == "kss":
+                    # SQ-6 (2026-10-19): do NOT pre-plan kss against the TradeMan REST
+                    # quote - it deliberately carries no bid/offer (depth lives on the
+                    # realtime hub). The Quick Trade service resolves the order + live
+                    # quote and applies G4-G6 itself, so planning here only produced a
+                    # guaranteed NO_QUOTE.
+                    row = {
+                        "order_no": str(o.get("broker_order_no") or o.get("order_no") or ""),
+                        "symbol": str(o.get("symbol", "")).upper(),
+                        "side": str(o.get("side", "")).upper(),
+                        "old_price": float(o.get("price", 0.0) or 0.0),
+                        "volume": int(o.get("balance") or o.get("volume") or 0),
+                    }
+                    res = await _broker_modify(broker, order_no=row["order_no"], new_price=0.0,
+                                               symbol=row["symbol"], side=row["side"],
+                                               volume=row["volume"])
+                    _apply_quicktrade_result(row, res)
                     row.setdefault("submitted", res.get("submitted"))
+                else:
+                    row = await _plan_nego(broker, o, max_ticks)
+                    if row["status"] == "planned":
+                        res = await _broker_modify(broker, order_no=row["order_no"], new_price=row["new_price"],
+                                                   symbol=row["symbol"], side=row["side"], volume=row["volume"])
+                        if res.get("path") == "QUICKTRADE_INPLACE":
+                            # kss LIVE: report what Quick Trade actually did (its own quote +
+                            # guardrails decide), not the handler's preview.
+                            _apply_quicktrade_result(row, res)
+                        elif res.get("success"):
+                            row["status"] = "ok"
+                        else:
+                            row["status"] = "fail"
+                            row["reason"] = str(res.get("error") or res.get("message") or "ล้มเหลว")[:40]
+                            if str(res.get("status") or "") in _NEGO_HALT_STATUSES:
+                                halted, halt_status = True, str(res["status"])   # fail-closed
+                        row.setdefault("submitted", res.get("submitted"))
                 if row["status"] == "ok":
                     ok += 1
                 elif row["status"] == "skip":

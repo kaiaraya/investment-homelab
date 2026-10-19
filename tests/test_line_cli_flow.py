@@ -362,10 +362,12 @@ async def test_nego_amends_order_and_audits(service, db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_nego_g5_too_many_ticks_is_skipped(service, db_session, monkeypatch):
+    # SQ-6: kss now delegates planning to the Quick Trade service, so the
+    # handler-level G5 pre-check is exercised on the lib path.
     monkeypatch.setattr(handlers, "_broker_open_orders", AsyncMock(return_value=[_open_order(price=34.00)]))
     monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_quote(bid_1=36.00, offer_1=36.25)))
 
-    res = await _run(service, "/nego kss", db=db_session)
+    res = await _run(service, "/nego lib", db=db_session)
     assert res["skipped"] == 1 and res["ok"] == 0
     handlers._broker_modify.assert_not_awaited()
 
@@ -382,11 +384,13 @@ async def test_nego_fails_closed_when_quote_unavailable(service, db_session, mon
 
 @pytest.mark.asyncio
 async def test_nego_g6_short_uptick_is_skipped(service, db_session, monkeypatch):
+    # SQ-6: kss G6 is enforced inside the Quick Trade service; the handler
+    # pre-check remains on the lib path.
     monkeypatch.setattr(handlers, "_broker_open_orders",
                         AsyncMock(return_value=[_open_order(side="SHORT", price=33.50)]))
     monkeypatch.setattr(handlers, "_broker_quote", AsyncMock(return_value=_quote(offer_1=34.00, last=34.25)))
 
-    res = await _run(service, "/nego kss", db=db_session)
+    res = await _run(service, "/nego lib", db=db_session)
     assert res["skipped"] == 1 and res["ok"] == 0
     handlers._broker_modify.assert_not_awaited()
 
