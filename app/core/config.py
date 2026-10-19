@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     # Phase 3 & Policy Engine Configuration (4 Centers & Forward-Compatible Safety)
     DRY_RUN_MODE: bool = True  # Safety mode: prepares and fills orders but does not submit final PIN
     TRADING_MODE: str = "TEST"  # "TEST" (Virtual TradeMan Simulator) or "LIVE" (TradeMan Real Orders)
+    # KSS price amendment path: "quicktrade" (in-place) or "trademan_cancel_replace"
+    # (TradeMan has no native Change — KSS-RCA-016; requires guardrails C1–C7).
+    KSS_AMEND_MODE: str = "quicktrade"
     LIVE_ORDER_VALUE_LIMIT_THB: float = 50_000.0  # Guardrail limit per order in LIVE mode
     CARD_TTL_SECONDS: int = 180  # Card expiration window (3 minutes)
     UNANSWERED_ACTION_POLICY: str = "HOLD"  # Options: "HOLD", "URGENT_PING", "AUTO_EXECUTE_CUTLOSS", "AI_AGENT_DECIDE"

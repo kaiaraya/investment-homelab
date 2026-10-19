@@ -396,6 +396,44 @@ async def test_nego_g6_short_uptick_is_skipped(service, db_session, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_nego_kss_trademan_cancel_replace_mode(service, db_session, monkeypatch):
+    """KSS_AMEND_MODE=trademan_cancel_replace routes /nego kss to cancel+re-submit."""
+    monkeypatch.setattr(handlers.settings, "KSS_AMEND_MODE", "trademan_cancel_replace")
+    monkeypatch.setattr(handlers, "_broker_open_orders",
+                        AsyncMock(return_value=[_open_order(order_no="1", side="BUY")]))
+    calls = {}
+
+    async def fake_cr(**kw):
+        calls.update(kw)
+        return {"success": True, "submitted": True, "new_order_no": "2",
+                "current_price": 34.0, "target_price": 34.25, "outcome": "OK", "reason": "x"}
+
+    monkeypatch.setattr(handlers, "_kss_cancel_replace", fake_cr)
+    res = await _run(service, "/nego kss", db=db_session)
+    assert res["ok"] == 1
+    assert calls["order_no"] == "1"
+    handlers._broker_modify.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_kss_cancel_replace_dry_run_never_touches_the_broker(monkeypatch):
+    """DRY_RUN: plan only — a cancel is irreversible and must never be staged."""
+    import app.brokers.krungsri.quicktrade_driver as qtd
+    import app.browser.trademan_driver as tmd
+
+    monkeypatch.setattr(handlers.settings, "DRY_RUN_MODE", True)
+    monkeypatch.setattr(qtd.quicktrade_driver, "get_quote", AsyncMock(
+        return_value={"success": True, "best_bid": 34.25, "best_offer": 34.50, "last": 34.00}))
+    monkeypatch.setattr(tmd.trademan_driver, "cancel_order", AsyncMock())
+
+    res = await handlers._kss_cancel_replace(order_no="1", symbol="PTT", side="BUY",
+                                             volume=100, old_price=34.00)
+    assert res["success"] is True and res["submitted"] is False
+    assert res["target_price"] == 34.25
+    tmd.trademan_driver.cancel_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_nego_filters_by_target_symbol(service, db_session, monkeypatch):
     orders = [_open_order(order_no="1", symbol="PTT"), _open_order(order_no="2", symbol="AOT")]
     monkeypatch.setattr(handlers, "_broker_open_orders", AsyncMock(return_value=orders))

@@ -888,6 +888,95 @@ def _apply_quicktrade_result(row: Dict[str, Any], res: Dict[str, Any]) -> None:
         row["reason"] = str(res.get("error") or res.get("reason") or "ล้มเหลว")[:40]
 
 
+def _apply_cancel_replace_result(row: Dict[str, Any], res: Dict[str, Any]) -> None:
+    """Fold a TradeMan cancel+re-submit result into a /nego card row (C1–C7)."""
+    if res.get("current_price") is not None:
+        row["old_price"] = res["current_price"]
+    if res.get("target_price") is not None:
+        row["new_price"] = res["target_price"]
+    row["outcome"] = res.get("outcome") or res.get("status")
+    row["submitted"] = res.get("submitted")
+    if res.get("success"):
+        row["status"] = "ok"
+        if res.get("new_order_no"):
+            row["reason"] = f"#{row.get('order_no')} → #{res['new_order_no']} @ {res.get('target_price')}"
+        else:
+            row["reason"] = str(res.get("reason") or "")[:80]
+    elif str(res.get("outcome") or "") in ("NO_CHANGE", "UPTICK_VIOLATION", "MAX_TICKS_EXCEEDED",
+                                           "NO_QUOTE", "TICK_SIZE_VIOLATION"):
+        row["status"] = "skip"
+        row["reason"] = str(res.get("reason") or "")[:80]
+    else:
+        row["status"] = "fail"
+        row["reason"] = str(res.get("reason") or res.get("error") or "ล้มเหลว")[:80]
+
+
+async def _kss_cancel_replace(*, order_no: str, symbol: str, side: str, volume: int,
+                              old_price: float) -> Dict[str, Any]:
+    """KSS amend via TradeMan cancel + re-submit (KSS_AMEND_MODE=trademan_cancel_replace).
+
+    Guardrails: C2 (never amend a partially filled order) is enforced by the caller
+    filtering ``matched_volume == 0``; C3/C4 (verify cancel, retry old price on a
+    failed re-submit) live here. DRY_RUN returns a plan only — cancel is irreversible,
+    so it can never be "staged".
+    """
+    from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
+    from app.services.quicktrade_negotiation_service import OrderSnapshot, Quote, plan_negotiation
+
+    base = {"order_no": order_no, "symbol": symbol, "side": side, "volume": volume,
+            "current_price": old_price}
+
+    q = await quicktrade_driver.get_quote(symbol)
+    if not q.get("success"):
+        return {"success": False, "status": "QUOTE_UNAVAILABLE", "outcome": "NO_QUOTE",
+                "reason": str(q.get("error") or "อ่านราคาตลาดไม่ได้ (fail-closed)"), **base}
+
+    decision = plan_negotiation(
+        OrderSnapshot(order_no=order_no, symbol=symbol, side=side, price=old_price, balance=volume),
+        Quote(symbol=symbol, best_bid=q.get("best_bid"), best_offer=q.get("best_offer"), last=q.get("last")),
+        max_ticks=int(getattr(settings, "LINE_NEGO_MAX_TICKS", 3)),
+    )
+    base.update(target_price=decision.target_price, outcome=decision.outcome.value, reason=decision.reason)
+    if decision.outcome.value != "OK":
+        return {"success": False, **base}
+    target = decision.target_price
+    if target is None:  # defensive: OK always carries a price
+        return {"success": False, "status": "NO_TARGET", **base}
+
+    if getattr(settings, "DRY_RUN_MODE", True):
+        return {"success": True, "submitted": False, "dry_run": True, **base,
+                "reason": f"DRY-RUN plan: ยกเลิก #{order_no} แล้วส่งใหม่ {target:.2f}"}
+
+    from app.browser.trademan_driver import trademan_driver
+
+    cancel = await trademan_driver.cancel_order(order_no, symbol=symbol)
+    if not cancel.get("success"):
+        return {"success": False, "status": "CANCEL_FAILED", **base,
+                "reason": f"cancel failed: {str(cancel.get('error'))[:80]}"}
+
+    await asyncio.sleep(1.5)
+    ledger = await trademan_driver.scrape_unmatched_orders()
+    if any(str(o.get("broker_order_no") or o.get("order_no")) == str(order_no) for o in ledger):
+        return {"success": False, "status": "CANCEL_UNVERIFIED", **base,
+                "reason": "ออเดอร์เดิมยังอยู่ใน ledger หลัง cancel — หยุด"}
+
+    resub = await trademan_driver.execute_order(
+        symbol=symbol, side=side, volume=volume, price=target,
+        last_trade_price=q.get("last"))
+    if not resub.get("success"):
+        # C4: never leave the exposure cancelled — restore at the old price once.
+        retry = await trademan_driver.execute_order(
+            symbol=symbol, side=side, volume=volume, price=old_price,
+            last_trade_price=q.get("last"))
+        return {"success": False, "status": "RESUBMIT_FAILED", **base,
+                "reason": ("re-submit failed; retry@old=" +
+                           ("ok" if retry.get("success") else "FAILED — ตรวจพอร์ตด้วยมือ"))}
+
+    new_no = str(resub.get("broker_order_no") or resub.get("order_id") or "")
+    return {"success": True, "submitted": bool(resub.get("submitted", True)),
+            "new_order_no": new_no, **base}
+
+
 async def _handle_nego(
     parsed: CliCommand, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
 ) -> Dict[str, Any]:
@@ -941,11 +1030,10 @@ async def _handle_nego(
 
             for o in orders:
                 if broker == "kss":
-                    # SQ-6 (2026-10-19): do NOT pre-plan kss against the TradeMan REST
-                    # quote - it deliberately carries no bid/offer (depth lives on the
-                    # realtime hub). The Quick Trade service resolves the order + live
-                    # quote and applies G4-G6 itself, so planning here only produced a
-                    # guaranteed NO_QUOTE.
+                    # SQ-6 (2026-10-19): kss never pre-plans against the TradeMan REST
+                    # quote (it carries no bid/offer). QuickTrade resolves order + quote
+                    # + G4-G6 itself; trademan_cancel_replace plans with the QuickTrade
+                    # quote and then cancels/re-submits on TradeMan (C1-C7).
                     row = {
                         "order_no": str(o.get("broker_order_no") or o.get("order_no") or ""),
                         "symbol": str(o.get("symbol", "")).upper(),
@@ -953,10 +1041,21 @@ async def _handle_nego(
                         "old_price": float(o.get("price", 0.0) or 0.0),
                         "volume": int(o.get("balance") or o.get("volume") or 0),
                     }
-                    res = await _broker_modify(broker, order_no=row["order_no"], new_price=0.0,
-                                               symbol=row["symbol"], side=row["side"],
-                                               volume=row["volume"])
-                    _apply_quicktrade_result(row, res)
+                    amend_mode = str(getattr(settings, "KSS_AMEND_MODE", "quicktrade")).lower()
+                    if amend_mode == "trademan_cancel_replace":
+                        if int(o.get("matched") or 0) > 0:
+                            row.update(status="skip", reason="มี matched แล้ว — ห้าม cancel+replace (C2)")
+                            res = {}
+                        else:
+                            res = await _kss_cancel_replace(
+                                order_no=row["order_no"], symbol=row["symbol"],
+                                side=row["side"], volume=row["volume"], old_price=row["old_price"])
+                            _apply_cancel_replace_result(row, res)
+                    else:
+                        res = await _broker_modify(broker, order_no=row["order_no"], new_price=0.0,
+                                                   symbol=row["symbol"], side=row["side"],
+                                                   volume=row["volume"])
+                        _apply_quicktrade_result(row, res)
                     row.setdefault("submitted", res.get("submitted"))
                 else:
                     row = await _plan_nego(broker, o, max_ticks)
