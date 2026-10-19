@@ -1066,9 +1066,21 @@ class TradeManDriver:
             else:
                 logger.warning(f"TradeMan side button for '{side}' not found.")
 
-            # 2. Select Symbol with 3-Tier Anti-DW Guardrails (KSS-RCA-006)
+            # 2. Select Symbol with 3-Tier Anti-DW Guardrails (KSS-RCA-006, TASK-loop1-7).
+            # A holdings-row click does NOT set the order-ticket symbol (the ticket keeps a
+            # stale symbol like 'BBL'), so Tier 1 must never be trusted on its own. Flow:
+            #   Tier 1 (click td) -> run Tier 3 assertion IMMEDIATELY;
+            #   mismatch -> Tier 2 (search modal, Stock filter, exact match) -> Tier 3 again;
+            #   still mismatch -> abort REJECTED (fail-closed, never a wrong-stock order).
+            tier3_js = """() => {
+                const symEl = Array.from(document.querySelectorAll("div")).find(d =>
+                    d.className.includes("bg-[#2B313A]") && d.parentElement && d.parentElement.innerText.includes("Symbol")
+                );
+                return symEl ? symEl.innerText.trim() : null;
+            }"""
+
             # Tier 1: Direct Table Selection from Portfolio
-            table_selected = await page.evaluate("""(targetSym) => {
+            table_clicked = await page.evaluate("""(targetSym) => {
                 const allTds = Array.from(document.querySelectorAll("td"));
                 const targetTd = allTds.find(td => td.innerText && td.innerText.trim() === targetSym);
                 if (targetTd) {
@@ -1077,13 +1089,20 @@ class TradeManDriver:
                 }
                 return false;
             }""", symbol)
+            await page.wait_for_timeout(400)
 
-            if not table_selected:
+            active_sym = await page.evaluate(tier3_js)
+            logger.info(f"T1 table_click={table_clicked} -> T3={active_sym}")
+
+            modal_open = False
+            exact_clicked = False
+            if active_sym != symbol:
                 # Tier 2: Open Symbol Search Modal, enforce 'Stock' filter to eliminate DWs
                 sym_box = page.locator("div:has-text('Symbol') + div, .col-span-3.bg-\\[\\#2B313A\\].cursor-pointer").first
                 if await sym_box.is_visible():
                     await sym_box.click()
                     await page.wait_for_timeout(600)
+                    modal_open = True
 
                     # Click 'Stock' filter to eliminate Derivative Warrants (DW) and ETFs
                     stock_filter = page.locator(".v-overlay--active button:text-is('Stock'), .v-overlay--active div:text-is('Stock')").first
@@ -1110,25 +1129,23 @@ class TradeManDriver:
                             return false;
                         }""", symbol)
 
-                        if not exact_clicked:
-                            await page.keyboard.press("Escape")
-                            err_msg = f"Anti-DW Guard: Exact stock symbol '{symbol}' not found in Stock category. Aborting."
-                            logger.error(err_msg)
-                            return {"success": False, "status": "REJECTED", "error": err_msg}
+                if not exact_clicked:
+                    await page.keyboard.press("Escape")
+
+                # Let the modal close, then re-verify the ticket (Tier 3, final).
+                await page.wait_for_timeout(800)
+                active_sym = await page.evaluate(tier3_js)
+                logger.info(f"T2 modal_open={modal_open} exact_click={exact_clicked} -> T3={active_sym}")
+
+                # Tier 3 Assertion (final): active symbol must be exactly the target.
+                if active_sym != symbol:
+                    err_msg = f"CRITICAL Anti-DW Assertion Failed: Active symbol is '{active_sym}', expected exact '{symbol}'! Aborting."
+                    logger.critical(err_msg)
+                    return {"success": False, "status": "REJECTED", "error": err_msg}
+            else:
+                logger.info(f"T1 table_click={table_clicked} set ticket symbol correctly -> T3={active_sym}; Tier 2 skipped.")
 
             await page.wait_for_timeout(800)
-
-            # Tier 3 Assertion: Verify active symbol on order form is strictly target symbol (Anti-DW check)
-            active_sym = await page.evaluate("""() => {
-                const symEl = Array.from(document.querySelectorAll("div")).find(d => 
-                    d.className.includes("bg-[#2B313A]") && d.parentElement && d.parentElement.innerText.includes("Symbol")
-                );
-                return symEl ? symEl.innerText.trim() : null;
-            }""")
-            if active_sym != symbol:
-                err_msg = f"CRITICAL Anti-DW Assertion Failed: Active symbol is '{active_sym}', expected exact '{symbol}'! Aborting."
-                logger.critical(err_msg)
-                return {"success": False, "status": "REJECTED", "error": err_msg}
 
             # 3. Fill Volume input (universal selector: input[id$='-order-volume'])
             vol_input = page.locator("input[id$='-order-volume']").first
