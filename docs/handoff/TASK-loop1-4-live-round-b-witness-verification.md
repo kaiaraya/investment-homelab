@@ -61,6 +61,20 @@
 
 > ⚠️ **SQ-5 open question:** `quicktrade_driver` เปิด browser ใหม่ทุก method ด้วย `storage_state` — ต้อง login ใหม่ทันทีก่อนขั้น 3 และ **ห้ามเปิด probe ซ้ำระหว่าง witness** (จะทำให้ session ถูก SSO เด้งไปหน้า login)
 
+### 🧪 Manual broker test 2026-10-19 (ก่อนรัน witness)
+
+ผู้ใช้ทดลองกด `Change Price& Volume` บน Quick Trade เองด้วยมือ ผลคือ:
+
+- **SHORT (BCPG #11008937, side H)** → broker reject:
+  `Reject Meaning: Incorrect, short in credit and/or position (side H)`
+- **BUY** (ทดลองแยกตัวแปร) → ผู้ใช้รายงานว่าใช้แทน Cover ไม่ได้ และยังไม่ผ่าน (ยังไม่ระบุ error text)
+- สรุป: in-place amend บน QuickTrade **ใช้งานได้จำกัด/ถูกปฏิเสธจากโบรกเกอร์** ไม่ใช่บั๊กโค้ด
+
+**ทางเลือกที่ต้องตัดสิน (Argon + Human):**
+1. เปลี่ยน KSS ไปใช้ TradeMan `modify_order_price` = **Cancel + Re-submit** — ขัดกับ D1 ของ Loop 1 (ห้าม cancel+replace) ต้องแก้ acceptance และรับความเสี่ยง: order_no เปลี่ยน, เสียคิว, เสี่ยง duplicate ถ้า partial fill
+2. คง QuickTrade เฉพาะ side ที่โบรกเกอร์ยอมให้แก้ และ **ไม่ต่อราคา SHORT** (autotrade ต้องออกแบบรับข้อจำกัดนี้)
+3. เจาะ Amend API ของหน้า `streamingOrderDetail.jsp` ต่อว่าการ reject มาจาก credit/position validation จริงหรือจากการเลือกบัญชีผิด (CASH 3024952 แทน MARGIN 3024959)
+
 ## Steps / Task Decomposition (Runbook — 1 ขั้น/รอบ, มีพยาน) — แบ่ง ก่อน / ระหว่าง / หลัง ตลาด
 
 ### 🅰 ก่อนตลาด (Pre-open ~09:30–09:55 — read-only + ยืนยัน Gate/โหมด/เป้า)
