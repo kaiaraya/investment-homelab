@@ -45,6 +45,22 @@
 - **LIB (ขั้น 5–6)**: ใช้ออเดอร์ค้างตัวแรกจาก `/orders lib` (CASH) — **ไม่มี order_no คงที่บนบันทึก**; symbol ต้องตรงกับ `n` จาก quote API (D3 gate) ก่อนกด
 - **ขั้น 6 (sym ผิด)**: ใช้ symbol ที่ **ไม่ใช่** symbol ของออเดอร์ที่เลือกในขั้น 5 (เช่นเลือก `A` แต่ส่ง `/nego lib BCH`) — ยืนยัน fail-closed ไม่กด
 
+## 🔁 Addendum 2026-10-19 (Round B re-run — MTC covered · quote path fixed)
+
+**บริบท:** MTC `11008198` ถูก cover ไปแล้ว · SQ-4/SQ-5 แก้ quote path แล้ว (`b58560a`) · pre-flight probe 11:0x พบออเดอร์ค้างจริง:
+
+| Order No. | Symbol | Side | ราคา | คงเหลือ | ใช้ทำอะไร |
+|:---|:---|:---|:---:|:---:|:---|
+| `11012286` | PTTEP | **COVER** | 155.50 | 300 | reference — target = Best Bid 155.50 = ราคาเดิม → `NO_CHANGE` (ไม่ใช้ขั้น 3) |
+| `11008937` | BCPG | **SHORT** | 6.80 | 100 | **เป้าขั้น 3** — คาด target 6.75 (Best Offer), ห่าง 1 tick, uptick 6.75 > last 6.70 |
+
+**Pre-flight (ทำใหม่ก่อนเริ่ม):** restart gateway (โหลด `b58560a`) → `/login kss` ใหม่ → `/orders kss sync`
+**ขั้น 3:** `/nego kss 11008937` → คาด `STAGED_DRY_RUN` (`DRY_RUN_MODE=True`) · order_no/volume เดิม
+**ขั้น 4:** ผู้ใช้วาง **BUY PTTEP 100 @153.00** เอง (ห่าง 5 ticks จาก Best Bid 155.50) → `/nego kss <order_no ใหม่>` → `MAX_TICKS_EXCEEDED`
+**ขั้น 7:** หลัง 16:30 `/orders kss sync` + `/orders lib sync` เทียบ snapshot
+
+> ⚠️ **SQ-5 open question:** `quicktrade_driver` เปิด browser ใหม่ทุก method ด้วย `storage_state` — ต้อง login ใหม่ทันทีก่อนขั้น 3 และ **ห้ามเปิด probe ซ้ำระหว่าง witness** (จะทำให้ session ถูก SSO เด้งไปหน้า login)
+
 ## Steps / Task Decomposition (Runbook — 1 ขั้น/รอบ, มีพยาน) — แบ่ง ก่อน / ระหว่าง / หลัง ตลาด
 
 ### 🅰 ก่อนตลาด (Pre-open ~09:30–09:55 — read-only + ยืนยัน Gate/โหมด/เป้า)
