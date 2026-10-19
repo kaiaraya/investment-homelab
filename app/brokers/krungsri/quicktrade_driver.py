@@ -100,9 +100,11 @@ _SIDE_ALIASES = {
 class KrungsriQuickTradeDriver:
     """Production driver for Krungsri Quick Trade + Settrade order amendment."""
 
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: Optional[bool] = None):
         self._lock = asyncio.Lock()
-        self.headless = headless
+        # Witness/debug: settings.QUICKTRADE_HEADLESS=False shows the browser.
+        self.headless = bool(getattr(settings, "QUICKTRADE_HEADLESS", True)
+                             if headless is None else headless)
 
     # ------------------------------------------------------------------ #
     # pure parsers (no browser)                                          #

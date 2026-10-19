@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     KRUNGSRI_LOGIN_URL: str = "https://www.krungsrisecurities.com/th/main/default.aspx"
     PLAYWRIGHT_HEADLESS: bool = False
     PLAYWRIGHT_CHROME_EXECUTABLE: str = "/usr/bin/google-chrome"
+    # Witness/debug: run the Quick Trade driver with a visible window so the
+    # human can watch the amend flow. Keep True in normal operations.
+    QUICKTRADE_HEADLESS: bool = True
     OTP_TIMEOUT_SECONDS: int = 180
     # KDE-RCA-005: max age (seconds) of a mobile notification still accepted as an OTP
     # candidate when we CANNOT positively match the broker Ref Code. Android Doze /
