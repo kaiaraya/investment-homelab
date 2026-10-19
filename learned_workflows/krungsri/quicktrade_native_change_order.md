@@ -34,7 +34,7 @@ flowchart TD
 |---|---|---|
 | **Account Selector** | `#accInv` (`name="txtAccountNo"`) | Dropdown with options: `3024952 (Equity)` and `3024959 (Equity)` |
 | **Quote Symbol Input** | `#eqQuoteSymbol` | Fill stock symbol (e.g. `MTC`, `CPALL`) |
-| **Quote Button** | `#btnGetQuotes` / `input[value='Get Quotes']` | Triggers real-time bid/offer update |
+| **Quote Button** | `td:has(#eqQuoteSymbol) input.refreshQuoteBtn` (primary) · `#btnGetQuotes` (legacy) · `input[value='Get Quotes']` | Triggers real-time bid/offer update. **SQ-4 (2026-10-19):** live page no longer renders `#btnGetQuotes`; the button is `input.refreshQuoteBtn` inside the same `<td>` as `#eqQuoteSymbol` |
 | **Bid/Offer Table** | `#instBidOfferEq` | 5 rows of `Volume | Bid | Offer | Volume` |
 | **Market Info Table** | `#instInfoEq` | Contains `High/Low`, `Ceil./Floor`, `Avg./Close` |
 | **Order Ledger Table** | `#orderBodyEq` | Rows of active orders with columns: `Checkbox`, `Order no`, `Symbol`, `Date`, `Time`, `Side`, `Price`, `Volume`, `Matched`, `Balance`, `Cancelled`, `Status` |

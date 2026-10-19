@@ -49,10 +49,12 @@ _JS_QUOTE = """
   const rows = Array.from(document.querySelectorAll('#instBidOfferEq tr')).map(tr =>
     Array.from(tr.querySelectorAll('td, th')).map(td => (td.innerText || '').trim()));
   const infoEl = document.querySelector('#instInfoEq');
+  const lastEl = infoEl ? infoEl.querySelector('.last') : null;
   return {
     symbol: (document.querySelector('#eqQuoteSymbol') || {}).value || '',
     bid_offer_rows: rows,
-    info_text: infoEl ? infoEl.innerText : ''
+    info_text: infoEl ? infoEl.innerText : '',
+    last_text: lastEl ? (lastEl.innerText || '').trim() : ''
   };
 }
 """
@@ -300,16 +302,44 @@ class KrungsriQuickTradeDriver:
         if not symbol:
             raise ValueError("symbol is required")
         await page.fill("#eqQuoteSymbol", symbol)
-        await page.click("#btnGetQuotes")
+        # SQ-4 (2026-10-19): the live Quick Trade page no longer renders
+        # ``#btnGetQuotes``; the button is now ``input.refreshQuoteBtn`` inside
+        # the same <td> as ``#eqQuoteSymbol``. Try the current selector first,
+        # then the legacy id, so a future UI drift fails fast (3 s per attempt)
+        # with an explicit error instead of hanging for 30 s.
+        clicked = None
+        for sel in (
+            "td:has(#eqQuoteSymbol) input.refreshQuoteBtn",
+            "#btnGetQuotes",
+            "td:has(#eqQuoteSymbol) input[value='Get Quotes']",
+        ):
+            try:
+                await page.click(sel, timeout=3000)
+                clicked = sel
+                break
+            except Exception:
+                continue
+        if clicked is None:
+            raise RuntimeError(
+                "QUOTE_BUTTON_NOT_FOUND: Get Quotes button not found on the Quick Trade page"
+            )
         await page.wait_for_timeout(1200)
         data = await page.evaluate(_JS_QUOTE)
         bo = self.parse_bid_offer(data.get("bid_offer_rows"))
         mi = self.parse_market_info(data.get("info_text"))
+        # SQ-5 (2026-10-19): the live page renders the last traded price in
+        # <span class="last"> with no "Last" label, so parse_market_info()
+        # legitimately returns None there. Prefer the explicit span and only
+        # fall back to the label parser - still anti-mock: Avg./Close is never
+        # substituted for Last (that would corrupt the SET uptick check).
+        last = self._num(data.get("last_text")) if data.get("last_text") else None
+        if last is None:
+            last = mi.get("last")
         return {
             "symbol": (data.get("symbol") or symbol).strip().upper(),
             "best_bid": bo["best_bid"],
             "best_offer": bo["best_offer"],
-            "last": mi.get("last"),
+            "last": last,
             "bids": bo["bids"],
             "offers": bo["offers"],
         }

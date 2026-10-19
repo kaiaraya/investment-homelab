@@ -12,7 +12,7 @@ from app.brokers.krungsri.quicktrade_driver import (
 
 
 class FakePage:
-    def __init__(self, evaluate_result=None):
+    def __init__(self, evaluate_result=None, click_timeout_selectors=None):
         self.calls = []
         self.filled = {}
         self.clicks = []
@@ -20,12 +20,15 @@ class FakePage:
         self.waits = []
         self.url = ""
         self._evaluate_result = evaluate_result or {}
+        self._click_timeout = set(click_timeout_selectors or [])
 
     async def fill(self, selector, value):
         self.calls.append(("fill", selector, value))
         self.filled[selector] = value
 
     async def click(self, selector, **kw):
+        if selector in self._click_timeout:
+            raise TimeoutError(f"Timeout {kw.get('timeout', 30000)}ms exceeded")
         self.calls.append(("click", selector))
         self.clicks.append(selector)
 
@@ -137,11 +140,59 @@ async def test_fetch_quote_fills_symbol_and_reads_tables():
     })
     out = await d._fetch_quote(page, "mtc")
     assert ("fill", "#eqQuoteSymbol", "MTC") in page.calls
-    assert "#btnGetQuotes" in page.clicks
+    # SQ-4: the live page exposes input.refreshQuoteBtn (no #btnGetQuotes).
+    assert "td:has(#eqQuoteSymbol) input.refreshQuoteBtn" in page.clicks
     assert out["symbol"] == "MTC"
     assert out["best_bid"] == 29.00
     assert out["best_offer"] == 29.25
     assert out["last"] == 29.25
+
+
+async def test_fetch_quote_falls_back_to_legacy_button_id():
+    """If the current selector disappears again, the legacy id must still work."""
+    d = KrungsriQuickTradeDriver()
+    page = FakePage(
+        evaluate_result={"symbol": "MTC", "bid_offer_rows": [["", "29.00", "29.25", ""]], "info_text": "Last 29.25"},
+        click_timeout_selectors={"td:has(#eqQuoteSymbol) input.refreshQuoteBtn"},
+    )
+    await d._fetch_quote(page, "MTC")
+    assert "#btnGetQuotes" in page.clicks
+
+
+async def test_fetch_quote_fails_fast_when_no_quote_button():
+    d = KrungsriQuickTradeDriver()
+    page = FakePage(click_timeout_selectors={
+        "td:has(#eqQuoteSymbol) input.refreshQuoteBtn",
+        "#btnGetQuotes",
+        "td:has(#eqQuoteSymbol) input[value='Get Quotes']",
+    })
+    with pytest.raises(RuntimeError, match="QUOTE_BUTTON_NOT_FOUND"):
+        await d._fetch_quote(page, "MTC")
+
+
+async def test_fetch_quote_reads_last_from_span_without_label():
+    """SQ-5: the live page shows last in <span class="last"> with no label."""
+    d = KrungsriQuickTradeDriver()
+    page = FakePage(evaluate_result={
+        "symbol": "PTTEP",
+        "bid_offer_rows": [["", "155.50", "156.00", ""]],
+        "info_text": "8,113,700 156.00 201.00 155.54695 155.50 +1.00(+0.65%) 155.00 108.50",
+        "last_text": "156.00",
+    })
+    out = await d._fetch_quote(page, "PTTEP")
+    assert out["last"] == 156.00
+
+
+async def test_fetch_quote_never_guesses_last_from_avg_close():
+    d = KrungsriQuickTradeDriver()
+    page = FakePage(evaluate_result={
+        "symbol": "PTTEP",
+        "bid_offer_rows": [["", "155.50", "156.00", ""]],
+        "info_text": "High/Low 156.00/155.00 Avg./Close 155.54/155.50",
+        "last_text": "",
+    })
+    out = await d._fetch_quote(page, "PTTEP")
+    assert out["last"] is None
 
 
 async def test_fetch_quote_requires_symbol():
