@@ -179,3 +179,13 @@ def guard_tracked_runbooks():
             f"offending files: {leaked}. Route writes through the "
             "isolate_learned_workflow_writes sandbox instead."
         )
+
+
+@pytest.fixture(autouse=True)
+def _default_kss_amend_mode(monkeypatch):
+    """Keep the suite independent of the operator's .env amend mode.
+
+    Tests that exercise the TradeMan cancel+replace path set the mode explicitly.
+    """
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "KSS_AMEND_MODE", "quicktrade")

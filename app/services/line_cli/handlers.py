@@ -142,17 +142,21 @@ async def _broker_quote(broker: str, symbol: str) -> Dict[str, Any]:
 async def _broker_open_orders(broker: str) -> List[Dict[str, Any]]:
     """Unmatched/open orders for ``broker`` only.
 
-    ``kss`` reads the Settrade Quick Trade ledger (``#orderBodyEq``): ``/nego kss``
-    amends in place on that platform, so both the order numbers and the remaining
-    volumes must come from there (D1/D4 - TASK-loop1-2). Anti-Mock: a failed ledger
-    read raises, so the command reports an error instead of "no pending orders".
+    ``kss`` uses the TradeMan ledger when KSS_AMEND_MODE=trademan_cancel_replace
+    (the platform the amend actually runs on); otherwise the Quick Trade ledger
+    (in-place path). Anti-Mock: a failed ledger read raises, so the command
+    reports an error instead of "no pending orders".
     """
     if broker == "kss":
-        from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
-        res = await quicktrade_driver.list_open_orders()
-        if not res.get("success"):
-            raise RuntimeError(str(res.get("error") or "อ่านตารางออเดอร์ QuickTrade ไม่ได้"))
-        orders = list(res.get("orders") or [])
+        if str(getattr(settings, "KSS_AMEND_MODE", "quicktrade")).lower() == "trademan_cancel_replace":
+            from app.browser.trademan_driver import trademan_driver
+            orders = await trademan_driver.scrape_unmatched_orders()
+        else:
+            from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
+            res = await quicktrade_driver.list_open_orders()
+            if not res.get("success"):
+                raise RuntimeError(str(res.get("error") or "อ่านตารางออเดอร์ QuickTrade ไม่ได้"))
+            orders = list(res.get("orders") or [])
     else:
         from app.brokers import liberator_plugin
         orders = await liberator_plugin.get_open_orders()
@@ -911,6 +915,37 @@ def _apply_cancel_replace_result(row: Dict[str, Any], res: Dict[str, Any]) -> No
         row["reason"] = str(res.get("reason") or res.get("error") or "ล้มเหลว")[:80]
 
 
+async def _quote_via_gateway_browser(symbol: str) -> Dict[str, Any]:
+    """Read Quick Trade bid/offer by opening a TAB in the gateway's live browser.
+
+    The cloned storage_state loses the Settrade SSO session (``#accInv`` timeout),
+    so the quote must share the browser that just logged in. TradeMan exposes no
+    depth at all (probe 2026-10-19), hence QuickTrade stays as the quote source only.
+    """
+    from app.browser.trademan_driver import trademan_driver
+    from app.brokers.krungsri.quicktrade_driver import quicktrade_driver, QUICKTRADE_SSO_URL
+
+    page = getattr(trademan_driver, "page", None)
+    if not page or page.is_closed():
+        return {"success": False, "error": "gateway browser ไม่พร้อม"}
+    qp = await page.context.new_page()
+    try:
+        await qp.goto(QUICKTRADE_SSO_URL, wait_until="domcontentloaded", timeout=45000)
+        for _ in range(15):
+            if "fastorder" in (qp.url or ""):
+                break
+            await qp.wait_for_timeout(1000)
+        q = await quicktrade_driver._fetch_quote(qp, symbol)
+        return {"success": True, **q}
+    except Exception as e:
+        return {"success": False, "error": f"{type(e).__name__}: {str(e)[:100]}"}
+    finally:
+        try:
+            await qp.close()
+        except Exception:
+            pass
+
+
 async def _kss_cancel_replace(*, order_no: str, symbol: str, side: str, volume: int,
                               old_price: float) -> Dict[str, Any]:
     """KSS amend via TradeMan cancel + re-submit (KSS_AMEND_MODE=trademan_cancel_replace).
@@ -920,13 +955,12 @@ async def _kss_cancel_replace(*, order_no: str, symbol: str, side: str, volume: 
     failed re-submit) live here. DRY_RUN returns a plan only — cancel is irreversible,
     so it can never be "staged".
     """
-    from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
     from app.services.quicktrade_negotiation_service import OrderSnapshot, Quote, plan_negotiation
 
     base = {"order_no": order_no, "symbol": symbol, "side": side, "volume": volume,
             "current_price": old_price}
 
-    q = await quicktrade_driver.get_quote(symbol)
+    q = await _quote_via_gateway_browser(symbol)
     if not q.get("success"):
         return {"success": False, "status": "QUOTE_UNAVAILABLE", "outcome": "NO_QUOTE",
                 "reason": str(q.get("error") or "อ่านราคาตลาดไม่ได้ (fail-closed)"), **base}

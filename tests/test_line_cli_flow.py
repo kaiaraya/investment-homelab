@@ -418,11 +418,10 @@ async def test_nego_kss_trademan_cancel_replace_mode(service, db_session, monkey
 @pytest.mark.asyncio
 async def test_kss_cancel_replace_dry_run_never_touches_the_broker(monkeypatch):
     """DRY_RUN: plan only — a cancel is irreversible and must never be staged."""
-    import app.brokers.krungsri.quicktrade_driver as qtd
     import app.browser.trademan_driver as tmd
 
     monkeypatch.setattr(handlers.settings, "DRY_RUN_MODE", True)
-    monkeypatch.setattr(qtd.quicktrade_driver, "get_quote", AsyncMock(
+    monkeypatch.setattr(handlers, "_quote_via_gateway_browser", AsyncMock(
         return_value={"success": True, "best_bid": 34.25, "best_offer": 34.50, "last": 34.00}))
     monkeypatch.setattr(tmd.trademan_driver, "cancel_order", AsyncMock())
 
