@@ -690,3 +690,98 @@ async def test_plugin_change_order_without_a_symbol_keeps_the_old_behaviour(monk
     await LiberatorBrokerPlugin().change_order(order_no=ORDER_NO, new_price=11.70)
 
     assert drv.change_order.await_args.kwargs["expected_symbol"] is None
+
+
+# ─── DRY_RUN guard (execute / cancel / change / negotiate) ──────────────────────
+
+@pytest.fixture
+def dry_run(monkeypatch):
+    """Force DRY_RUN_MODE=True so every submit path simulates instead of touching the broker."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
+    return settings
+
+
+@pytest.fixture
+def dry_run_off(monkeypatch):
+    """Explicitly force DRY_RUN_MODE=False so flow tests never depend on the .env value."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    return settings
+
+
+@pytest.mark.asyncio
+async def test_execute_order_simulates_in_dry_run(dry_run):
+    drv = LiberatorDriver()
+    res = await drv.execute_order("BCH", "BUY", 4000, 11.70, pin="123456")
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    assert res["symbol"] == "BCH" and res["side"] == "BUY"
+
+
+@pytest.mark.asyncio
+async def test_cancel_order_simulates_in_dry_run(dry_run):
+    res = await LiberatorDriver().cancel_order("11894")
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    assert res["order_no"] == "11894"
+
+
+@pytest.mark.asyncio
+async def test_change_order_simulates_in_dry_run(dry_run):
+    res = await LiberatorDriver().change_order("11894", 11.70, pin="123456")
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    assert res["order_no"] == "11894"
+    assert res["new_price"] == 11.70
+
+
+@pytest.mark.asyncio
+async def test_negotiate_price_simulates_in_dry_run_without_touching_the_browser(dry_run):
+    """DRY_RUN must short-circuit before scrape_portfolio — no browser interaction at all."""
+    drv = LiberatorDriver()
+    drv.scrape_portfolio = AsyncMock(side_effect=AssertionError("browser must not be touched in DRY_RUN"))
+
+    res = await drv.negotiate_price(order_no="11894", target_price=11.70)
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    assert res["action"] == "NONE"
+    drv.scrape_portfolio.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_change_order_bypass_dry_run_proceeds_to_real_amend(dry_run, weekday_clock):
+    """bypass_dry_run=True (the witness path) must reach the real amend flow despite DRY_RUN."""
+    page, parts = _build_page()
+    drv = _driver(page, verified_price=11.70)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456", bypass_dry_run=True)
+
+    assert res["success"] is True
+    assert res["action"] == "AMENDED_IN_PLACE"
+    assert parts["change"].clicks == 1
+
+
+# ─── C2: no amend when matched_volume > 0 ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_change_order_refuses_partial_match_c2(dry_run_off, weekday_clock):
+    """C2: matched_volume > 0 (partial fill) blocks the amend before Change is pressed."""
+    cells = [
+        "11894", "10:03:21", "BCH", "SELL", "12.00", "4,000",
+        "2,000", "2,000", "0", "Partial", "Change Detail Cancel",
+    ]
+    page, parts = _build_page(cells=cells, status="Partial")
+    drv = _driver(page)
+
+    res = await drv.change_order(ORDER_NO, 11.70, pin="123456")
+
+    assert res["success"] is False
+    assert res["status"] == "MATCHED_GUARD"
+    assert res["matched_volume"] == 2000
+    assert parts["change"].clicks == 0       # Change must never be pressed on a partial fill
+    assert parts["confirm"].clicks == 0

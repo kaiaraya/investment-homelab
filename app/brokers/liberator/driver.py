@@ -1033,7 +1033,8 @@ class LiberatorDriver:
         volume: int,
         price: float,
         pin: Optional[str] = None,
-        account_no: Optional[str] = None
+        account_no: Optional[str] = None,
+        bypass_dry_run: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes an equity order on Liberator WebTrade.
@@ -1053,6 +1054,23 @@ class LiberatorDriver:
         order_pin = pin or getattr(settings, "LIBERATOR_PIN", "")
         if not order_pin or len(order_pin) != 6:
             return {"success": False, "error": "Valid 6-digit Liberator PIN required."}
+
+        # DRY_RUN guard — never submit while DRY_RUN_MODE is on (inputs still validated above).
+        if settings.DRY_RUN_MODE and not bypass_dry_run:
+            await self._log_event(
+                "LIBERATOR_ORDER_DRY_RUN",
+                f"[DRY RUN] {norm_side} {volume} {symbol.upper()} @ {price} omitted",
+            )
+            return {
+                "success": True,
+                "status": "SIMULATED_SUCCESS",
+                "broker": "LIBERATOR",
+                "symbol": symbol.upper(),
+                "side": norm_side,
+                "volume": volume,
+                "price": price,
+                "message": "Order simulated (DRY_RUN_MODE)",
+            }
 
         # Market Hours Validation (Mon-Fri 09:55-12:30, 14:25-16:35 Bangkok)
         now_bkk = datetime.now(timezone.utc).astimezone()
@@ -1193,7 +1211,7 @@ class LiberatorDriver:
     LIB_CANCEL_ACTION = "Cancel"
     LIB_AMEND_OVERLAY = "div.overlay"
     LIB_CONFIRM_BUTTON = "#confirmDialogActiveButton"
-    LIB_AMENDABLE_STATUSES = ("open", "partial")
+    LIB_AMENDABLE_STATUSES = ("open",)
 
     @staticmethod
     def _parse_order_row_cells(cells) -> Dict[str, Any]:
@@ -1252,10 +1270,23 @@ class LiberatorDriver:
                 continue
         return None
 
-    async def cancel_order(self, order_no: str) -> Dict[str, Any]:
+    async def cancel_order(self, order_no: str, bypass_dry_run: bool = False) -> Dict[str, Any]:
         """
         Cancels an open order on Liberator WebTrade.
         """
+        # DRY_RUN guard — a cancel is irreversible, never fire it while DRY_RUN_MODE is on.
+        if settings.DRY_RUN_MODE and not bypass_dry_run:
+            await self._log_event(
+                "LIBERATOR_CANCEL_DRY_RUN",
+                f"[DRY RUN] cancel {order_no} omitted",
+            )
+            return {
+                "success": True,
+                "status": "SIMULATED_SUCCESS",
+                "order_no": str(order_no),
+                "message": "Cancel simulated (DRY_RUN_MODE)",
+            }
+
         now_bkk = datetime.now(timezone.utc).astimezone()
         if now_bkk.weekday() in (5, 6):
             return {
@@ -1302,6 +1333,7 @@ class LiberatorDriver:
         new_volume: Optional[int] = None,
         pin: Optional[str] = None,
         expected_symbol: Optional[str] = None,
+        bypass_dry_run: bool = False,
     ) -> Dict[str, Any]:
         """
         Amends a resting Liberator order **in place** via the row's native `Change` control
@@ -1334,6 +1366,21 @@ class LiberatorDriver:
         order_pin = pin or getattr(settings, "LIBERATOR_PIN", "")
         if not order_pin or len(str(order_pin)) != 6:
             return {"success": False, "error": "Valid 6-digit Liberator PIN required."}
+
+        # DRY_RUN guard — never amend while DRY_RUN_MODE is on (inputs still validated above).
+        if settings.DRY_RUN_MODE and not bypass_dry_run:
+            await self._log_event(
+                "LIBERATOR_CHANGE_DRY_RUN",
+                f"[DRY RUN] change {order_no} -> {new_price} omitted",
+            )
+            return {
+                "success": True,
+                "status": "SIMULATED_SUCCESS",
+                "order_no": str(order_no),
+                "symbol": str(expected_symbol or "").upper(),
+                "new_price": float(new_price),
+                "message": "Change simulated (DRY_RUN_MODE)",
+            }
 
         now_bkk = datetime.now(timezone.utc).astimezone()
         if now_bkk.weekday() in (5, 6):
@@ -1414,6 +1461,21 @@ class LiberatorDriver:
                 ),
             }
 
+        # C2: refuse to amend an order with any matched volume (partial fill).
+        matched = int(parsed["matched"] or 0)
+        if matched > 0:
+            return {
+                "success": False,
+                "status": "MATCHED_GUARD",
+                "order_no": order_no,
+                "symbol": parsed["symbol"],
+                "matched_volume": matched,
+                "error": (
+                    f"Order #{order_no} has matched volume {matched} — "
+                    "amend refused (C2: no amend when matched_volume > 0)."
+                ),
+            }
+
         status = parsed["status"]
         if status.lower() not in self.LIB_AMENDABLE_STATUSES:
             return {
@@ -1421,7 +1483,7 @@ class LiberatorDriver:
                 "order_no": order_no,
                 "status": status,
                 "error": (
-                    f"Order #{order_no} is '{status}' (not Open/Partial)"
+                    f"Order #{order_no} is '{status}' (not Open)"
                     " - the Change control is not available."
                 ),
             }
@@ -1511,7 +1573,8 @@ class LiberatorDriver:
         order_no: Optional[str] = None,
         symbol: Optional[str] = None,
         target_price: Optional[float] = None,
-        pegging_mode: str = "PASSIVE_BEST"  # PASSIVE_BEST (Offer 1 on Sell / Bid 1 on Buy)
+        pegging_mode: str = "PASSIVE_BEST",  # PASSIVE_BEST (Offer 1 on Sell / Bid 1 on Buy)
+        bypass_dry_run: bool = False,
     ) -> Dict[str, Any]:
         """
         Pillar 6 Tactical Price Negotiation (ต่อราคา):
@@ -1520,6 +1583,19 @@ class LiberatorDriver:
         preserved, nothing is cancelled and no replacement order is submitted.
         (Replaces the old cancel + re-place flow; see LIB-RCA-016 / LIB-RCA-017.)
         """
+        # DRY_RUN guard — never negotiate while DRY_RUN_MODE is on (no browser touched).
+        if settings.DRY_RUN_MODE and not bypass_dry_run:
+            await self._log_event(
+                "LIBERATOR_NEGO_DRY_RUN",
+                f"[DRY RUN] negotiate {symbol or order_no or 'auto'} omitted",
+            )
+            return {
+                "success": True,
+                "status": "SIMULATED_SUCCESS",
+                "action": "NONE",
+                "message": "Price negotiation simulated (DRY_RUN_MODE)",
+            }
+
         data = await self.scrape_portfolio()
         orders = data.get("orders", [])
 
@@ -1590,6 +1666,7 @@ class LiberatorDriver:
             new_price=new_price,
             new_volume=None,
             expected_symbol=ord_symbol,
+            bypass_dry_run=bypass_dry_run,
         )
         if not amend_res.get("success", False):
             return {
