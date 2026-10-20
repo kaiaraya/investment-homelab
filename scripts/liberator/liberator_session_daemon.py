@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from typing import Optional
+from urllib.parse import urlparse
 
 from playwright.async_api import BrowserContext, Page, async_playwright
 
@@ -77,6 +78,19 @@ def launch_chrome_process(cdp_port: int = DEFAULT_LIBERATOR_CDP_PORT) -> Optiona
     raise TimeoutError(f"Chrome CDP did not become responsive on port {cdp_port} within 30 seconds.")
 
 
+def _is_authenticated_landing(url: str) -> bool:
+    """True when a Liberator URL is an authenticated page (off /login and off /otp).
+
+    Matches the URL PATH, not the full URL: "trade" is a substring of the "webtrade"
+    host, so a naive substring match would treat the OTP page (/otp) as authenticated.
+    A bare root ("/" or "") is also rejected so an in-flight redirect never wins.
+    """
+    path = urlparse(url).path.lower()
+    if path in ("", "/"):
+        return False
+    return "login" not in path and "otp" not in path
+
+
 async def perform_initial_login(ctx: BrowserContext, page: Page, timeout_seconds: int = 300) -> bool:
     """Handle initial login or session resume for Liberator."""
     # 1. Fast path: check if existing cookies in data/liberator_session.json work
@@ -90,7 +104,7 @@ async def perform_initial_login(ctx: BrowserContext, page: Page, timeout_seconds
                 logger.info(f"Loaded {len(cookies)} cookies from {SESSION_FILE}. Testing /Portfolio...")
                 await page.goto("https://webtrade.liberator.co.th/Portfolio", wait_until="domcontentloaded", timeout=20000)
                 await page.wait_for_timeout(3000)
-                if "login" not in page.url.lower():
+                if _is_authenticated_landing(page.url):
                     logger.info(f"Existing Liberator session is VALID! Landed on {page.url}")
                     return True
                 logger.info("Saved cookies expired. Proceeding to fresh login...")
@@ -135,8 +149,7 @@ async def perform_initial_login(ctx: BrowserContext, page: Page, timeout_seconds
     # Wait for OTP submission and landing on Portfolio / Dashboard
     waited = 0
     while waited < timeout_seconds:
-        url_lower = page.url.lower()
-        if "login" not in url_lower and any(k in url_lower for k in ["portfolio", "trade", "market", "dashboard"]):
+        if _is_authenticated_landing(page.url):
             logger.info(f"Liberator Login successful! Landed on: {page.url}")
             # Save cookies
             cookies = await ctx.cookies()

@@ -132,3 +132,18 @@ async def test_liberator_inspect_dom_passes_focus_through():
     page.evaluate.assert_awaited_once()
     assert page.evaluate.call_args[0][1][1] == "line,cash,balance"
     assert page.evaluate.call_args[0][1][2] == 10
+
+
+def test_liberator_is_authenticated_landing():
+    """The OTP page must never be mistaken for an authenticated landing (webtrade/trade bug)."""
+    from scripts.liberator.liberator_session_daemon import _is_authenticated_landing
+
+    # OTP page (the exact false-positive from start-session) is NOT authenticated.
+    assert not _is_authenticated_landing("https://webtrade.liberator.co.th/otp?telNo=061XXX6363")
+    # Login page is NOT authenticated.
+    assert not _is_authenticated_landing("https://webtrade.liberator.co.th/login")
+    # A bare root redirect must not win.
+    assert not _is_authenticated_landing("https://webtrade.liberator.co.th/")
+    # Real authenticated pages pass.
+    assert _is_authenticated_landing("https://webtrade.liberator.co.th/Portfolio")
+    assert _is_authenticated_landing("https://webtrade.liberator.co.th/Trade")
