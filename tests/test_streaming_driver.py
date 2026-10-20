@@ -1,0 +1,322 @@
+"""
+Unit tests (mock DOM, no browser) for the Settrade Streaming driver (TASK-loop1-8).
+
+Covers:
+- execute_order side-radio selection (Buy vs Sell vs Short vs Cover) — SHORT/COVER
+  are REAL (Sell/Buy radio + Short/Cover toggle), never simulated as SELL/BUY.
+- The Anti-DW symbol assertion (stale ticket -> REJECTED, fail-closed).
+- cancel_order (row-scoped cancel + confirm).
+- modify_order_price (cancel + replace).
+No real navigation / login / order is performed.
+"""
+import pytest
+from unittest.mock import AsyncMock
+
+from app.core.config import settings
+
+from app.browser.streaming_driver import (
+    StreamingDriver,
+    SYMBOL_INPUT_SELECTOR,
+    BUY_RADIO_SELECTORS,
+    SELL_RADIO_SELECTORS,
+    SHORT_TOGGLE_SELECTORS,
+    COVER_TOGGLE_SELECTORS,
+    CANCEL_ACTION_SELECTOR,
+    CANCEL_CONFIRM_SELECTOR,
+)
+
+STREAMING_PAGE_URL = "https://wma1.settrade.com/realtime/streaming7/StreamingPage.jsp"
+
+
+class FakeElement:
+    def __init__(self, visible=True, nested=None):
+        self._visible = visible
+        self._nested = nested or {}
+        self.clicked = 0
+
+    async def is_visible(self):
+        return self._visible
+
+    async def click(self, **kw):
+        self.clicked += 1
+
+    async def query_selector(self, selector):
+        return self._nested.get(selector)
+
+    async def inner_text(self):
+        return ""
+
+
+class FakeLocator:
+    def __init__(self, page, selector):
+        self.page = page
+        self.selector = selector
+
+    @property
+    def first(self):
+        return self
+
+    @property
+    def last(self):
+        return self
+
+    async def fill(self, value):
+        self.page.filled[self.selector] = value
+
+    async def input_value(self):
+        return self.page._input_values.get(self.selector, self.page.filled.get(self.selector))
+
+    async def is_visible(self):
+        return True
+
+    async def is_enabled(self):
+        return True
+
+    async def click(self, **kw):
+        self.page.clicks.append(self.selector)
+
+    async def inner_text(self):
+        return ""
+
+
+class FakePage:
+    def __init__(self, elements=None, input_values=None, evaluate_result=None):
+        self.url = STREAMING_PAGE_URL
+        self.clicks = []
+        self.filled = {}
+        self._elements = elements or {}
+        self._input_values = input_values or {}
+        self._evaluate_result = evaluate_result
+
+    def is_closed(self):
+        return False
+
+    def locator(self, selector):
+        return FakeLocator(self, selector)
+
+    async def query_selector(self, selector):
+        return self._elements.get(selector)
+
+    async def evaluate(self, js):
+        return self._evaluate_result
+
+    async def wait_for_timeout(self, ms):
+        pass
+
+    async def wait_for_load_state(self, *a, **kw):
+        pass
+
+    async def goto(self, url, **kw):
+        self.url = url
+
+
+def _driver_with(page):
+    d = StreamingDriver()
+    d.page_override = page
+    d._log_event = AsyncMock()
+    return d
+
+
+def _ticket_page(side, evaluate_result=None, input_values=None):
+    """Build a FakePage with buy/sell radios + submit button + canned order row."""
+    elements = {
+        BUY_RADIO_SELECTORS[0]: FakeElement(),
+        SELL_RADIO_SELECTORS[0]: FakeElement(),
+        "button.bg-color-dark-blue-60": FakeElement(),
+    }
+    # Optional Short/Cover toggle presence (drives the real SHORT/COVER path).
+    if side == "SHORT":
+        elements[SHORT_TOGGLE_SELECTORS[0]] = FakeElement()
+    elif side == "COVER":
+        elements[COVER_TOGGLE_SELECTORS[0]] = FakeElement()
+    page = FakePage(
+        elements=elements,
+        input_values=input_values,
+        evaluate_result=evaluate_result if evaluate_result is not None else ["11008198", "PTT", "Buy", "100", "34.00"],
+    )
+    return page
+
+
+# --- execute_order: side-radio selection ----------------------------------
+
+@pytest.mark.parametrize(
+    "side,expected_radio_group",
+    [
+        ("BUY", "buy"),
+        ("SELL", "sell"),
+        ("SHORT", "sell"),   # REAL short -> Sell radio (NOT simulated as SELL)
+        ("COVER", "buy"),    # REAL cover -> Buy radio  (NOT simulated as BUY)
+    ],
+)
+async def test_execute_order_side_radio_selection(side, expected_radio_group):
+    page = _ticket_page(side)
+    d = _driver_with(page)
+
+    res = await d.execute_order(symbol="PTT", side=side, volume=100, price=34.00)
+
+    assert res["success"] is True
+    assert res["side"] == side                      # side passes through verbatim
+    buy_el = page._elements[BUY_RADIO_SELECTORS[0]]
+    sell_el = page._elements[SELL_RADIO_SELECTORS[0]]
+    assert buy_el.clicked == (1 if expected_radio_group == "buy" else 0)
+    assert sell_el.clicked == (1 if expected_radio_group == "sell" else 0)
+    # volume / price / symbol were filled
+    assert page.filled[SYMBOL_INPUT_SELECTOR] == "PTT"
+
+
+async def test_execute_order_short_and_cover_use_real_toggles():
+    # SHORT: sell radio + Short toggle, side stays SHORT.
+    page_short = _ticket_page("SHORT")
+    d = _driver_with(page_short)
+    res = await d.execute_order(symbol="PTT", side="SHORT", volume=100, price=34.00)
+    assert res["success"] is True and res["side"] == "SHORT"
+    assert page_short._elements[SELL_RADIO_SELECTORS[0]].clicked == 1
+    assert page_short._elements[SHORT_TOGGLE_SELECTORS[0]].clicked == 1
+
+    # COVER: buy radio + Cover toggle, side stays COVER.
+    page_cover = _ticket_page("COVER")
+    d = _driver_with(page_cover)
+    res = await d.execute_order(symbol="PTT", side="COVER", volume=100, price=34.00)
+    assert res["success"] is True and res["side"] == "COVER"
+    assert page_cover._elements[BUY_RADIO_SELECTORS[0]].clicked == 1
+    assert page_cover._elements[COVER_TOGGLE_SELECTORS[0]].clicked == 1
+
+
+async def test_execute_order_rejects_invalid_board_lot():
+    d = _driver_with(_ticket_page("BUY"))
+    res = await d.execute_order(symbol="PTT", side="BUY", volume=99, price=34.00)
+    assert res["success"] is False
+    assert res["status"] == "REJECTED"
+
+
+# --- Anti-DW symbol assertion ---------------------------------------------
+
+async def test_execute_order_anti_dw_assert_aborts_on_stale_ticket():
+    """A stale order-ticket symbol must abort BEFORE submit (fail-closed)."""
+    page = _ticket_page(
+        "BUY",
+        input_values={SYMBOL_INPUT_SELECTOR: "BBL"},  # ticket keeps a stale symbol
+    )
+    d = _driver_with(page)
+
+    res = await d.execute_order(symbol="PTT", side="BUY", volume=100, price=34.00)
+
+    assert res["success"] is False
+    assert res["status"] == "REJECTED"
+    assert "Anti-DW" in res["error"]
+    assert "PTT" in res["error"] and "BBL" in res["error"]
+    # Submit button must NOT have been clicked.
+    assert page._elements["button.bg-color-dark-blue-60"].clicked == 0
+
+
+async def test_execute_order_fails_closed_without_browser():
+    d = StreamingDriver()
+    d.page_override = None
+    d._log_event = AsyncMock()
+    res = await d.execute_order(symbol="PTT", side="BUY", volume=100, price=34.00)
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+
+
+# --- cancel_order ----------------------------------------------------------
+
+async def test_cancel_order_clicks_row_cancel_and_confirm():
+    row = FakeElement(nested={CANCEL_ACTION_SELECTOR: FakeElement()})
+    page = FakePage(elements={
+        "tr:has-text('11008198')": row,
+        CANCEL_CONFIRM_SELECTOR: FakeElement(),
+    })
+    d = _driver_with(page)
+
+    res = await d.cancel_order(broker_order_no="11008198")
+
+    assert res["success"] is True
+    assert res["status"] == "CANCELLED"
+    assert row._nested[CANCEL_ACTION_SELECTOR].clicked == 1
+    assert page._elements[CANCEL_CONFIRM_SELECTOR].clicked == 1
+
+
+async def test_cancel_order_fails_closed_when_row_missing():
+    page = FakePage(elements={})
+    d = _driver_with(page)
+
+    res = await d.cancel_order(broker_order_no="99999999")
+
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert "not found" in res["error"]
+
+
+# --- DRY_RUN_MODE guard (live-money safety) --------------------------------
+
+async def test_execute_order_dry_run_skips_submit(monkeypatch):
+    """DRY_RUN_MODE=True must stop before the irreversible Send click."""
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
+    page = _ticket_page("BUY")
+    d = _driver_with(page)
+
+    res = await d.execute_order(symbol="PTT", side="BUY", volume=100, price=34.00)
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    # Submit button must NOT have been clicked.
+    assert page._elements["button.bg-color-dark-blue-60"].clicked == 0
+
+
+async def test_cancel_order_dry_run_skips_cancel(monkeypatch):
+    """DRY_RUN_MODE=True must never fire a cancel (irreversible)."""
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
+    row = FakeElement(nested={CANCEL_ACTION_SELECTOR: FakeElement()})
+    page = FakePage(elements={"tr:has-text('11008198')": row})
+    d = _driver_with(page)
+
+    res = await d.cancel_order(broker_order_no="11008198")
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    assert row._nested[CANCEL_ACTION_SELECTOR].clicked == 0
+
+
+# --- modify_order_price (cancel + replace) ---------------------------------
+
+async def test_modify_order_price_cancel_and_replace(monkeypatch):
+    d = StreamingDriver()
+    cancel_mock = AsyncMock(return_value={
+        "success": True, "status": "CANCELLED", "broker_order_no": "11008198",
+    })
+    execute_mock = AsyncMock(return_value={
+        "success": True, "status": "SUBMITTED", "broker_order_no": "11009999",
+    })
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+    monkeypatch.setattr(d, "execute_order", execute_mock)
+    monkeypatch.setattr(d, "_log_event", AsyncMock())
+
+    res = await d.modify_order_price(
+        broker_order_no="11008198", symbol="PTT", side="BUY",
+        new_price=34.25, remaining_volume=100,
+    )
+
+    assert res["success"] is True
+    assert res["status"] == "MODIFIED"
+    assert res["broker_order_no"] == "11009999"
+    assert res["old_order_no"] == "11008198"
+    assert res["new_price"] == 34.25
+
+    cancel_mock.assert_awaited_once_with(broker_order_no="11008198", symbol="PTT", bypass_dry_run=False)
+    execute_mock.assert_awaited_once_with(symbol="PTT", side="BUY", volume=100, price=34.25, pin=None, bypass_dry_run=False)
+
+
+async def test_modify_order_price_only_cancels_when_no_new_price(monkeypatch):
+    d = StreamingDriver()
+    cancel_mock = AsyncMock(return_value={
+        "success": True, "status": "CANCELLED", "broker_order_no": "11008198",
+    })
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+    monkeypatch.setattr(d, "execute_order", execute_mock)
+    monkeypatch.setattr(d, "_log_event", AsyncMock())
+
+    res = await d.modify_order_price(broker_order_no="11008198", symbol="PTT", new_price=0.0)
+
+    assert res["status"] == "CANCELLED"
+    execute_mock.assert_not_awaited()

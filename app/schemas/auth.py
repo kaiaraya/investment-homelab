@@ -31,6 +31,7 @@ class BrokerPlatform(str, Enum):
     TRADEMAN = "TRADEMAN"
     CLICK2WIN = "CLICK2WIN"
     LIBERATOR = "LIBERATOR"
+    STREAMING = "STREAMING"
 
 
 class AuthStatus(str, Enum):

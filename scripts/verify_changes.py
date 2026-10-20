@@ -92,6 +92,10 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_krungsri_session_health.py",
         "tests/test_auth_session_nondestructive.py",
     ],
+    # Settrade Streaming (Krungsri SSO) — TASK-loop1-8 Phase 1
+    "app/browser/streaming_driver.py": ["tests/test_streaming_driver.py"],
+    "app/browser/streaming_auth_driver.py": ["tests/test_streaming_driver.py"],
+    "app/brokers/streaming/plugin.py": ["tests/test_streaming_driver.py"],
     "app/brokers/liberator/driver.py": [
         "tests/test_liberator_session.py",
         "tests/test_liberator_otp_channel_gate.py",

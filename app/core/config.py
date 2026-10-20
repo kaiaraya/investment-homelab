@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     CLICK2WIN_ACCOUNT_NO_DERIVATIVES: str = "CW32_D_7338419"
     CLICK2WIN_SESSION_PATH: str = "data/click2win_session.json"
 
+    # Settrade Streaming (Krungsri SSO) Configuration (TASK-loop1-8)
+    # Primary broker: Krungsri SSO -> 'โปรแกรม Streaming' -> StreamingPage.jsp
+    STREAMING_SESSION_PATH: str = "data/streaming_session.json"
+    STREAMING_URL: str = "https://wma1.settrade.com/realtime/streaming7/StreamingPage.jsp"
+    STREAMING_ACCOUNT_NO: str = "3024952"  # Equity Cash, credit limit 500k
+
     # Settrade Open API Configuration (Direct Machine-to-Machine Sandbox / Live API)
     SETTRADE_APP_ID: str = ""
     SETTRADE_APP_SECRET: str = ""
