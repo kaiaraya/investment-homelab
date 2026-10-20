@@ -147,3 +147,37 @@ def test_liberator_is_authenticated_landing():
     # Real authenticated pages pass.
     assert _is_authenticated_landing("https://webtrade.liberator.co.th/Portfolio")
     assert _is_authenticated_landing("https://webtrade.liberator.co.th/Trade")
+
+
+@pytest.mark.asyncio
+async def test_liberator_open_target_tabs_skips_when_trade_open():
+    from scripts.liberator.liberator_session_daemon import open_target_tabs
+
+    ctx = MagicMock()
+    page_trade = MagicMock()
+    page_trade.url = "https://webtrade.liberator.co.th/Trade"
+    ctx.pages = [page_trade]
+    ctx.new_page = AsyncMock()
+
+    await open_target_tabs(ctx)
+    ctx.new_page.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_liberator_open_target_tabs_opens_on_portfolio_only():
+    """'webtrade' contains 'trade' — a bare substring must NOT count as an open Trade tab."""
+    from scripts.liberator.liberator_session_daemon import open_target_tabs
+
+    ctx = MagicMock()
+    page_portfolio = MagicMock()
+    page_portfolio.url = "https://webtrade.liberator.co.th/Portfolio"  # host has "trade", path does not
+    ctx.pages = [page_portfolio]
+    new_page = AsyncMock()
+    new_page.goto = AsyncMock()
+    ctx.new_page = AsyncMock(return_value=new_page)
+
+    await open_target_tabs(ctx)
+    ctx.new_page.assert_awaited_once()
+    new_page.goto.assert_awaited_once_with(
+        "https://webtrade.liberator.co.th/Trade", wait_until="domcontentloaded", timeout=20000
+    )

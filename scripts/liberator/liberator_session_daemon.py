@@ -169,7 +169,10 @@ async def perform_initial_login(ctx: BrowserContext, page: Page, timeout_seconds
 
 async def open_target_tabs(ctx: BrowserContext):
     """Ensure Portfolio and Trade tabs are open."""
-    has_trade = any("trade" in p.url.lower() for p in ctx.pages)
+    # Match the URL PATH ("/trade"), not a bare substring: "trade" is a substring of
+    # the "webtrade" host, so `"trade" in url` would make the Portfolio page itself
+    # look like an already-open Trade tab and skip the open.
+    has_trade = any("/trade" in p.url.lower() or "/order" in p.url.lower() for p in ctx.pages)
     if not has_trade:
         logger.info("Opening Liberator Trade tab...")
         new_page = await ctx.new_page()
