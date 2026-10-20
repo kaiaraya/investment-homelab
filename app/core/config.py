@@ -87,7 +87,9 @@ class Settings(BaseSettings):
     # Primary broker: Krungsri SSO -> 'โปรแกรม Streaming' -> StreamingPage.jsp
     STREAMING_SESSION_PATH: str = "data/streaming_session.json"
     STREAMING_URL: str = "https://wma1.settrade.com/realtime/streaming7/StreamingPage.jsp"
-    STREAMING_ACCOUNT_NO: str = "3024952"  # Equity Cash, credit limit 500k
+    STREAMING_ACCOUNT_NO: str = "3024959"  # margin (primary — Short/Cover), per user
+    STREAMING_ACCOUNT_NO_MARGIN: str = "3024959"
+    STREAMING_ACCOUNT_NO_CASH: str = "3024952"
 
     # Settrade Open API Configuration (Direct Machine-to-Machine Sandbox / Live API)
     SETTRADE_APP_ID: str = ""

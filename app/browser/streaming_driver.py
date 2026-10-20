@@ -56,15 +56,17 @@ SELL_RADIO_SELECTORS = [
     "label:has-text('Sell')",
     "input[value='S']",
 ]
-SHORT_TOGGLE_SELECTORS = [
+SHORT_RADIO_SELECTORS = [
+    "input#equity-place-order-short-radio-button",
+    "label[for='equity-place-order-short-radio-button']",
     "label:has-text('Short')",
-    "input[value*='Short' i]",
-    "button:has-text('Short')",
+    "input[value='H']",
 ]
-COVER_TOGGLE_SELECTORS = [
+COVER_RADIO_SELECTORS = [
+    "input#equity-place-order-cover-radio-button",
+    "label[for='equity-place-order-cover-radio-button']",
     "label:has-text('Cover')",
-    "input[value*='Cover' i]",
-    "button:has-text('Cover')",
+    "input[value='C']",
 ]
 
 SUBMIT_SELECTORS = [
@@ -188,37 +190,48 @@ class StreamingDriver:
     # Side / ticket primitives
     # ------------------------------------------------------------------
 
-    async def _select_side(self, page: Page, side: str) -> bool:
+    async def switch_account(self, account_no: str) -> bool:
         """
-        Select the Buy/Sell radio. SHORT -> Sell radio + Short toggle,
-        COVER -> Buy radio + Cover toggle (Short/Cover toggles are best-effort:
-        their exact Streaming DOM was not fully confirmed in the Phase 0 probe).
+        Switch the account dropdown to a target account (e.g. margin 3024959).
+
+        Confirmed DOM: the account trigger is ``span.outline-none`` showing
+        "3024952 (Equity)"; options are ``li[tabindex='0']`` (e.g. "3024959 (Equity)").
         """
-        buy_group = side in ("BUY", "COVER")
-        selectors = BUY_RADIO_SELECTORS if buy_group else SELL_RADIO_SELECTORS
-        clicked = False
-        for sel in selectors:
-            try:
+        page = await self._ensure_streaming_page()
+        if not page or page.is_closed():
+            return False
+        try:
+            for sel in ["span.outline-none:has-text('Equity')", "span.outline-none",
+                        "div.cursor-pointer:has-text('Equity')"]:
                 el = await page.query_selector(sel)
                 if el and await el.is_visible():
-                    await el.click(force=True)
-                    clicked = True
-                    await page.wait_for_timeout(300)
+                    await el.click(timeout=6000)
+                    await page.wait_for_timeout(1200)
                     break
-            except Exception:
-                continue
+            for sel in [f"li:has-text('{account_no}')", f"text={account_no}"]:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    await el.click(timeout=6000)
+                    self.active_account_no = account_no
+                    await page.wait_for_timeout(2500)
+                    logger.info(f"Switched Streaming account to {account_no}")
+                    return True
+        except Exception as e:
+            logger.warning(f"Streaming switch_account({account_no}) failed: {e}")
+        return False
 
-        if side == "SHORT":
-            await self._click_toggle(page, SHORT_TOGGLE_SELECTORS)
-        elif side == "COVER":
-            await self._click_toggle(page, COVER_TOGGLE_SELECTORS)
-
-        if not clicked:
-            logger.warning(f"Streaming side radio for '{side}' not found; proceeding best-effort.")
-        return clicked
-
-    async def _click_toggle(self, page: Page, selectors: List[str]) -> bool:
-        for sel in selectors:
+    async def _select_side(self, page: Page, side: str) -> bool:
+        """
+        Select the side radio directly. On the live margin account all four sides
+        are real radios: Buy (B), Sell (S), Short (H), Cover (C).
+        """
+        group = {
+            "BUY": BUY_RADIO_SELECTORS,
+            "SELL": SELL_RADIO_SELECTORS,
+            "SHORT": SHORT_RADIO_SELECTORS,
+            "COVER": COVER_RADIO_SELECTORS,
+        }.get(side, BUY_RADIO_SELECTORS)
+        for sel in group:
             try:
                 el = await page.query_selector(sel)
                 if el and await el.is_visible():
@@ -227,6 +240,7 @@ class StreamingDriver:
                     return True
             except Exception:
                 continue
+        logger.warning(f"Streaming side radio for '{side}' not found; proceeding best-effort.")
         return False
 
     async def _read_active_symbol(self, page: Page) -> Optional[str]:
@@ -307,7 +321,11 @@ class StreamingDriver:
             await self.switch_tab("trading")
             await page.wait_for_timeout(800)
 
-            # 1. Side
+            # 1. Account: SHORT/COVER require the margin account (3024959).
+            if side_clean in ("SHORT", "COVER"):
+                await self.switch_account(settings.STREAMING_ACCOUNT_NO_MARGIN)
+
+            # 2. Side
             await self._select_side(page, side_clean)
 
             # 2. Symbol

@@ -19,8 +19,8 @@ from app.browser.streaming_driver import (
     SYMBOL_INPUT_SELECTOR,
     BUY_RADIO_SELECTORS,
     SELL_RADIO_SELECTORS,
-    SHORT_TOGGLE_SELECTORS,
-    COVER_TOGGLE_SELECTORS,
+    SHORT_RADIO_SELECTORS,
+    COVER_RADIO_SELECTORS,
     CANCEL_ACTION_SELECTOR,
     CANCEL_CONFIRM_SELECTOR,
 )
@@ -124,11 +124,11 @@ def _ticket_page(side, evaluate_result=None, input_values=None):
         SELL_RADIO_SELECTORS[0]: FakeElement(),
         "button.bg-color-dark-blue-60": FakeElement(),
     }
-    # Optional Short/Cover toggle presence (drives the real SHORT/COVER path).
+    # Optional Short/Cover radio presence (drives the real SHORT/COVER path).
     if side == "SHORT":
-        elements[SHORT_TOGGLE_SELECTORS[0]] = FakeElement()
+        elements[SHORT_RADIO_SELECTORS[0]] = FakeElement()
     elif side == "COVER":
-        elements[COVER_TOGGLE_SELECTORS[0]] = FakeElement()
+        elements[COVER_RADIO_SELECTORS[0]] = FakeElement()
     page = FakePage(
         elements=elements,
         input_values=input_values,
@@ -140,15 +140,15 @@ def _ticket_page(side, evaluate_result=None, input_values=None):
 # --- execute_order: side-radio selection ----------------------------------
 
 @pytest.mark.parametrize(
-    "side,expected_radio_group",
+    "side,expected_selector",
     [
-        ("BUY", "buy"),
-        ("SELL", "sell"),
-        ("SHORT", "sell"),   # REAL short -> Sell radio (NOT simulated as SELL)
-        ("COVER", "buy"),    # REAL cover -> Buy radio  (NOT simulated as BUY)
+        ("BUY", BUY_RADIO_SELECTORS[0]),
+        ("SELL", SELL_RADIO_SELECTORS[0]),
+        ("SHORT", SHORT_RADIO_SELECTORS[0]),  # real Short radio (not Sell)
+        ("COVER", COVER_RADIO_SELECTORS[0]),  # real Cover radio (not Buy)
     ],
 )
-async def test_execute_order_side_radio_selection(side, expected_radio_group):
+async def test_execute_order_side_radio_selection(side, expected_selector):
     page = _ticket_page(side)
     d = _driver_with(page)
 
@@ -156,30 +156,31 @@ async def test_execute_order_side_radio_selection(side, expected_radio_group):
 
     assert res["success"] is True
     assert res["side"] == side                      # side passes through verbatim
-    buy_el = page._elements[BUY_RADIO_SELECTORS[0]]
-    sell_el = page._elements[SELL_RADIO_SELECTORS[0]]
-    assert buy_el.clicked == (1 if expected_radio_group == "buy" else 0)
-    assert sell_el.clicked == (1 if expected_radio_group == "sell" else 0)
+    assert page._elements[expected_selector].clicked == 1
+    for other in (BUY_RADIO_SELECTORS[0], SELL_RADIO_SELECTORS[0],
+                  SHORT_RADIO_SELECTORS[0], COVER_RADIO_SELECTORS[0]):
+        if other != expected_selector and other in page._elements:
+            assert page._elements[other].clicked == 0
     # volume / price / symbol were filled
     assert page.filled[SYMBOL_INPUT_SELECTOR] == "PTT"
 
 
-async def test_execute_order_short_and_cover_use_real_toggles():
-    # SHORT: sell radio + Short toggle, side stays SHORT.
+async def test_execute_order_short_and_cover_use_real_radios():
+    # SHORT: clicks the Short radio (NOT the Sell radio).
     page_short = _ticket_page("SHORT")
     d = _driver_with(page_short)
     res = await d.execute_order(symbol="PTT", side="SHORT", volume=100, price=34.00)
     assert res["success"] is True and res["side"] == "SHORT"
-    assert page_short._elements[SELL_RADIO_SELECTORS[0]].clicked == 1
-    assert page_short._elements[SHORT_TOGGLE_SELECTORS[0]].clicked == 1
+    assert page_short._elements[SHORT_RADIO_SELECTORS[0]].clicked == 1
+    assert page_short._elements[SELL_RADIO_SELECTORS[0]].clicked == 0
 
-    # COVER: buy radio + Cover toggle, side stays COVER.
+    # COVER: clicks the Cover radio (NOT the Buy radio).
     page_cover = _ticket_page("COVER")
     d = _driver_with(page_cover)
     res = await d.execute_order(symbol="PTT", side="COVER", volume=100, price=34.00)
     assert res["success"] is True and res["side"] == "COVER"
-    assert page_cover._elements[BUY_RADIO_SELECTORS[0]].clicked == 1
-    assert page_cover._elements[COVER_TOGGLE_SELECTORS[0]].clicked == 1
+    assert page_cover._elements[COVER_RADIO_SELECTORS[0]].clicked == 1
+    assert page_cover._elements[BUY_RADIO_SELECTORS[0]].clicked == 0
 
 
 async def test_execute_order_rejects_invalid_board_lot():
