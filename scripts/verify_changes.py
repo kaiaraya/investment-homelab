@@ -164,6 +164,12 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/jules_bridge.py": ["tests/test_jules_bridge.py"],
     "scripts/krungsri/probe_account_info.py": ["tests/test_probe_account_info.py"],
     "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
+    "scripts/broker_probe.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
+    "scripts/broker_cdp/client.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
+    "scripts/broker_cdp/brokers.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
+    "scripts/broker_cdp/session_daemon.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
+    "tests/test_kss_probe.py": ["tests/test_kss_probe.py"],
+    "tests/test_liberator_probe.py": ["tests/test_liberator_probe.py"],
     # Shared test harness — conftest.py holds fixtures (no tests of its own). Changed fixtures
     # affect the annealing/runbook suites (F-11 write-isolation), so map it to them explicitly.
     "tests/conftest.py": [

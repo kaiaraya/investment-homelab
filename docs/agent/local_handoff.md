@@ -39,6 +39,17 @@ STEP 5   Argon วิเคราะห์ (แผน+ผลผ่านกา�
 | **หน้าที่ของคน (Human)** | ช่วยเปิดหน้าจอ/ยืนยันว่าอยู่ถูกบัญชีและถูกหน้า | เป็นพยาน (Witness) ยืนยันว่าผลลัพธ์ตรงกับหน้าจอโบรกเกอร์และมือถือ |
 | **ผลลัพธ์ที่ได้** | หัวข้อ `## DOM / API Contract` ใน `TASK-<slug>.md` เพื่อให้ Jules เขียนโค้ดบน Cloud VM โดยไม่ต้องเดา | หัวข้อ `## Verification & Stepwise Approval` + `### Live Evidence` |
 
+### เครื่องมือสำหรับ Persistent CDP Probe (KSS & Liberator)
+- เพื่อหลีกเลี่ยงการ Login ซ้ำซ้อนและขอ SMS OTP บ่อยครั้ง ให้ใช้ Persistent Session ผ่าน CDP (CLI เดียว `scripts/broker_probe.py --broker <slug>`):
+  - **KSS / Streaming / SBL (Port 9333)**:
+    1. เปิดเซสชัน: `.venv/bin/python scripts/broker_probe.py --broker kss start-session`
+    2. สั่ง Probe: `.venv/bin/python scripts/broker_probe.py --broker kss probe --target [streaming|sbl|sso] [--focus "<keywords>"]`
+    3. Export Handoff: `.venv/bin/python scripts/broker_probe.py --broker kss handoff --target <target>`
+  - **Liberator (Port 9334)**:
+    1. เปิดเซสชัน: `.venv/bin/python scripts/broker_probe.py --broker liberator start-session`
+    2. สั่ง Probe: `.venv/bin/python scripts/broker_probe.py --broker liberator probe --target [portfolio|trade|market] [--focus "<keywords>"]`
+    3. Export Handoff: `.venv/bin/python scripts/broker_probe.py --broker liberator handoff --target <target>`
+
 ---
 
 ## 3. บทบาทคู่ของ Cline (Pre-Argon Filter & Side-Quest Handler)

@@ -53,15 +53,6 @@ async def cmd_status(args):
     print("=" * 65)
 
 
-async def cmd_login(args):
-    print("=" * 65)
-    print(f"{C_BOLD}{C_MAGENTA}🚀 Launching Liberator Interactive Login Co-pilot...{C_RESET}")
-    print("=" * 65)
-    from scripts.liberator.watch_and_learn_liberator import LiberatorWatchAndLearn
-    runner = LiberatorWatchAndLearn()
-    await runner.run()
-
-
 async def cmd_portfolio(args):
     print("=" * 65)
     print(f"{C_BOLD}📊 Fetching Liberator Account Summary & Portfolio...{C_RESET}")
@@ -174,11 +165,7 @@ def main():
     p_status = subparsers.add_parser("status", help="Inspect Liberator configuration and health status")
     p_status.set_defaults(func=cmd_status)
 
-    # 2. login
-    p_login = subparsers.add_parser("login", help="Launch interactive login & watch-and-learn co-pilot in Headed Chrome")
-    p_login.set_defaults(func=cmd_login)
-
-    # 3. portfolio
+    # 2. portfolio
     p_port = subparsers.add_parser("portfolio", help="Query account summary and holdings")
     p_port.set_defaults(func=cmd_portfolio)
 

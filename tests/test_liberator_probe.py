@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for Liberator Persistent Session & Probe Toolkit."""
+"""Unit tests for Liberator Persistent Session & Probe Toolkit (via shared broker_cdp)."""
 import argparse
 import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from scripts.liberator.liberator_cdp_client import (
+from scripts.broker_cdp.client import (
     is_cdp_available,
     resolve_target_tab,
 )
-from scripts.liberator_probe import cmd_status, cmd_handoff
+from scripts.broker_probe import cmd_status, cmd_handoff
 
 
 def test_liberator_is_cdp_available_offline():
@@ -44,16 +44,16 @@ async def test_liberator_resolve_target_tab():
     ctx.pages = [page_portfolio, page_trade, page_market]
 
     # Resolve Portfolio
-    assert await resolve_target_tab(ctx, "portfolio") == page_portfolio
+    assert await resolve_target_tab(ctx, "portfolio", "liberator") == page_portfolio
     # Resolve Trade
-    assert await resolve_target_tab(ctx, "trade") == page_trade
+    assert await resolve_target_tab(ctx, "trade", "liberator") == page_trade
     # Resolve Market
-    assert await resolve_target_tab(ctx, "market") == page_market
+    assert await resolve_target_tab(ctx, "market", "liberator") == page_market
 
 
 @pytest.mark.asyncio
 async def test_liberator_cmd_status_offline():
-    args = argparse.Namespace(cdp_url="http://127.0.0.1:59998")
+    args = argparse.Namespace(broker="liberator", cdp_url="http://127.0.0.1:59998")
     rc = await cmd_status(args)
     assert rc == 1
 
@@ -65,8 +65,8 @@ async def test_liberator_cmd_handoff_generation(tmp_path, monkeypatch):
     probes_dir.mkdir()
     handoff_dir.mkdir()
 
-    monkeypatch.setattr("scripts.liberator_probe.PROBE_DATA_DIR", str(probes_dir))
-    monkeypatch.setattr("scripts.liberator_probe.HANDOFF_DIR", str(handoff_dir))
+    monkeypatch.setattr("scripts.broker_probe.PROBE_DATA_DIR", str(probes_dir))
+    monkeypatch.setattr("scripts.broker_probe.HANDOFF_DIR", str(handoff_dir))
 
     # Create dummy Liberator probe json
     dummy_probe = {
@@ -96,7 +96,7 @@ async def test_liberator_cmd_handoff_generation(tmp_path, monkeypatch):
     probe_file = probes_dir / "probe_liberator_trade_20261020_174000.json"
     probe_file.write_text(json.dumps(dummy_probe, ensure_ascii=False))
 
-    args = argparse.Namespace(target="trade", cdp_url="http://127.0.0.1:9334")
+    args = argparse.Namespace(broker="liberator", target="trade", cdp_url="http://127.0.0.1:9334")
     rc = await cmd_handoff(args)
     assert rc == 0
 
@@ -112,7 +112,7 @@ async def test_liberator_cmd_handoff_generation(tmp_path, monkeypatch):
 def test_liberator_inspect_dom_or_splits_comma_keywords():
     """Comma-separated --focus keywords must be OR'd, not one literal regex."""
     import inspect
-    from scripts.liberator.liberator_cdp_client import inspect_dom_elements
+    from scripts.broker_cdp.client import inspect_dom_elements
 
     src = inspect.getsource(inspect_dom_elements)
     assert "split(',')" in src
@@ -121,7 +121,7 @@ def test_liberator_inspect_dom_or_splits_comma_keywords():
 
 @pytest.mark.asyncio
 async def test_liberator_inspect_dom_passes_focus_through():
-    from scripts.liberator.liberator_cdp_client import inspect_dom_elements
+    from scripts.broker_cdp.client import inspect_dom_elements
 
     page = MagicMock()
     page.evaluate = AsyncMock(return_value=[])
@@ -136,7 +136,7 @@ async def test_liberator_inspect_dom_passes_focus_through():
 
 def test_liberator_is_authenticated_landing():
     """The OTP page must never be mistaken for an authenticated landing (webtrade/trade bug)."""
-    from scripts.liberator.liberator_session_daemon import _is_authenticated_landing
+    from scripts.broker_cdp.brokers import _is_authenticated_landing
 
     # OTP page (the exact false-positive from start-session) is NOT authenticated.
     assert not _is_authenticated_landing("https://webtrade.liberator.co.th/otp?telNo=061XXX6363")
@@ -151,7 +151,7 @@ def test_liberator_is_authenticated_landing():
 
 @pytest.mark.asyncio
 async def test_liberator_open_target_tabs_skips_when_trade_open():
-    from scripts.liberator.liberator_session_daemon import open_target_tabs
+    from scripts.broker_cdp.brokers import liberator_open_tabs
 
     ctx = MagicMock()
     page_trade = MagicMock()
@@ -159,14 +159,14 @@ async def test_liberator_open_target_tabs_skips_when_trade_open():
     ctx.pages = [page_trade]
     ctx.new_page = AsyncMock()
 
-    await open_target_tabs(ctx)
+    await liberator_open_tabs(ctx)
     ctx.new_page.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_liberator_open_target_tabs_opens_on_portfolio_only():
     """'webtrade' contains 'trade' — a bare substring must NOT count as an open Trade tab."""
-    from scripts.liberator.liberator_session_daemon import open_target_tabs
+    from scripts.broker_cdp.brokers import liberator_open_tabs
 
     ctx = MagicMock()
     page_portfolio = MagicMock()
@@ -176,7 +176,7 @@ async def test_liberator_open_target_tabs_opens_on_portfolio_only():
     new_page.goto = AsyncMock()
     ctx.new_page = AsyncMock(return_value=new_page)
 
-    await open_target_tabs(ctx)
+    await liberator_open_tabs(ctx)
     ctx.new_page.assert_awaited_once()
     new_page.goto.assert_awaited_once_with(
         "https://webtrade.liberator.co.th/Trade", wait_until="domcontentloaded", timeout=20000
