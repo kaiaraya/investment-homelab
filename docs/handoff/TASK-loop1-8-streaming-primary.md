@@ -37,24 +37,29 @@
 
 | Element | Selector |
 |---|---|
-| บัญชี | `3024952 (Equity)` — A/C Type **Cash**, Credit Limit 500,000 (บัญชีเดียวกับ TradeMan cash) |
+| บัญชี | account dropdown `span.outline-none:has-text('Equity')` → options `li[tabindex='0']` — **Cash `3024952` / Margin `3024959`** |
+| สลับ account | `switch_account()` ใน driver (click span.outline-none → click `li:has-text('3024959')`) |
+| Side | **4 radio จริง** (`name="placeOrderRadio"`): Buy `#equity-place-order-buy-radio-button` (B) · Sell `#equity-place-order-sell-radio-button` (S) · **Short `#equity-place-order-short-radio-button` (H)** · **Cover `#equity-place-order-cover-radio-button` (C)** — ปรากฏบนบัญชี margin |
 | Symbol | `input[placeholder='Symbol']` |
 | Volume | `input[name='equity-place-order-vol']` |
 | Price | `input[name='price-input']` |
 | PIN | `input#pin` |
-| Submit | `button` text "Submit" (class `bg-color-dark-blue-60`) |
-| Side | แท็บ "Buy / Sell" ในฟอร์ม (ต้อง dump selector ละเอียดเพิ่ม — regex แรกไม่จับ) |
-| Cancel | ปุ่ม "Cancel0Order(s)" (0 = จำนวนออเดอร์ที่เลือก) + ตาราง order header "Order No./Date/Time/Symbol/Side..." |
-| Bid/Offer | มี panel "Volume **Bids Offers** Volume" (depth มีใน DOM) — default แสดง BIDU |
-| Modify | **ยังไม่พบปุ่ม Modify/Change** — มีแค่ Cancel (แต่ตาราง order ว่าง 0 ใบ ต้องรอมีออเดอร์ค้างถึงจะเห็น action ต่อแถว) |
+| Submit | `button.bg-color-dark-blue-60` text "Submit" |
+| Cancel | ปุ่ม "Cancel0Order(s)" + ตาราง order header "Order No./Date/Time/Symbol/Side..." |
+| Bid/Offer | panel "Volume **Bids Offers** Volume" |
+| **Change order** | ผู้ใช้ยืนยันว่ามี native change (ยังไม่จับ selector เพราะต้องมี order ค้าง → ตลาดเปิด) |
+
+### Session persistence ✅
+
+`data/streaming_session.json` — probe v2 save storage_state แล้ว → rerun ใช้ `--resume` ได้ **ไม่ต้อง OTP ซ้ำ**
 
 ### สรุป A1–A5
 
-- A1 ✅ `streaming.settrade.com` → จริง ๆ ลง `wma1.settrade.com/realtime/streaming7/StreamingPage.jsp`
-- A2 ✅ live จริง บัญชี `3024952` (เดียวกับ TradeMan)
-- A3 ✅ Krungsri SSO (user/pass + SMS OTP) — **ไม่ใช่** Settrade 2FA device
-- A4 ⏳ ยังไม่พบ Modify native — น่าจะ cancel+replace เหมือน Click2Win (รอ test ตอนมี order ค้าง)
-- A5 ✅ มี bid/offer depth panel
+- A1 ✅ `wma1.settrade.com/realtime/streaming7/StreamingPage.jsp`
+- A2 ✅ live จริง บัญชี margin `3024959` (ผู้ใช้ให้ใช้ margin — มี Short/Cover)
+- A3 ✅ Krungsri SSO (user/pass + SMS OTP) → `Put_SSO_Settrade.aspx?Page=streaming`
+- A4 ⏳ มี native **Change** (ผู้ใช้ยืนยัน) — รอจับ selector ตอนตลาดเปิด
+- A5 ✅ bid/offer depth panel มี
 
 ### Scripts probe (ทั้งหมด read-only)
 - `scripts/streaming/dump_login_page.py` — ดัมป์หน้า login + broker list (33 โบรกเกอร์, มี KRUNGSRI)
