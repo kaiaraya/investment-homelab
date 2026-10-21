@@ -1,0 +1,51 @@
+{
+  "card": "1.10 Liberator witness (change_order + cancel_order)",
+  "step": "change",
+  "broker": "LIBERATOR",
+  "account_no": "7055938",
+  "at": "2026-10-21T11:35:37.153724",
+  "note": "change #17391 -> 6.65",
+  "result": {
+    "change_result": {
+      "broker": "LIBERATOR",
+      "order_no": "17391",
+      "symbol": "BCPG",
+      "side": "BUY",
+      "old_price": 6.65,
+      "new_price": 6.65,
+      "old_volume": 100,
+      "new_volume": 100,
+      "success": true,
+      "action": "AMENDED_IN_PLACE",
+      "status": "Changed",
+      "message": "Liberator order #17391 amended in place ฿6.65 -> ฿6.65 (order number retained)."
+    },
+    "orders_after": [
+      {
+        "order_no": "17391",
+        "time": "11:34:59",
+        "symbol": "BCPG",
+        "side": "BUY",
+        "price": 6.65,
+        "volume": 100,
+        "matched": 0,
+        "balance": 100,
+        "cancelled": 0,
+        "status": "Changed"
+      },
+      {
+        "order_no": "16721",
+        "time": "11:14:49",
+        "symbol": "BCPG",
+        "side": "BUY",
+        "price": 6.6,
+        "volume": 100,
+        "matched": 0,
+        "balance": 0,
+        "cancelled": 100,
+        "status": "Cancelled"
+      }
+    ]
+  },
+  "screenshot": "LIBERATOR-1.10-change-20261021-113537.png"
+}

@@ -64,6 +64,13 @@ class FakeLocator:
         self.clicks += 1
         self.log.append((self.name, "click", None))
 
+    async def is_visible(self):
+        return True
+
+    async def check(self):
+        self.clicks += 1
+        self.log.append((self.name, "check", None))
+
     def _fallback(self, label):
         return FakeLocator(f"{self.name}>{label}", count=0, log=self.log)
 
@@ -88,6 +95,9 @@ class FakePage:
 
     def locator(self, selector):
         return self._locators.get(selector, FakeLocator(f"page>{selector}", count=0, log=self.log))
+
+    def get_by_role(self, role, name=None, exact=False):
+        return self._locators.get(("role", name), FakeLocator(f"page>role={name}", count=0, log=self.log))
 
     async def goto(self, url, **kwargs):
         self.url = url
@@ -234,7 +244,7 @@ async def test_order_action_locator_returns_none_for_unknown_label():
 # ─── change_order flow ───────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_change_order_amends_in_place_and_keeps_order_number(weekday_clock):
+async def test_change_order_amends_in_place_and_keeps_order_number(dry_run_off, weekday_clock):
     page, parts = _build_page()
     drv = _driver(page, verified_price=11.70)
 
@@ -256,7 +266,7 @@ async def test_change_order_amends_in_place_and_keeps_order_number(weekday_clock
 
 
 @pytest.mark.asyncio
-async def test_change_order_fills_volume_only_when_requested(weekday_clock):
+async def test_change_order_fills_volume_only_when_requested(dry_run_off, weekday_clock):
     page, parts = _build_page()
     drv = _driver(page, verified_price=11.70)
 
@@ -267,7 +277,7 @@ async def test_change_order_fills_volume_only_when_requested(weekday_clock):
 
 
 @pytest.mark.asyncio
-async def test_change_order_reports_unverified_when_price_did_not_change(weekday_clock):
+async def test_change_order_reports_unverified_when_price_did_not_change(dry_run_off, weekday_clock):
     """Anti-Mock: a click that leaves the old price on the row is NOT a success."""
     page, _ = _build_page()
     drv = _driver(page, verified_price=12.00)
@@ -281,7 +291,7 @@ async def test_change_order_reports_unverified_when_price_did_not_change(weekday
 
 
 @pytest.mark.asyncio
-async def test_change_order_reports_unverified_when_order_vanished(weekday_clock):
+async def test_change_order_reports_unverified_when_order_vanished(dry_run_off, weekday_clock):
     page, _ = _build_page()
     drv = _driver(page, orders=[])
 
@@ -293,7 +303,7 @@ async def test_change_order_reports_unverified_when_order_vanished(weekday_clock
 
 
 @pytest.mark.asyncio
-async def test_change_order_blocks_non_amendable_status_before_clicking(weekday_clock):
+async def test_change_order_blocks_non_amendable_status_before_clicking(dry_run_off, weekday_clock):
     page, parts = _build_page(status="Matched")
     drv = _driver(page)
 
@@ -306,7 +316,7 @@ async def test_change_order_blocks_non_amendable_status_before_clicking(weekday_
 
 
 @pytest.mark.asyncio
-async def test_change_order_errors_when_order_row_is_missing(weekday_clock):
+async def test_change_order_errors_when_order_row_is_missing(dry_run_off, weekday_clock):
     page, parts = _build_page(order_present=False)
     drv = _driver(page)
 
@@ -332,7 +342,7 @@ async def test_change_order_rejects_bad_input_before_touching_the_browser():
 
 
 @pytest.mark.asyncio
-async def test_change_order_stages_when_market_is_closed_at_the_weekend(monkeypatch):
+async def test_change_order_stages_when_market_is_closed_at_the_weekend(dry_run_off, monkeypatch):
     class _Saturday(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -356,7 +366,7 @@ def _open_order_row(price):
 
 
 @pytest.mark.asyncio
-async def test_negotiate_price_amends_in_place_and_never_cancels():
+async def test_negotiate_price_amends_in_place_and_never_cancels(dry_run_off):
     """LIB-RCA-018 / Step 6: the negotiation path must NOT use cancel + re-place anymore."""
     drv = LiberatorDriver()
     drv.scrape_portfolio = AsyncMock(return_value={"orders": [_open_order_row(12.0)]})
@@ -380,7 +390,7 @@ async def test_negotiate_price_amends_in_place_and_never_cancels():
 
 
 @pytest.mark.asyncio
-async def test_negotiate_price_is_noop_when_already_at_target():
+async def test_negotiate_price_is_noop_when_already_at_target(dry_run_off):
     """A same-price amend would be a pointless live submission."""
     drv = LiberatorDriver()
     drv.scrape_portfolio = AsyncMock(return_value={"orders": [_open_order_row(11.70)]})
@@ -395,7 +405,7 @@ async def test_negotiate_price_is_noop_when_already_at_target():
 
 
 @pytest.mark.asyncio
-async def test_negotiate_price_propagates_amend_failure():
+async def test_negotiate_price_propagates_amend_failure(dry_run_off):
     drv = LiberatorDriver()
     drv.scrape_portfolio = AsyncMock(return_value={"orders": [_open_order_row(12.0)]})
     drv.change_order = AsyncMock(return_value={
@@ -603,7 +613,7 @@ def test_extract_order_book_id_resolves_symbols_and_prefers_set_over_tfex():
 # ─── change_order — symbol confirmation BEFORE pressing Change (fail-closed) ─────────
 
 @pytest.mark.asyncio
-async def test_change_order_refuses_when_the_row_is_a_different_symbol(weekday_clock):
+async def test_change_order_refuses_when_the_row_is_a_different_symbol(dry_run_off, weekday_clock):
     """Loop 1 D3: an order whose live row is not the requested symbol must NOT be touched."""
     page, parts = _build_page()
     drv = _driver(page)
@@ -620,7 +630,7 @@ async def test_change_order_refuses_when_the_row_is_a_different_symbol(weekday_c
 
 
 @pytest.mark.asyncio
-async def test_change_order_amends_when_the_expected_symbol_matches(weekday_clock):
+async def test_change_order_amends_when_the_expected_symbol_matches(dry_run_off, weekday_clock):
     page, parts = _build_page()
     drv = _driver(page, verified_price=11.70)
 
@@ -631,7 +641,7 @@ async def test_change_order_amends_when_the_expected_symbol_matches(weekday_cloc
 
 
 @pytest.mark.asyncio
-async def test_change_order_symbol_guard_is_checkable_before_the_status_guard(weekday_clock):
+async def test_change_order_symbol_guard_is_checkable_before_the_status_guard(dry_run_off, weekday_clock):
     """Identity outranks state: a mismatch is reported even when it could not be amended."""
     page, parts = _build_page(status="Matched")
     drv = _driver(page)
@@ -643,7 +653,7 @@ async def test_change_order_symbol_guard_is_checkable_before_the_status_guard(we
 
 
 @pytest.mark.asyncio
-async def test_negotiate_price_passes_the_selected_symbol_to_change_order():
+async def test_negotiate_price_passes_the_selected_symbol_to_change_order(dry_run_off):
     """The negotiation path must prove the symbol it selected, not just the order number."""
     drv = LiberatorDriver()
     drv.scrape_portfolio = AsyncMock(return_value={"orders": [_open_order_row(12.0)]})
@@ -722,7 +732,7 @@ async def test_execute_order_simulates_in_dry_run(dry_run):
 
 @pytest.mark.asyncio
 async def test_cancel_order_simulates_in_dry_run(dry_run):
-    res = await LiberatorDriver().cancel_order("11894")
+    res = await LiberatorDriver().cancel_order("11894", pin="123456")
 
     assert res["success"] is True
     assert res["status"] == "SIMULATED_SUCCESS"
@@ -785,3 +795,93 @@ async def test_change_order_refuses_partial_match_c2(dry_run_off, weekday_clock)
     assert res["matched_volume"] == 2000
     assert parts["change"].clicks == 0       # Change must never be pressed on a partial fill
     assert parts["confirm"].clicks == 0
+
+
+# ─── cancel_order PIN + Anti-Mock (LIB-RCA-018 / card 1.10b.2) ─────────────────
+
+def _build_cancel_page(order_present=True):
+    """FakePage for cancel_order: an order row with a Cancel action + the cancel dialog."""
+    log = []
+    cells = ["11894", "10:03:21", "BCH", "SELL", "12.00", "4,000", "0", "4,000", "0", "Open", "Change Detail Cancel"]
+
+    cancel_ctrl = FakeLocator("row-cancel", count=1, log=log)
+    dpc = FakeLocator("row-dpc", count=3, log=log, children={("filter", "Cancel"): cancel_ctrl})
+    actions = FakeLocator("row-actions", count=3, log=log, children={
+        ("text", "Cancel"): cancel_ctrl,
+        "div.cursor-pointer": dpc,
+    })
+    tds = FakeLocator("row-tds", count=11, texts=cells, last=actions, log=log)
+    row = FakeLocator("order-row", count=1 if order_present else 0, texts=cells, children={"td": tds}, log=log)
+
+    overlay = FakeLocator("overlay", count=1, log=log)
+    dialog = FakeLocator("cancel-dialog", count=1, log=log)
+    dialog.children = {
+        "input#pin": FakeLocator("dialog#pin", count=1, log=log),
+        LiberatorDriver.LIB_CONFIRM_BUTTON: FakeLocator("dialog#confirm", count=1, log=log),
+    }
+    overlay.children = {("filter", "Cancel Order Confirmation"): dialog}
+
+    page = FakePage({
+        f"{LiberatorDriver.LIB_ORDER_TABLE} tbody tr:has(input[id='{ORDER_NO}'])": row,
+        LiberatorDriver.LIB_AMEND_OVERLAY: overlay,
+    })
+    page.log = log
+    return page, {"row": row, "cancel": cancel_ctrl, "pin": dialog.children["input#pin"],
+                  "confirm": dialog.children[LiberatorDriver.LIB_CONFIRM_BUTTON]}
+
+
+@pytest.mark.asyncio
+async def test_cancel_order_requires_valid_pin(monkeypatch):
+    """A cancel with no PIN configured must fail closed before touching the browser."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "LIBERATOR_PIN", "")
+    res = await LiberatorDriver().cancel_order("11894", bypass_dry_run=True)
+    assert res["success"] is False
+    assert "PIN" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_order_fills_pin_and_confirms(dry_run_off, weekday_clock):
+    """The cancel dialog's own `input#pin` must be filled before Confirm (LIB-RCA-018)."""
+    page, parts = _build_cancel_page()
+    drv = _driver(page, orders=[{
+        "order_no": ORDER_NO, "symbol": "BCH", "side": "SELL", "price": 12.0,
+        "volume": 4000, "matched": 0, "balance": 0, "cancelled": 4000, "status": "Cancelled",
+    }])
+
+    res = await drv.cancel_order(ORDER_NO, pin="123456")
+
+    assert res["success"] is True
+    assert res["cancelled_volume"] == 4000
+    assert parts["pin"].filled == ["", "123456"]   # PIN entered in the dialog, not the footer
+    assert parts["confirm"].clicks == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_order_reports_unverified_when_still_active(dry_run_off, weekday_clock):
+    """Anti-Mock: if the row is still Open after Confirm, report failure, not success."""
+    page, parts = _build_cancel_page()
+    drv = _driver(page, orders=[{
+        "order_no": ORDER_NO, "symbol": "BCH", "side": "SELL", "price": 12.0,
+        "volume": 4000, "matched": 0, "balance": 4000, "cancelled": 0, "status": "Open",
+    }])
+
+    res = await drv.cancel_order(ORDER_NO, pin="123456")
+
+    assert res["success"] is False
+    assert res["action"] == "CANCEL_UNVERIFIED"
+    assert parts["confirm"].clicks == 1
+
+
+# ─── execute_order Anti-Mock (card 1.10b.1) ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_execute_order_reports_unverified_when_order_not_in_table(dry_run_off, weekday_clock):
+    """Anti-Mock: success is only reported after the new order is seen in the table."""
+    page = FakePage({})
+    drv = _driver(page, orders=[])
+
+    res = await drv.execute_order("BCH", "BUY", 4000, 11.70, pin="123456")
+
+    assert res["success"] is False
+    assert res["action"] == "ORDER_UNVERIFIED"

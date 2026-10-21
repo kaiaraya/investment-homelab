@@ -221,7 +221,8 @@ async def test_execute_order_fails_closed_without_browser():
 
 # --- cancel_order ----------------------------------------------------------
 
-async def test_cancel_order_clicks_row_cancel_and_confirm():
+async def test_cancel_order_clicks_row_cancel_and_confirm(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)  # force LIVE cancel path (ignore .env)
     row = FakeElement(nested={CANCEL_ACTION_SELECTOR: FakeElement()})
     page = FakePage(elements={
         "tr:has-text('11008198')": row,
@@ -237,7 +238,8 @@ async def test_cancel_order_clicks_row_cancel_and_confirm():
     assert page._elements[CANCEL_CONFIRM_SELECTOR].clicked == 1
 
 
-async def test_cancel_order_fails_closed_when_row_missing():
+async def test_cancel_order_fails_closed_when_row_missing(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)  # force LIVE cancel path so fail-closed fires
     page = FakePage(elements={})
     d = _driver_with(page)
 

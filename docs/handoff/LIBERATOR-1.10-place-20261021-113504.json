@@ -1,0 +1,48 @@
+{
+  "card": "1.10 Liberator witness (change_order + cancel_order)",
+  "step": "place",
+  "broker": "LIBERATOR",
+  "account_no": "7055938",
+  "at": "2026-10-21T11:35:04.543674",
+  "note": "placed BUY 100 BCPG @ 6.65",
+  "result": {
+    "execute_result": {
+      "success": true,
+      "broker": "LIBERATOR",
+      "broker_order_no": "17391",
+      "symbol": "BCPG",
+      "side": "BUY",
+      "volume": 100,
+      "price": 6.65,
+      "status": "Open",
+      "message": "Liberator order #17391 submitted successfully."
+    },
+    "orders": [
+      {
+        "order_no": "17391",
+        "time": "11:34:59",
+        "symbol": "BCPG",
+        "side": "BUY",
+        "price": 6.65,
+        "volume": 100,
+        "matched": 0,
+        "balance": 100,
+        "cancelled": 0,
+        "status": "Open"
+      },
+      {
+        "order_no": "16721",
+        "time": "11:14:49",
+        "symbol": "BCPG",
+        "side": "BUY",
+        "price": 6.6,
+        "volume": 100,
+        "matched": 0,
+        "balance": 0,
+        "cancelled": 100,
+        "status": "Cancelled"
+      }
+    ]
+  },
+  "screenshot": "LIBERATOR-1.10-place-20261021-113504.png"
+}

@@ -69,6 +69,7 @@ class LiberatorDriver:
         self.cache_path = getattr(settings, "LIBERATOR_PORTFOLIO_CACHE_PATH", "data/liberator_portfolio_cache.json")
         self.chrome_path = getattr(settings, "PLAYWRIGHT_CHROME_EXECUTABLE", "/usr/bin/google-chrome")
         self._lock = asyncio.Lock()
+        self._cdp_connected = False  # True when attached to the CDP daemon (never close its browser)
 
     @property
     def is_authenticated(self) -> bool:
@@ -215,6 +216,55 @@ class LiberatorDriver:
                 await db.commit()
         except Exception as e:
             logger.error(f"Failed to record session log ({event_type}): {e}")
+
+    async def connect_cdp(self, target: str = "portfolio") -> bool:
+        """Attach to the running Liberator CDP daemon (port 9334) instead of launching a browser.
+
+        Replaces ``launch_browser()``/``login()`` on the order/amend/cancel paths: the daemon
+        owns the live (human-visible) Chrome session and must stay alive, so this only
+        *connects* to it — it never launches a new Chromium and never fires a login/OTP.
+        Returns True when ``self.page`` now points at the daemon's ``target`` tab.
+        """
+        from scripts.broker_cdp.client import cdp_url_for, connect_cdp, resolve_target_tab
+
+        if self._cdp_connected and self.page and not self.page.is_closed():
+            return True
+
+        try:
+            pw, browser, ctx = await connect_cdp(cdp_url_for("liberator"), broker="liberator")
+        except Exception as e:  # noqa: BLE001
+            logger.error("Liberator connect_cdp failed: %s", e)
+            self.status = "FAILED"
+            return False
+
+        try:
+            page = await resolve_target_tab(ctx, target, "liberator")
+        except Exception as e:  # noqa: BLE001
+            logger.error("Liberator resolve_target_tab failed: %s", e)
+            try:
+                await pw.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self.status = "FAILED"
+            return False
+
+        if page is None:
+            logger.error("Liberator CDP daemon has no '%s' tab", target)
+            try:
+                await pw.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self.status = "FAILED"
+            return False
+
+        self.playwright = pw
+        self.browser = browser
+        self.context = ctx
+        self.page = page
+        self._cdp_connected = True
+        self.status = "AUTHENTICATED"
+        logger.info("Liberator attached to CDP daemon tab '%s': %s", target, page.url)
+        return True
 
     async def login(self, username: Optional[str] = None, password: Optional[str] = None, force_fresh: bool = False) -> LoginResult:
         """Executes full automated login for Liberator WebTrade with LINE-relay OTP interception."""
@@ -1084,11 +1134,8 @@ class LiberatorDriver:
 
         # Check browser session
         if not self.page or self.page.is_closed():
-            await self.launch_browser(resume_state=True)
-            if not await self.verify_saved_session():
-                login_res = await self.login()
-                if not login_res.success:
-                    return {"success": False, "error": f"Liberator login failed: {login_res.message}"}
+            if not await self.connect_cdp():
+                return {"success": False, "error": "Liberator CDP daemon (9334) not available — run 'python scripts/broker_probe.py --broker liberator start-session' first."}
 
         page = self.page
         if "portfolio" not in page.url.lower():
@@ -1096,55 +1143,89 @@ class LiberatorDriver:
             await page.wait_for_timeout(2000)
 
         try:
-            # 1. Select Side
-            side_btn = page.locator(f":text('{norm_side.capitalize()}')").first
-            await side_btn.click()
+            # 1. Select Side — radios are value-based (`input[type=radio][value='Buy']`).
+            #    `:text('Buy')` is ambiguous (nav labels + submit button share the text).
+            side_radio = page.locator(f"input[type='radio'][value='{norm_side.capitalize()}']").first
+            if await side_radio.count():
+                await side_radio.check()
+            else:
+                side_btn = page.locator(f":text('{norm_side.capitalize()}')").first
+                await side_btn.click()
             await page.wait_for_timeout(400)
 
-            # 2. Enter Symbol
-            sym_input = await page.wait_for_selector("#SearchSymbolList-setBuySellFooter", timeout=5000)
-            if sym_input:
-                await sym_input.fill("")
-                await sym_input.fill(symbol.upper())
-                await page.keyboard.press("Enter")
+            # 2. Enter + SELECT Symbol (Headless UI combobox). fill() sets the text but does
+            #    NOT select a stock — the listbox holds the equity plus derivatives/warrants
+            #    (e.g. "BCPG", "BCPG-F", "BCPG01C2611A"), so the EXACT option must be clicked
+            #    or the submit is rejected with an unresolved symbol (LIB-RCA-021).
+            sym_input = page.locator("#SearchSymbolList-setBuySellFooter").first
+            await sym_input.click()
+            await sym_input.fill(symbol.upper())
+            await page.wait_for_timeout(1000)
+            option = page.get_by_role("option", name=symbol.upper(), exact=True).first
+            if await option.count():
+                await option.click()
                 await page.wait_for_timeout(400)
 
             # 3. Enter Volume
-            vol_input = await page.wait_for_selector("#volume", timeout=5000)
-            if vol_input:
-                await vol_input.fill("")
-                await vol_input.fill(str(volume))
+            vol_input = page.locator("#volume").first
+            await vol_input.fill(str(volume))
 
             # 4. Enter Price
-            price_input = await page.wait_for_selector("#price", timeout=5000)
-            if price_input:
-                await price_input.fill("")
-                await price_input.fill(f"{price:.2f}")
+            price_input = page.locator("#price").first
+            await price_input.fill(f"{price:.2f}")
 
-            # 5. Enter PIN
-            pin_input = await page.wait_for_selector("#pin", timeout=5000)
-            if pin_input:
-                await pin_input.fill("")
-                await pin_input.fill(order_pin)
+            # 5. Enter PIN — the footer ticket's input (not the div#pin wrapper)
+            pin_input = page.locator("input#pin").first
+            await pin_input.fill(order_pin)
 
-            # 6. Click Submit Button
-            submit_btn = await page.wait_for_selector("#buttonSubmit", timeout=5000)
+            # 6. Submit
+            submit_btn = page.locator("#buttonSubmit").first
             await submit_btn.click()
             await page.wait_for_timeout(1500)
 
-            # Handle Confirmation Modal if any
-            confirm_btn = await page.query_selector("button:has-text('Confirm'), button:has-text('ยืนยัน')")
-            if confirm_btn and await confirm_btn.is_visible():
-                await confirm_btn.click()
-                await page.wait_for_timeout(2000)
+            # 7. Confirmation popup (confirmPopup setting on) — same dialog component as the
+            #    cancel flow: fill its own `input#pin`, then Confirm (LIB-RCA-018).
+            confirm_dialog = page.locator("div.overlay, dialog").filter(has_text="Confirmation").first
+            if await confirm_dialog.count() and await confirm_dialog.is_visible():
+                cp = confirm_dialog.locator("input#pin")
+                if await cp.count():
+                    await cp.fill(order_pin)
+                    await page.wait_for_timeout(300)
+                cb = confirm_dialog.locator(self.LIB_CONFIRM_BUTTON).first
+                if await cb.count():
+                    await cb.click()
+                    await page.wait_for_timeout(2500)
+            else:
+                cb = page.locator("button:has-text('Confirm'), button:has-text('ยืนยัน')").first
+                if await cb.count() and await cb.is_visible():
+                    await cb.click()
+                    await page.wait_for_timeout(2000)
 
-            # 7. Scrape updated Orders Table
-            portfolio_data = await self.scrape_portfolio(force_refresh=True)
-            orders = portfolio_data.get("orders", [])
-            matching_order = next((o for o in orders if o.get("symbol") == symbol.upper() and o.get("side") == norm_side), None)
-            broker_order_no = matching_order.get("order_no") if matching_order else f"LIB-{int(time.time())}"
-            order_status = matching_order.get("status", "OPEN") if matching_order else "SUBMITTED"
-
+            # 8. Anti-Mock: re-read the Orders table and REQUIRE the new order present
+            #    (symbol + side + price match) before reporting success.
+            data = await self.scrape_portfolio(force_refresh=True)
+            orders = data.get("orders", [])
+            matching_order = next(
+                (
+                    o for o in orders
+                    if str(o.get("symbol") or "").upper() == symbol.upper()
+                    and str(o.get("side") or "").upper() == norm_side
+                    and abs(float(o.get("price") or 0.0) - float(price)) < 0.001
+                ),
+                None,
+            )
+            if matching_order is None:
+                return {
+                    "success": False,
+                    "broker": "LIBERATOR",
+                    "action": "ORDER_UNVERIFIED",
+                    "symbol": symbol.upper(),
+                    "side": norm_side,
+                    "volume": volume,
+                    "price": price,
+                    "error": "Order not found in Orders table after submit — verify on the broker.",
+                }
+            broker_order_no = matching_order.get("order_no")
             return {
                 "success": True,
                 "broker": "LIBERATOR",
@@ -1153,8 +1234,8 @@ class LiberatorDriver:
                 "side": norm_side,
                 "volume": volume,
                 "price": price,
-                "status": order_status,
-                "message": f"Liberator order #{broker_order_no} submitted successfully."
+                "status": matching_order.get("status", "OPEN"),
+                "message": f"Liberator order #{broker_order_no} submitted successfully.",
             }
         except Exception as e:
             logger.error(f"Error executing Liberator order: {e}")
@@ -1270,10 +1351,14 @@ class LiberatorDriver:
                 continue
         return None
 
-    async def cancel_order(self, order_no: str, bypass_dry_run: bool = False) -> Dict[str, Any]:
+    async def cancel_order(self, order_no: str, bypass_dry_run: bool = False, pin: Optional[str] = None) -> Dict[str, Any]:
         """
         Cancels an open order on Liberator WebTrade.
         """
+        order_pin = pin or getattr(settings, "LIBERATOR_PIN", "")
+        if not order_pin or len(str(order_pin)) != 6:
+            return {"success": False, "error": "Valid 6-digit Liberator PIN required."}
+
         # DRY_RUN guard — a cancel is irreversible, never fire it while DRY_RUN_MODE is on.
         if settings.DRY_RUN_MODE and not bypass_dry_run:
             await self._log_event(
@@ -1296,7 +1381,8 @@ class LiberatorDriver:
             }
 
         if not self.page or self.page.is_closed():
-            await self.launch_browser(resume_state=True)
+            if not await self.connect_cdp():
+                return {"success": False, "error": "Liberator CDP daemon (9334) not available — run 'python scripts/broker_probe.py --broker liberator start-session' first."}
 
         try:
             page = self.page
@@ -1313,16 +1399,55 @@ class LiberatorDriver:
 
             # The row actions are plain Vue divs (no id/role) -> resolve by exact label text
             cancel_btn = await self._order_action_locator(row, self.LIB_CANCEL_ACTION)
-            if cancel_btn is not None:
-                await cancel_btn.click()
-                await page.wait_for_timeout(1000)
-                # Confirm popup if any (same dialog component as the amend flow)
+            if cancel_btn is None:
+                return {"success": False, "error": f"Order #{order_no} does not have an active cancel action (may already be matched)."}
+
+            await cancel_btn.click()
+            await page.wait_for_timeout(1000)
+
+            # Cancel Order Confirmation dialog has its OWN `input#pin` (LIB-RCA-018): the cancel
+            # is NOT submitted until the PIN is entered and Confirm pressed. Scope to the dialog —
+            # `#pin` also exists in the footer ticket, and the id also wraps a `<div id="pin">`.
+            dialog = page.locator(self.LIB_AMEND_OVERLAY).filter(has_text="Cancel Order Confirmation").first
+            if await dialog.count() and await dialog.is_visible():
+                pin_input = dialog.locator("input#pin")
+                if await pin_input.count():
+                    await pin_input.fill("")
+                    await pin_input.fill(str(order_pin))
+                    await page.wait_for_timeout(300)
+                confirm = dialog.locator(self.LIB_CONFIRM_BUTTON).first
+                if await confirm.count():
+                    await confirm.click()
+                    await page.wait_for_timeout(2500)
+            else:
                 confirm = page.locator(self.LIB_CONFIRM_BUTTON).first
                 if await confirm.count() and await confirm.is_visible():
                     await confirm.click()
-                return {"success": True, "order_no": order_no, "message": f"Order #{order_no} cancellation submitted."}
+                    await page.wait_for_timeout(2500)
 
-            return {"success": False, "error": f"Order #{order_no} does not have an active cancel action (may already be matched)."}
+            # Anti-Mock: re-read the order table and require the row to show Cancelled
+            # (cancelled volume > 0 or status contains "cancel") before reporting success.
+            data = await self.scrape_portfolio(force_refresh=True)
+            after = next(
+                (o for o in data.get("orders", []) if str(o.get("order_no")) == str(order_no)),
+                None,
+            )
+            cancelled_vol = int(after.get("cancelled") or 0) if after else 0
+            status = str(after.get("status") or "").lower() if after else ""
+            if after is not None and (cancelled_vol > 0 or "cancel" in status):
+                return {
+                    "success": True,
+                    "order_no": str(order_no),
+                    "status": after.get("status"),
+                    "cancelled_volume": cancelled_vol,
+                    "message": f"Order #{order_no} cancelled (cancelled={cancelled_vol}).",
+                }
+            return {
+                "success": False,
+                "order_no": str(order_no),
+                "action": "CANCEL_UNVERIFIED",
+                "error": f"Order #{order_no} still active after cancel — verify on the broker.",
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1396,11 +1521,8 @@ class LiberatorDriver:
             }
 
         if not self.page or self.page.is_closed():
-            await self.launch_browser(resume_state=True)
-            if not await self.verify_saved_session():
-                login_res = await self.login()
-                if not login_res.success:
-                    return {"success": False, "error": f"Liberator login failed: {login_res.message}"}
+            if not await self.connect_cdp():
+                return {"success": False, "error": "Liberator CDP daemon (9334) not available — run 'python scripts/broker_probe.py --broker liberator start-session' first."}
 
         try:
             return await self._amend_order_in_place(
@@ -1697,14 +1819,19 @@ class LiberatorDriver:
         }
 
     async def close(self) -> None:
-        """Closes browser context and playwright instance."""
+        """Disconnects from the CDP daemon (or closes an owned browser context)."""
         try:
-            if self.context:
-                await self.context.close()
-            if self.browser:
-                await self.browser.close()
-            if self.playwright:
-                await self.playwright.stop()
+            if self._cdp_connected:
+                # CDP daemon owns the browser — disconnect only, never close it.
+                if self.playwright:
+                    await self.playwright.stop()
+            else:
+                if self.context:
+                    await self.context.close()
+                if self.browser:
+                    await self.browser.close()
+                if self.playwright:
+                    await self.playwright.stop()
         except Exception:
             pass
         finally:
@@ -1712,6 +1839,7 @@ class LiberatorDriver:
             self.browser = None
             self.page = None
             self.playwright = None
+            self._cdp_connected = False
             self.status = "DISCONNECTED"
 
 

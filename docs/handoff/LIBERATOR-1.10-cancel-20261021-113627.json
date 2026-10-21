@@ -1,0 +1,44 @@
+{
+  "card": "1.10 Liberator witness (change_order + cancel_order)",
+  "step": "cancel",
+  "broker": "LIBERATOR",
+  "account_no": "7055938",
+  "at": "2026-10-21T11:36:27.612456",
+  "note": "cancel #17391",
+  "result": {
+    "cancel_result": {
+      "success": true,
+      "order_no": "17391",
+      "status": "Cancelled",
+      "cancelled_volume": 100,
+      "message": "Order #17391 cancelled (cancelled=100)."
+    },
+    "orders_after": [
+      {
+        "order_no": "17391",
+        "time": "11:34:59",
+        "symbol": "BCPG",
+        "side": "BUY",
+        "price": 6.65,
+        "volume": 100,
+        "matched": 0,
+        "balance": 0,
+        "cancelled": 100,
+        "status": "Cancelled"
+      },
+      {
+        "order_no": "16721",
+        "time": "11:14:49",
+        "symbol": "BCPG",
+        "side": "BUY",
+        "price": 6.6,
+        "volume": 100,
+        "matched": 0,
+        "balance": 0,
+        "cancelled": 100,
+        "status": "Cancelled"
+      }
+    ]
+  },
+  "screenshot": "LIBERATOR-1.10-cancel-20261021-113627.png"
+}

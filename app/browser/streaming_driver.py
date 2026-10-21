@@ -95,6 +95,10 @@ class StreamingDriver:
         self.page_override: Optional[Page] = None
         self.active_account_no: str = settings.STREAMING_ACCOUNT_NO or "3024952"
         self.active_account_type: str = "EQUITY"
+        self._cdp_pw = None
+        self._cdp_browser = None
+        self._cdp_context = None
+        self._cdp_connected = False
 
     @property
     def page(self) -> Optional[Page]:
@@ -115,36 +119,74 @@ class StreamingDriver:
         except Exception as e:
             logger.debug(f"StreamingDriver log failed ({event_type}): {e}")
 
+    async def connect_cdp(self, target: str = "streaming") -> bool:
+        """Attach to the running KSS/Settrade Streaming CDP daemon (port 9333).
+
+        Replaces the ``streaming_auth_driver`` launch/login path on this driver's
+        order/cancel/scrape entry points: the daemon owns the live (human-visible)
+        Chrome session, so this only *connects* and never opens a new browser or fires
+        a login/OTP. The resolved page is stored as ``page_override``.
+        """
+        from scripts.broker_cdp.client import cdp_url_for, connect_cdp, resolve_target_tab
+
+        if self._cdp_connected and self.page_override and not self.page_override.is_closed():
+            return True
+
+        # Disconnect any previous CDP playwright (keeps the daemon's browser alive).
+        if self._cdp_pw is not None:
+            try:
+                await self._cdp_pw.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._cdp_pw = None
+
+        try:
+            pw, browser, ctx = await connect_cdp(cdp_url_for("kss"), broker="kss")
+        except Exception as e:  # noqa: BLE001
+            logger.error("Streaming connect_cdp failed: %s", e)
+            return False
+
+        try:
+            page = await resolve_target_tab(ctx, target, "kss")
+        except Exception as e:  # noqa: BLE001
+            logger.error("Streaming resolve_target_tab failed: %s", e)
+            try:
+                await pw.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+
+        if page is None:
+            logger.error("Streaming CDP daemon has no '%s' tab", target)
+            try:
+                await pw.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+
+        self._cdp_pw = pw
+        self._cdp_browser = browser
+        self._cdp_context = ctx
+        self.page_override = page
+        self._cdp_connected = True
+        logger.info("Streaming attached to CDP daemon tab '%s': %s", target, page.url)
+        return True
+
     # ------------------------------------------------------------------
     # Navigation helpers
     # ------------------------------------------------------------------
 
     async def _ensure_streaming_page(self, auto_launch: bool = False) -> Optional[Page]:
-        """Guarantee the active page is on StreamingPage.jsp, auto-launching if asked."""
+        """Guarantee the active page is on StreamingPage.jsp, attaching to the CDP daemon if asked."""
         page = self.page
         if not page or page.is_closed():
             if not auto_launch:
                 return None
-            logger.info("Streaming browser page not active. Initializing and validating session...")
-            try:
-                page = await streaming_auth_driver.launch_browser(resume_state=True)
-                verified = await streaming_auth_driver.verify_saved_session()
-                if not verified:
-                    if settings.KRUNGSRI_USERNAME and settings.KRUNGSRI_PASSWORD:
-                        logger.info("Session invalid/expired. Performing auto-login...")
-                        res = await streaming_auth_driver.login()
-                        if res.success:
-                            page = streaming_auth_driver.page
-                        else:
-                            logger.warning(f"Streaming auto-login failed: {res.message}")
-                            return None
-                    else:
-                        return None
-                else:
-                    page = streaming_auth_driver.page
-            except Exception as e:
-                logger.error(f"Error launching/verifying Streaming browser: {e}")
+            logger.info("Streaming page not active. Attaching to the CDP daemon (9333)...")
+            if not await self.connect_cdp():
+                logger.warning("Streaming CDP daemon (9333) not available.")
                 return None
+            page = self.page
 
         if not page or page.is_closed():
             return None
