@@ -2,16 +2,16 @@
 Investment Homelab - Modular Scripts Package
 Organized into broker subpackages:
 - scripts.krungsri
-- scripts.liberator
 - scripts.click2win
 - scripts.shared
+- scripts.broker_cdp
 """
 import sys
 import importlib
 import importlib.abc
 import importlib.util
 
-_SUBPACKAGES = ["krungsri", "liberator", "click2win", "shared"]
+_SUBPACKAGES = ["krungsri", "click2win", "shared"]
 
 class _ScriptsLegacyFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path, target=None):
