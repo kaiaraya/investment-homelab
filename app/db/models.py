@@ -38,7 +38,35 @@ class Order(Base):
     is_negotiated: Mapped[bool] = mapped_column(Boolean, default=False)
     original_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     negotiated_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Multi-account additive history columns (B.1). Existing rows keep NULL/0; these are
+    # appended by the multi-account sync so order history can be attributed per account.
+    account_no: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    broker: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    matched_volume: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    matched_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cancel_volume: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class BrokerAccount(Base):
+    """
+    One row per broker account (Krungsri MARGIN/CASH, Liberator CASH, ...).
+    `account_no` is the unique natural key. `account_type` is CASH_BALANCE (cash account)
+    or CREDIT_BALANCE (margin account with a credit line). Balance fields are nullable so an
+    unreadable cell is stored as None (Anti-Mock), never a fake 0.00.
+    """
+    __tablename__ = "broker_accounts"
+
+    account_no: Mapped[str] = mapped_column(String(32), primary_key=True, index=True)
+    broker: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    account_type: Mapped[str] = mapped_column(String(32), nullable=False, default="CASH_BALANCE")  # CASH_BALANCE, CREDIT_BALANCE
+    line_available: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cash_balance: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    credit_limit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    total_equity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    excess_equity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    purchasing_power: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
 
 
@@ -66,17 +94,29 @@ class SBLBorrowLot(Base):
 
 class Position(Base):
     """
-    Table tracking currently open portfolio positions (Long and Short).
+    Holdings snapshot (per broker account). Composite natural key (account_no, symbol):
+    one row per symbol per account. This is a point-in-time snapshot — it holds no trade
+    history and is NOT the live book (the broker ledger is). The multi-account migration
+    drops and recreates this table empty (no backfill); `sync_portfolio_from_cdp` (B.3) is
+    the writer that UPSERTs real account_no rows.
+
+    `account_no` defaults to "" so legacy single-account call sites that still construct
+    Position without an account continue to work until the B.3 writer lands; the empty
+    string is the "unassigned / legacy" sentinel.
     """
     __tablename__ = "positions"
 
+    account_no: Mapped[str] = mapped_column(String(32), primary_key=True, default="")
     symbol: Mapped[str] = mapped_column(String(16), primary_key=True, index=True)
     position_type: Mapped[str] = mapped_column(String(16), nullable=False)  # LONG, SHORT
     volume: Mapped[int] = mapped_column(Integer, nullable=False)
+    available_volume: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     avg_cost: Mapped[float] = mapped_column(Float, nullable=False)
     current_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     prior_close_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    market_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     unrealized_pnl: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    unrealized_pnl_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     take_profit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     stop_loss_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_sbl_pending_return: Mapped[bool] = mapped_column(Boolean, default=False)

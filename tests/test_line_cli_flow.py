@@ -81,6 +81,7 @@ def _broker_edges(monkeypatch):
         "authenticated": True, "heartbeat": "10:41", "account": "MARGIN",
     }))
     monkeypatch.setattr(handlers, "_live_card", AsyncMock(return_value={"type": "flex", "altText": "live"}))
+    monkeypatch.setattr(handlers, "_broker_sync_cdp", AsyncMock(return_value=None))
     monkeypatch.setattr(handlers, "_in_nego_window", lambda now=None: True)
     handlers._LOCKS.clear()
     handlers._STARTED.clear()
@@ -279,6 +280,24 @@ async def test_port_sync_acks_then_pushes_live_card(service, db_session):
     assert res["status"] == "CLI_SYNC"
     assert "กำลังดึงข้อมูลสด" in service.last_text()          # ack via reply
     assert service.pushes and service.pushes[0][1] == "U_OP"  # pushed to the sender
+
+
+@pytest.mark.asyncio
+async def test_port_sync_persists_cdp_snapshot(service, db_session, monkeypatch):
+    sync = AsyncMock(return_value={"broker": "KRUNGSRI", "account_no": "3024959"})
+    monkeypatch.setattr(handlers, "_broker_sync_cdp", sync)
+    res = await _run(service, "/port kss sync", db=db_session)
+    assert res["status"] == "CLI_SYNC"
+    sync.assert_awaited_once_with("kss")
+
+
+@pytest.mark.asyncio
+async def test_orders_sync_does_not_persist_portfolio(service, db_session, monkeypatch):
+    sync = AsyncMock(return_value=None)
+    monkeypatch.setattr(handlers, "_broker_sync_cdp", sync)
+    res = await _run(service, "/orders kss sync", db=db_session)
+    assert res["status"] == "CLI_SYNC"
+    sync.assert_not_awaited()
 
 
 @pytest.mark.asyncio

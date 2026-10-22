@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     LIBERATOR_USERNAME: str = ""
     LIBERATOR_PASSWORD: str = ""
     LIBERATOR_PIN: str = ""
+    LIBERATOR_ACCOUNT_NO: str = ""  # set in .env — Liberator CASH account (7055938)
     LIBERATOR_LOGIN_URL: str = "https://webtrade.liberator.co.th/login"
     LIBERATOR_SESSION_PATH: str = "data/liberator_session.json"
 

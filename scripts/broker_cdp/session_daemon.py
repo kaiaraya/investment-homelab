@@ -107,6 +107,32 @@ async def start_daemon(broker: str, keepalive_interval: int = 300) -> None:
     logged_in = await cfg["login"](ctx, initial_page)
     if logged_in:
         await cfg["open_tabs"](ctx)
+        # B.3 post-login hook: persist balance + holdings into broker_accounts/positions
+        # as soon as the session is up. Best-effort — a sync failure must never kill
+        # the keep-alive loop (the next /port sync or pre-trade call will retry).
+        try:
+            from app.services.broker_cdp.sync_service import sync_portfolio_from_cdp
+            result = await sync_portfolio_from_cdp(broker)
+            logger.info(
+                f"Post-login portfolio sync OK: account={result.get('account_no')} "
+                f"line_available={result.get('line_available')} positions={result.get('positions')}"
+            )
+        except Exception as e:
+            logger.warning(f"Post-login portfolio sync skipped: {type(e).__name__}: {e}")
+
+        # B.7 post-login hook: diff the order ledger against `orders` so any trade the
+        # human placed manually on the frontend is recorded as source='manual_sync'.
+        # Best-effort — an empty ledger or a broken tab must never kill the keep-alive.
+        try:
+            from app.services.broker_cdp.sync_service import sync_orders_from_cdp
+            ord_result = await sync_orders_from_cdp(broker)
+            if ord_result.get("new_manual_count"):
+                logger.info(
+                    f"Post-login manual-order sync: {ord_result['new_manual_count']} "
+                    f"new manual order(s) for {ord_result.get('account_no')}"
+                )
+        except Exception as e:
+            logger.warning(f"Post-login order sync skipped: {type(e).__name__}: {e}")
 
     await run_keepalive_loop(ctx, interval_seconds=keepalive_interval, label=cfg["label"])
 
