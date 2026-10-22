@@ -1,7 +1,7 @@
 # Master Directive: InvestmentHomelab — Focused LINE CLI & In-Place Price Negotiation (Pillar 1–3)
 
-**Status:** Canonical Single Source of Truth (Active Development Loop)  
-**Last Synchronized Commit:** `2bf22f8` (2026-10-16)  
+**Status:** Canonical Single Source of Truth (Active Development Loop) — Phase B (Order Entry) เปิดแล้ว  
+**Last Synchronized Commit:** `2bf22f8` (2026-10-16) · Phase B scope edit 2026-10-21 (เพิ่ม `/buy /sell /short /cover`)  
 **Target Readers:** Argon (Planner/Reviewer) & Cline (Implementer/Verifier)
 
 > **กฎสูงสุดสำหรับ Agent (Cline & Argon):** เอกสารฉบับนี้คือแม่บทเดียวของ Development Loop ปัจจุบัน (ความยาว < 200 บรรทัด ผ่านเกณฑ์ `token_guard`) หากเนื้อหาใน `directive/idea.md`, `directive/phase3_detail.md`, `directive/kdeconnect.md`, หรือ `directives/sops/*.md` ขัดแย้งกับไฟล์นี้ **ให้ยึดไฟล์นี้เป็นหลักทั้งหมด และห้ามแตะโมดูลที่ถูกระบุว่าเป็น Dormant/Disabled**
@@ -9,12 +9,13 @@
 ## 1. เป้าหมายสูงสุดและขอบเขตของ Development Loop นี้ (Current Loop Scope)
 
 1. **โฟกัสเฉพาะ 2 โบรกเกอร์ 2 บัญชีเท่านั้น**:
-   * **Krungsri TradeMan / QuickTrade (`kss`)** — เฉพาะบัญชี **`MARGIN` (`3024959`)**
-   * **Liberator WebTrade (`lib`)** — เฉพาะบัญชี **`CASH`**
+   * **Krungsri Settrade Streaming (`kss`)** — เฉพาะบัญชี **`MARGIN` (`3024959`)** — รองรับ **`/short` `/cover`** เท่านั้น
+   * **Liberator WebTrade (`lib`)** — เฉพาะบัญชี **`CASH`** — รองรับ **`/buy` `/sell`** เท่านั้น
    * โบรกเกอร์และบัญชีอื่นทั้งหมด (`Click2Win`, `Settrade Open API`, และบัญชี `KSS CASH 3024952`) **พักไว้ก่อน (Out of Scope)**
+   * **Side → Broker routing (Phase B):** `short`/`cover` → `kss` MARGIN · `buy`/`sell` → `lib` CASH (broker override `kss:margin` เก็บไว้ optional)
 2. **เป้าหมายสูงสุดของระบบ (North Star Goal)**:
-   * **ผู้ใช้เป็นคนส่งคำสั่งซื้อขาย (Place Order) เองบนแอปโบรกเกอร์** ระบบ Homelab **ไม่ส่งคำสั่งเปิดออเดอร์ใหม่** (`/buy`, `/sell`, `/short`, `/cover` ไม่มีใน Loop นี้)
-   * ระบบทำหน้าที่เป็น **LINE Slash CLI** ที่เสถียรสำหรับ **(1) ล็อกอินและรักษา Session**, **(2) ตรวจพอร์ต/วงเงิน/ออเดอร์ค้าง**, และ **(3) ต่อราคาออเดอร์ค้างในที่ (`/nego`) ไปยัง Best Bid 1 / Offer 1 ได้อย่างแม่นยำ**
+   * ระบบเป็น **LINE Slash CLI** ที่เสถียรสำหรับ **(1) ล็อกอินและรักษา Session**, **(2) ตรวจพอร์ต/วงเงิน/ออเดอร์ค้าง**, **(3) ต่อราคาออเดอร์ค้างในที่ (`/nego`)**, และ **(4) ส่งคำสั่งใหม่ (`/buy` `/sell` `/short` `/cover`) ผ่าน Flex Card Confirm (Phase B)**
+   * การส่งคำสั่งใหม่ต้องผ่าน **Flex Card Confirm** ก่อนยิงจริง + **DRY_RUN_MODE** gate เสมอ — อ้างอิง `cdp_headed_architecture_plan.md` และ `docs/handoff/TASK-loop1-b0a-order-entry-contract.md`
 3. **ทำเฉพาะ Pillar 1 ถึง Pillar 3 เท่านั้น**:
    * **ไม่มี Schedule / Cron อัตโนมัติ** (ผู้ใช้เป็นคนกดสั่งผ่าน LINE CLI เองทุกครั้ง)
    * **ไม่มี Agentic AI / Sub-Agents / LLM Orchestrator**
@@ -83,7 +84,7 @@ Entrypoint เดียวของระบบคือ **`app.main:app`** (ร
 
 1. **Anti-Mock**: ห้ามคืนค่าบัญชีปลอม, ยอดเงิน `0.00` แทนค่าที่อ่านไม่ได้ (`None`), หรือแกล้งรายงานว่าต่อราคาสำเร็จทั้งที่ DOM ไม่เปลี่ยน ต้องรายงานผลจริงจากหน้าเว็บโบรกเกอร์เท่านั้น
 2. **Strict Broker Isolation**: โค้ดและ Selector ของ `kss` (TradeMan/QuickTrade) กับ `lib` (Liberator WebTrade) แยกกันโดยสมบูรณ์ ห้ามใช้ปนกัน
-3. **Never Place New Orders**: ใน Loop นี้ห้ามเขียนโค้ดหรือเรียกฟังก์ชันที่ส่งคำสั่งซื้อขายใหม่ (`place_order`) เด็ดขาด อนุญาตเฉพาะการอ่านพอร์ต/ออเดอร์ และการแก้ราคาในที่ (`modify_order_price` / `change_order`) ผ่าน `/nego` เท่านั้น
+3. **Order Entry ต้องผ่าน Guardrails เสมอ (Phase B)**: อนุญาตส่งคำสั่งใหม่ผ่าน `/buy` `/sell` `/short` `/cover` แต่ทุกคำสั่งต้อง (a) ผ่าน `validator` (odd-lot / tick / strict short uptick G6), (b) เช็ค `line_available` จาก DB ก่อน, (c) ส่ง **Flex Card ยืนยัน (Confirm)** ก่อนยิงจริง, (d) ผ่าน `DRY_RUN_MODE` gate หลัง validate ก่อน submit — ห้าม mock ผลสำเร็จ; `/short` ต้องมีหุ้นยืม (SBL) คงเหลือ (ผู้ใช้ยืม/คืน manual ใน Loop นี้, Pillar 4 ยัง dormant) และการแก้ราคาในที่ (`/nego`) ยังคงห้าม Cancel+Replace
 4. **Never Overwrite Saved Sessions in Tests/Probes (Invariant 8)**: สคริปต์ Probe และชุดเทสต์ทั้งหมดห้ามเขียนทับหรือลบไฟล์ `data/session_state.json` และ `data/liberator_session.json`
 5. **No Secret or Balance Leakage**: ห้ามนำรหัสผ่าน, PIN, Token หรือตัวเลขยอดเงินจริง (ตั้งแต่ 4 หลักขึ้นไป) ออกมาเขียนลง Log, ไฟล์ Dump, หรือ Handoff Report (ใช้ `app/services/redaction.py`)
 6. **Zero-Contradiction Runbooks**: ทุกครั้งที่ปรับแก้ Selector หรือลำดับการคลิกหน้าเว็บของ `kss` หรือ `lib` ต้องอัปเดตไฟล์ `learned_workflows/<broker>/*.md` และ `rca/<broker>/` ให้ตรงกันทันที

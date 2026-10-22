@@ -43,7 +43,7 @@ Full pre-slim versions (verbatim): `docs/agent/full/`.
 ## Workflow (4-Agent Hybrid Loop)
 - Loop every unit: DECOMPOSE → EXECUTE → VERIFY → REFLECT → REPEAT (`.agents/rules/loop_engineering.md`).
 - Handoff (Argon → Flash STEP 0a Probe → Jules STEP 2a T0/T1 → Cline STEP 2b Triage → Flash STEP 3 Witness → Argon STEP 5): work only the scope in `docs/handoff/TASK-<slug>.md`; out-of-scope findings go to Open questions (routed to Cline Side-Quests). Details: `docs/agent/handoff_protocol.md`.
-- Jules bridge CLI: `.venv/bin/python scripts/jules_bridge.py {check-safety|push-plan|prompt|pull-branch}` · Cloud VM bootstrap: `bash scripts/jules_setup.sh`.
+- Jules bridge CLI: `.venv/bin/python scripts/jules_bridge.py {check-safety|push-plan|prompt|pull-branch|sources|dispatch|status|approve-plan|wait|run}` · One-shot auto: `run <handoff>` (dispatch→wait→pull) · Cloud VM bootstrap: `bash scripts/jules_setup.sh`. API key: `JULES_API_KEY` in `.env`.
 
 ## Read-when-relevant index
 | Task touches | Read first |

@@ -12,9 +12,9 @@
 |---|---|---|---|
 | **0** | **Argon** | §Directive delta · §Scope · §Context map · §Steps · §Acceptance (+ การ์ดใน `docs/board/loop_board.md`) | `DRAFT` → `PROBE_NEEDED` หรือ `READY` |
 | **0a** | **Flash 3.8 + Human** | `## DOM / API Contract` (Read-Only Probe อ่าน Selector/JSON จริงจากหน้าเว็บ) | `PROBE_NEEDED` → `PROBE_DONE` (`READY`) |
-| **1** | **Human** (gate #1) | flip `Status` + รัน `scripts/jules_bridge.py push-plan` & `prompt` | `READY` → `IN_PROGRESS` |
+| **1** | **Human/Argon** (gate #1) | flip `Status` + `scripts/jules_bridge.py push-plan` → `dispatch` (REST API) หรือ `run` (dispatch→wait→pull อัตโนมัติ) | `READY` → `IN_PROGRESS` |
 | **2a** | **Jules** (Cloud T0/T1) | โค้ด + Unit Test (`T0=Gemini 3.6 Flash` / `T1=Gemini 3.1 Pro`) + `## Jules Report` | → `TRIAGE` |
-| **2b** | **Cline** (Local Triage) | ดึง branch (`jules_bridge.py pull-branch`) → ตรวจ Invariants + รัน `verify_changes.py` ในเครื่อง → `## Cline Triage Report` | → `REVIEW` |
+| **2b** | **Cline** (Local Triage) | ดึง branch (`jules_bridge.py pull-branch` / `run` auto-pull) → ตรวจ Invariants + รัน `verify_changes.py` ในเครื่อง → `## Cline Triage Report` | → `REVIEW` |
 | **3** | **Flash 3.8 + Human** | (ถ้ามี T2) `## Verification & Stepwise Approval` (+ `### Live Evidence`) | verdict |
 | **4** | **Human** (gate #2) | squash `task/<slug>` → `main` | → `DONE` |
 | **5** | **Argon** | `## Argon Analysis` (4 งาน) → แตกการ์ดรอบถัดไป / ส่ง `Open questions` เข้าเลน `🔧 Side-Quests (Cline)` | → STEP 0 |

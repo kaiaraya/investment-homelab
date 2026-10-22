@@ -43,3 +43,8 @@ node_modules/
 .DS_Store
 *.swp
 *~
+.obsidian/
+*.canvas
+graphify-out/
+*.db.bak*
+.agents/teamwork/
