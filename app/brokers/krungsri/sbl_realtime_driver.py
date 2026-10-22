@@ -444,46 +444,14 @@ class KrungsriSBLRealtimeDriver:
                 "fee_rate": risk.get("borrow_fee_pct", 3.50),
             }
 
-        # Live Playwright execution on MainSBL.aspx
-        session_file = settings.SESSION_STATE_PATH
-        if not os.path.exists(session_file):
-            return {"success": False, "error": f"Session file not found at {session_file}"}
-
-        playwright = await async_playwright().start()
-        launch_args = {
-            "headless": True,
-            "args": ["--no-sandbox", "--disable-dev-shm-usage"]
+        # Fail-closed: live SBL borrow via Web DOM is not implemented yet.
+        # Fabricating a SUBMITTED success on a live path would violate the
+        # "no fabricated live success" guardrail and risk capital.
+        return {
+            "success": False,
+            "status": "LIVE_SBL_NOT_IMPLEMENTED",
+            "error": "Live SBL via Web DOM is disabled/not implemented — fail-closed to protect capital",
         }
-        if os.path.exists("/usr/bin/google-chrome"):
-            launch_args["executable_path"] = "/usr/bin/google-chrome"
-        elif os.path.exists(settings.PLAYWRIGHT_CHROME_EXECUTABLE):
-            launch_args["executable_path"] = settings.PLAYWRIGHT_CHROME_EXECUTABLE
-
-        browser = await playwright.chromium.launch(**launch_args)
-        context = await browser.new_context(storage_state=session_file, viewport={"width": 1280, "height": 900})
-        page = await context.new_page()
-
-        try:
-            await page.goto(SBL_START_URL, wait_until="networkidle", timeout=30000)
-            await page.fill("#ctl00_MainCenter_txtSymbol", sym)
-            await page.fill("#ctl00_MainCenter_txtQty", str(volume))
-            await page.click("#MainCenter_lbBorrow")
-            await page.wait_for_timeout(2000)
-
-            tx_id = f"SBL-RT-{sym}-{int(time.time())}"
-            return {
-                "success": True,
-                "status": "SUBMITTED",
-                "symbol": sym,
-                "volume": volume,
-                "transaction_id": tx_id,
-            }
-        except Exception as e:
-            logger.error(f"Live SBL borrow failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-        finally:
-            await browser.close()
-            await playwright.stop()
 
     async def return_sbl_shares(self, lot_id: str, return_qty: int, symbol: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -500,12 +468,11 @@ class KrungsriSBLRealtimeDriver:
                 "lot_id": lot_id,
             }
 
+        # Fail-closed: live SBL return via Web DOM is not implemented yet.
         return {
-            "success": True,
-            "status": "SUBMITTED",
-            "symbol": symbol,
-            "return_qty": return_qty,
-            "lot_id": lot_id,
+            "success": False,
+            "status": "LIVE_SBL_NOT_IMPLEMENTED",
+            "error": "Live SBL via Web DOM is disabled/not implemented — fail-closed to protect capital",
         }
 
 
