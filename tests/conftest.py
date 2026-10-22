@@ -53,6 +53,8 @@ import app.services.trade_center_service
 import app.services.price_negotiation_service
 import app.services.market_monitor_service
 import app.services.daily_scenario_runner
+import app.services.scenario_matrix
+import app.services.broker_cdp.sync_service
 
 app.db.session.AsyncSessionLocal = TestingSessionLocal
 app.browser.trademan_driver.AsyncSessionLocal = TestingSessionLocal
@@ -65,6 +67,8 @@ app.services.trade_center_service.AsyncSessionLocal = TestingSessionLocal
 app.services.price_negotiation_service.AsyncSessionLocal = TestingSessionLocal
 app.services.market_monitor_service.AsyncSessionLocal = TestingSessionLocal
 app.services.daily_scenario_runner.AsyncSessionLocal = TestingSessionLocal
+app.services.scenario_matrix.AsyncSessionLocal = TestingSessionLocal
+app.services.broker_cdp.sync_service.AsyncSessionLocal = TestingSessionLocal
 
 
 @pytest_asyncio.fixture(autouse=True)

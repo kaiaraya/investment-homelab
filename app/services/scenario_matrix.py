@@ -85,7 +85,7 @@ class ScenarioMatrix:
         # Step 4: Advance to 16:35 EOD
         virtual_clock.advance_to("16:35")
         async with AsyncSessionLocal() as db:
-            pos = await db.get(Position, "CPALL")
+            pos = (await db.execute(select(Position).where(Position.symbol == "CPALL"))).scalars().first()
             if pos:
                 pos.current_price = 66.50  # Steady gain (+฿1.50/share)
                 await db.commit()
@@ -153,8 +153,8 @@ class ScenarioMatrix:
         # Step 3: 10:45 Price Moves Trigger TP & SL
         virtual_clock.advance_to("10:45")
         async with AsyncSessionLocal() as db:
-            pos_ap = await db.get(Position, "AP")
-            pos_bdms = await db.get(Position, "BDMS")
+            pos_ap = (await db.execute(select(Position).where(Position.symbol == "AP"))).scalars().first()
+            pos_bdms = (await db.execute(select(Position).where(Position.symbol == "BDMS"))).scalars().first()
             if pos_ap:
                 pos_ap.current_price = 8.20  # Hits SL (> 8.10)
             if pos_bdms:
@@ -222,7 +222,7 @@ class ScenarioMatrix:
         # 11:15: Flash Drop
         virtual_clock.advance_to("11:15")
         async with AsyncSessionLocal() as db:
-            pos = await db.get(Position, "DELTA")
+            pos = (await db.execute(select(Position).where(Position.symbol == "DELTA"))).scalars().first()
             if pos:
                 pos.current_price = 95.80  # -4.2% abnormal drop
                 await db.commit()
@@ -231,7 +231,7 @@ class ScenarioMatrix:
         # 11:25: Rebound
         virtual_clock.advance_to("11:25")
         async with AsyncSessionLocal() as db:
-            pos = await db.get(Position, "DELTA")
+            pos = (await db.execute(select(Position).where(Position.symbol == "DELTA"))).scalars().first()
             if pos:
                 pos.current_price = 98.50  # Rebounded back
                 await db.commit()

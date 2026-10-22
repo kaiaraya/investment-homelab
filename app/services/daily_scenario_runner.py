@@ -247,7 +247,7 @@ class DailyScenarioRunner:
             # -------------------------------------------------------------
             if slot_id == "slot_1000":
                 # 1.1 TP ตามรายงานโมเดล (Target Hit): CKP (Cost 2.36, Price 2.48, +5.08%)
-                pos_ckp = await db.get(Position, "CKP")
+                pos_ckp = (await db.execute(select(Position).where(Position.symbol == "CKP"))).scalars().first()
                 if pos_ckp and pos_ckp.volume > 0:
                     tp_vol = 8000  # Sell half to lock +5% profit
                     res_ckp = await trade_dispatcher.dispatch_order(
@@ -260,7 +260,7 @@ class DailyScenarioRunner:
                     await self._send_line_message(act)
 
                 # 1.2 TP พิเศษ (หนีเมื่อมีกำไร): SINGER (Cost 10.30, Price 10.50, +1.94% อ่อนแรง)
-                pos_singer = await db.get(Position, "SINGER")
+                pos_singer = (await db.execute(select(Position).where(Position.symbol == "SINGER"))).scalars().first()
                 if pos_singer and pos_singer.volume > 0:
                     res_singer = await trade_dispatcher.dispatch_order(
                         symbol="SINGER", side=OrderSide.SELL, volume=pos_singer.volume, price=10.50, current_market_price=10.50
@@ -281,7 +281,7 @@ class DailyScenarioRunner:
             # -------------------------------------------------------------
             elif slot_id == "slot_1030":
                 # 2.1 ปิด SL: TIDLOR (Cost 19.00, Price 18.20, -4.21%)
-                pos_tidlor = await db.get(Position, "TIDLOR")
+                pos_tidlor = (await db.execute(select(Position).where(Position.symbol == "TIDLOR"))).scalars().first()
                 if pos_tidlor and pos_tidlor.volume > 0:
                     res_sl = await trade_dispatcher.dispatch_order(
                         symbol="TIDLOR", side=OrderSide.SELL, volume=pos_tidlor.volume, price=18.20, current_market_price=18.20
@@ -293,7 +293,7 @@ class DailyScenarioRunner:
                     await self._send_line_message(act)
 
                 # 2.2 ปิด Weed-out: CPALL (แช่นาน วันที่ 9/10, -0.54%) & PR9 (Cover Short)
-                pos_cpall = await db.get(Position, "CPALL")
+                pos_cpall = (await db.execute(select(Position).where(Position.symbol == "CPALL"))).scalars().first()
                 if pos_cpall and pos_cpall.volume > 0:
                     res_cpall = await trade_dispatcher.dispatch_order(
                         symbol="CPALL", side=OrderSide.SELL, volume=pos_cpall.volume, price=46.00, current_market_price=46.00
@@ -305,7 +305,7 @@ class DailyScenarioRunner:
                     await self._send_line_message(act)
 
                 # PR9 Cover (Weed-out Short)
-                pos_pr9 = await db.get(Position, "PR9")
+                pos_pr9 = (await db.execute(select(Position).where(Position.symbol == "PR9"))).scalars().first()
                 if pos_pr9 and pos_pr9.volume > 0:
                     res_pr9 = await trade_dispatcher.dispatch_order(
                         symbol="PR9", side=OrderSide.COVER, volume=pos_pr9.volume, price=19.40, current_market_price=19.40
@@ -321,7 +321,7 @@ class DailyScenarioRunner:
                     await self._send_line_message(act)
 
                 # 2.3 ปิด TP (ถ้ามีไม้ที่สอง): CKP ส่วนที่เหลือ
-                pos_ckp = await db.get(Position, "CKP")
+                pos_ckp = (await db.execute(select(Position).where(Position.symbol == "CKP"))).scalars().first()
                 if pos_ckp and pos_ckp.volume > 0:
                     res_ckp2 = await trade_dispatcher.dispatch_order(
                         symbol="CKP", side=OrderSide.SELL, volume=pos_ckp.volume, price=2.50, current_market_price=2.50

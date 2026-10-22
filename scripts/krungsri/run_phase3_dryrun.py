@@ -13,6 +13,8 @@ import asyncio
 import logging
 from datetime import datetime
 
+from sqlalchemy import select
+
 from app.core.config import settings
 from app.db.init_db import init_db
 from app.db.models import Position, Order
@@ -57,14 +59,14 @@ async def main():
     print("\n[Step 3] Running 3.1 Portfolio Overview (10:15 Round)...")
     async with AsyncSessionLocal() as db:
         # Seed mock holdings for demonstration
-        pos_cpall = await db.get(Position, "CPALL")
+        pos_cpall = (await db.execute(select(Position).where(Position.symbol == "CPALL"))).scalars().first()
         if pos_cpall:
             pos_cpall.volume = 1000
             pos_cpall.avg_cost = 65.00
             pos_cpall.current_price = 68.50  # Hits TP (68.00)
             pos_cpall.prior_close_price = 66.00
 
-        pos_ap = await db.get(Position, "AP")
+        pos_ap = (await db.execute(select(Position).where(Position.symbol == "AP"))).scalars().first()
         if pos_ap:
             pos_ap.volume = 5000
             pos_ap.avg_cost = 7.90

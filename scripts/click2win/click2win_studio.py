@@ -31,6 +31,7 @@ sys.path.insert(0, PROJECT_ROOT)
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"), override=True)
 
 from playwright.async_api import async_playwright
+from sqlalchemy import select
 from app.core.config import settings
 from app.browser.click2win_auth_driver import click2win_auth_driver
 from app.browser.click2win_driver import click2win_driver
@@ -190,7 +191,7 @@ async def run_studio(target_tab: str = "portfolio"):
             for pos in positions_scraped:
                 mkt_p = pos.get("market_price", pos.get("current_price", 0.0))
                 unreal_pl = pos.get("unrealized_pl", pos.get("unrealized_pnl", 0.0))
-                existing = await db.get(Position, pos["symbol"])
+                existing = (await db.execute(select(Position).where(Position.symbol == pos["symbol"]))).scalars().first()
                 if existing:
                     existing.volume = pos["volume"]
                     existing.avg_cost = pos["avg_cost"]

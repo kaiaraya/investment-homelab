@@ -121,7 +121,7 @@ async def test_slot_1000_morning_tp():
     assert len(res["passive_actions"]) >= 1  # SET Monitor snapshot
 
     async with AsyncSessionLocal() as db:
-        pos_singer = await db.get(Position, "SINGER")
+        pos_singer = (await db.execute(select(Position).where(Position.symbol == "SINGER"))).scalars().first()
         assert pos_singer.volume == 0  # Fully closed
 
 
@@ -146,14 +146,14 @@ async def test_slot_1030_auto_trading_window():
     assert any("AP" in act and "SHORT" in act for act in res["active_actions"])
 
     async with AsyncSessionLocal() as db:
-        pos_tidlor = await db.get(Position, "TIDLOR")
+        pos_tidlor = (await db.execute(select(Position).where(Position.symbol == "TIDLOR"))).scalars().first()
         assert pos_tidlor.volume == 0  # Cut loss executed
 
-        pos_bdms = await db.get(Position, "BDMS")
+        pos_bdms = (await db.execute(select(Position).where(Position.symbol == "BDMS"))).scalars().first()
         assert pos_bdms is not None
         assert pos_bdms.volume == 1500
 
-        pos_ap = await db.get(Position, "AP")
+        pos_ap = (await db.execute(select(Position).where(Position.symbol == "AP"))).scalars().first()
         assert pos_ap is not None
         assert pos_ap.position_type == "SHORT"
         assert pos_ap.volume == 5000
