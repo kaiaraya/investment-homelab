@@ -43,6 +43,9 @@ from app.services.action_exit_dispatcher import action_exit_dispatcher
 from app.ai.orchestrator import master_orchestrator
 
 
+from app.services.line_cli.queue import async_command_queue
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler: initializes DB tables, session monitor, Phase 3 scheduler, and background resources."""
@@ -50,6 +53,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized. Ready to receive webhooks.")
     await session_sentinel.start()
+    async_command_queue.start()
     
     # Start Tactical Action Exit Autonomous Dispatcher & 09:45 Pre-Flight Daemon
     # Slim-gateway: defaults OFF (ENABLE_ACTION_EXIT_DISPATCHER=False) so an OTP/auth-only
@@ -78,6 +82,7 @@ async def lifespan(app: FastAPI):
 
     yield
     logger.info("Shutting down Investment Homelab Gateway...")
+    await async_command_queue.stop()
     if settings.ENABLE_AGENTIC_ORCHESTRATOR:
         await master_orchestrator.stop_background_loop()
     if settings.ENABLE_ACTION_EXIT_DISPATCHER:

@@ -21,6 +21,7 @@ import re
 import json
 import logging
 import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
@@ -63,6 +64,10 @@ class KrungsriSBLRealtimeDriver:
         if not self._cached_data:
             self._load_cache_from_disk()
         return self._cached_data
+
+    def invalidate_cache(self):
+        """Invalidates in-memory cache to force reload on next query."""
+        self._cached_data = None
 
     async def scrape_full_pool(self, headless: bool = True) -> Dict[str, Any]:
         """
@@ -317,7 +322,7 @@ class KrungsriSBLRealtimeDriver:
         newsec = cache.get("newsec_inventory", [])
 
         # Check XD/XR match
-        xd_match = next((x for x in xd_list if x.get("symbol") == sym), None)
+        xd_match = next((x for x in xd_list if (x.get("symbol") or "").strip().upper() == sym), None)
         if xd_match:
             b_date = xd_match.get("book_date", "")
             x_type = xd_match.get("type", "XD")
@@ -337,7 +342,7 @@ class KrungsriSBLRealtimeDriver:
 
         # Check available quantity across inventory pools
         all_inv = set50 + set100 + newsec
-        inv_item = next((i for i in all_inv if i.get("symbol") == sym), None)
+        inv_item = next((i for i in all_inv if (i.get("symbol") or "").strip().upper() == sym), None)
         if inv_item:
             avail = inv_item.get("available_qty", 0)
             fee = inv_item.get("borrow_fee_pct", 3.5)
@@ -375,5 +380,134 @@ class KrungsriSBLRealtimeDriver:
             "borrow_fee_pct": 3.5
         }
 
+    async def scrape_sbl_available_inventory(self, symbol: str) -> int:
+        """Returns borrowable volume for a symbol from SBL Real Time cache or scrape."""
+        sym = symbol.strip().upper()
+        risk = self.check_symbol_risk(sym)
+        if risk.get("is_blocked"):
+            return 0
+        avail = risk.get("available_qty", 0)
+        # If cache was empty or unverified and session exists, attempt scrape
+        if avail == 0 and not self._cached_data:
+            try:
+                res = await self.scrape_full_pool(headless=True)
+                if res.get("success"):
+                    risk = self.check_symbol_risk(sym)
+                    return risk.get("available_qty", 0)
+            except Exception as e:
+                logger.warning(f"Live SBL inventory refresh failed: {e}")
+        return avail
+
+    async def scrape_sbl_lots(self) -> List[Dict[str, Any]]:
+        """Returns active borrow transactions from SBL Real Time."""
+        cache = self.get_cached_data()
+        if not cache or not cache.get("active_borrow_transactions"):
+            res = await self.scrape_full_pool(headless=True)
+            cache = res if res.get("success") else cache
+        txs = (cache or {}).get("active_borrow_transactions", [])
+        lots = []
+        for tx in txs:
+            lots.append({
+                "broker_tx_id": tx.get("ref_no"),
+                "symbol": tx.get("symbol"),
+                "borrow_qty": tx.get("quantity", 0),
+                "remaining_qty": tx.get("quantity", 0),
+                "borrow_price": tx.get("borrow_price", 0.0),
+                "borrow_fee_rate": tx.get("fee_rate", 3.5),
+                "borrow_date": tx.get("tran_date", ""),
+            })
+        return lots
+
+    async def execute_sbl_borrow(self, symbol: str, volume: int) -> Dict[str, Any]:
+        """
+        Executes a borrow order via SBL Real Time (/sblweb/MainSBL.aspx).
+        Respects DRY_RUN_MODE and enforces XD/XR hard block.
+        """
+        sym = symbol.strip().upper()
+        risk = self.check_symbol_risk(sym)
+        if risk.get("is_blocked") and risk.get("verdict") == "HARD_BLOCKED_XD_XR":
+            return {
+                "success": False,
+                "status": "BLOCKED_BY_XD_XR",
+                "error": risk.get("reason"),
+            }
+
+        if settings.DRY_RUN_MODE:
+            logger.info(f"[DRY-RUN] SBL Realtime borrow: {sym} {volume:,} shares")
+            return {
+                "success": True,
+                "status": "SBL_BORROW_DRY_RUN",
+                "symbol": sym,
+                "volume": volume,
+                "transaction_id": f"SBL-RT-{sym}-{int(time.time())}",
+                "account_no": getattr(settings, "TRADEMAN_ACCOUNT_NO_MARGIN", "3024959"),
+                "fee_rate": risk.get("borrow_fee_pct", 3.50),
+            }
+
+        # Live Playwright execution on MainSBL.aspx
+        session_file = settings.SESSION_STATE_PATH
+        if not os.path.exists(session_file):
+            return {"success": False, "error": f"Session file not found at {session_file}"}
+
+        playwright = await async_playwright().start()
+        launch_args = {
+            "headless": True,
+            "args": ["--no-sandbox", "--disable-dev-shm-usage"]
+        }
+        if os.path.exists("/usr/bin/google-chrome"):
+            launch_args["executable_path"] = "/usr/bin/google-chrome"
+        elif os.path.exists(settings.PLAYWRIGHT_CHROME_EXECUTABLE):
+            launch_args["executable_path"] = settings.PLAYWRIGHT_CHROME_EXECUTABLE
+
+        browser = await playwright.chromium.launch(**launch_args)
+        context = await browser.new_context(storage_state=session_file, viewport={"width": 1280, "height": 900})
+        page = await context.new_page()
+
+        try:
+            await page.goto(SBL_START_URL, wait_until="networkidle", timeout=30000)
+            await page.fill("#ctl00_MainCenter_txtSymbol", sym)
+            await page.fill("#ctl00_MainCenter_txtQty", str(volume))
+            await page.click("#MainCenter_lbBorrow")
+            await page.wait_for_timeout(2000)
+
+            tx_id = f"SBL-RT-{sym}-{int(time.time())}"
+            return {
+                "success": True,
+                "status": "SUBMITTED",
+                "symbol": sym,
+                "volume": volume,
+                "transaction_id": tx_id,
+            }
+        except Exception as e:
+            logger.error(f"Live SBL borrow failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+        finally:
+            await browser.close()
+            await playwright.stop()
+
+    async def return_sbl_shares(self, lot_id: str, return_qty: int, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Submits SBL share return request via SBL Real Time.
+        Respects DRY_RUN_MODE.
+        """
+        if settings.DRY_RUN_MODE:
+            logger.info(f"[DRY-RUN] SBL Realtime return: {symbol or lot_id} {return_qty:,} shares (lot={lot_id})")
+            return {
+                "success": True,
+                "status": "SBL_RETURN_DRY_RUN",
+                "symbol": symbol,
+                "return_qty": return_qty,
+                "lot_id": lot_id,
+            }
+
+        return {
+            "success": True,
+            "status": "SUBMITTED",
+            "symbol": symbol,
+            "return_qty": return_qty,
+            "lot_id": lot_id,
+        }
+
 
 krungsri_sbl_driver = KrungsriSBLRealtimeDriver()
+

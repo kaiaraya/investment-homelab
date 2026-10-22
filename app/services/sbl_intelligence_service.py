@@ -19,6 +19,22 @@ class SBLIntelligenceService:
     Supervises SBL operations using real multi-tab TradeMan data and Gemini AI.
     """
 
+    async def check_xd_risk(self, symbol: str) -> Dict[str, Any]:
+        """
+        Deterministic check against Krungsri SBL Real Time XD/XR corporate action calendar.
+        """
+        from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+        risk = krungsri_sbl_driver.check_symbol_risk(symbol)
+        if risk.get("is_blocked") and risk.get("verdict") == "HARD_BLOCKED_XD_XR":
+            ca = risk.get("corporate_action") or {}
+            return {
+                "xd_risk": True,
+                "xd_date": ca.get("book_date", ""),
+                "type": ca.get("type", "XD"),
+                "reason": risk.get("reason"),
+            }
+        return {"xd_risk": False}
+
     async def analyze_sbl_decision(
         self,
         sbl_data: Dict[str, Any],

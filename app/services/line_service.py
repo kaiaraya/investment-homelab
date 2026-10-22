@@ -76,7 +76,7 @@ class LineMessagingService:
 
         # 0. Emergency Panic / Kill Switch Commands: "PANIC", "KILL", "STOP ALL", "RESET"
         clean_text = text.strip().upper()
-        if clean_text in ("PANIC", "KILL", "STOP ALL", "EMERGENCY STOP"):
+        if clean_text in ("PANIC", "KILL", "STOP ALL", "EMERGENCY STOP", "HALT", "/HALT"):
             from app.services.kill_switch_service import kill_switch_service
             res = await kill_switch_service.activate(reason=f"Triggered via LINE command: {text}", triggered_by="LINE_USER")
             reply_text = "🚨 [EMERGENCY KILL SWITCH ACTIVATED]\nระบบหยุดการเทรดอัตโนมัติทั้งหมดทันที และส่งคำขอยกเลิกออเดอร์ค้างทั้งหมดเรียบร้อยแล้ว\nพิมพ์ 'RESET' หรือ 'RESUME' เพื่อปลดล็อก"
@@ -156,16 +156,80 @@ class LineMessagingService:
                 "broker": broker_tag,
             }
 
-        # 2.4 LINE slash-command CLI (TASK-line-cli) — placed AFTER kill-switch /
-        # MODE / OTP relay (an emergency stop always wins; an OTP is never
-        # swallowed by a CLI token) and BEFORE the conversation state machine so
-        # a `/` command abandons any pending flow. Non-`/` text returns None and
-        # falls through to the legacy matchers unchanged.
+        # 2.4 LINE slash-command CLI (TASK-line-cli, Loop 2 Async Queue) — placed
+        # AFTER kill-switch / MODE / OTP relay (an emergency stop always wins;
+        # an OTP is never swallowed by a CLI token) and BEFORE the conversation
+        # state machine so a `/` command abandons any pending flow. Non-`/` text
+        # returns None and falls through to the legacy matchers unchanged.
         from app.services.line_cli import parser as _cli_parser
         if _cli_parser.is_command(text):
             from app.services.line_cli import handlers as _cli_handlers
+            from app.services.line_cli.queue import (
+                async_command_queue,
+                LOGIN_TIMEOUT_SECONDS,
+                NEGO_TIMEOUT_SECONDS,
+                DEFAULT_TIMEOUT_SECONDS,
+            )
+
+            parsed_cmd = _cli_parser.parse(text)
+            clean_cmd = getattr(parsed_cmd, "cmd", "")
+
+            # Bypass queue for emergency halt command
+            if clean_cmd == "halt":
+                return await _cli_handlers.handle(
+                    parsed_cmd, db=db, raw_event=raw_event, service=self
+                )
+
+            # If background worker queue is active, delegate asynchronously
+            if async_command_queue.is_running:
+                source = (raw_event or {}).get("source") or {}
+                push_target = source.get("groupId") or source.get("userId")
+                timeout_sec = (
+                    LOGIN_TIMEOUT_SECONDS
+                    if clean_cmd == "login"
+                    else NEGO_TIMEOUT_SECONDS
+                    if clean_cmd in ("nego", "negotiate")
+                    else DEFAULT_TIMEOUT_SECONDS
+                )
+
+                async def _queued_cli_job():
+                    from app.db.session import AsyncSessionLocal
+
+                    class _AsyncPushMessagingService:
+                        def __init__(self, inner, target):
+                            self._inner = inner
+                            self._target = target
+
+                        async def _send_reply(self, reply_token, msg):
+                            return await self._inner.push_message(msg, to_user_id=self._target)
+
+                        async def push_message(self, msg, to_user_id=None):
+                            return await self._inner.push_message(msg, to_user_id=to_user_id or self._target)
+
+                        def __getattr__(self, name):
+                            return getattr(self._inner, name)
+
+                    async with AsyncSessionLocal() as job_db:
+                        push_svc = _AsyncPushMessagingService(self, push_target)
+                        return await _cli_handlers.handle(
+                            parsed_cmd, db=job_db, raw_event=raw_event, service=push_svc
+                        )
+
+                job_id = await async_command_queue.enqueue(
+                    cmd_name=text,
+                    func=_queued_cli_job,
+                    push_target=push_target,
+                    timeout_seconds=timeout_sec,
+                )
+                if not job_id:
+                    full_msg = "⚠️ คิวคำสั่งระบบเต็ม กรุณารอสักครู่แล้วส่งคำสั่งใหม่อีกครั้ง"
+                    await self._send_reply(reply_token, full_msg)
+                    return {"status": "CLI_QUEUE_FULL", "cmd": text}
+
+                return {"status": "CLI_QUEUED", "job_id": job_id, "cmd": text}
+
             return await _cli_handlers.handle(
-                _cli_parser.parse(text), db=db, raw_event=raw_event, service=self
+                parsed_cmd, db=db, raw_event=raw_event, service=self
             )
 
         # 2.5 Per-user conversation state machine (multi-step flows — 2026-10-12)
@@ -715,6 +779,15 @@ class LineMessagingService:
         )
         db.add(log)
         await db.commit()
+
+        # 0.5 CLI postbacks (Loop 1 trade draft, Loop 2 SBL & Quick Trade)
+        # Delegated to CLI handlers. If handled, returns dict; otherwise falls through.
+        from app.services.line_cli import handlers as _cli_handlers
+        res = await _cli_handlers.handle_postback(
+            data, db=db, raw_event=raw_event, service=self
+        )
+        if res is not None:
+            return res
 
         # 1. Action Center Postbacks: approve_all_actions, reject_all_actions, approve_action, reject_action
         if action == "approve_all_actions":

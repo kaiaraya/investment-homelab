@@ -62,17 +62,37 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_webhook_line.py",
         "tests/test_line_flex_card.py",
         "tests/test_line_conversation_flow.py",
+        "tests/test_line_async_queue.py",
     ],
     # LINE per-user conversation state machine (2026-10-12)
     "app/services/conversation_state.py": [
         "tests/test_conversation_state.py",
         "tests/test_line_conversation_flow.py",
     ],
-    # LINE slash-command CLI (TASK-line-cli, 2026-10-13)
-    "app/services/line_cli/parser.py": ["tests/test_line_cli_parser.py"],
+    # LINE slash-command CLI (TASK-line-cli, Loop 2)
+    "app/services/line_cli/parser.py": [
+        "tests/test_line_cli_parser.py",
+        "tests/test_line_cli_trade_parser.py",
+        "tests/test_line_cli_value_orders.py",
+        "tests/test_line_cli_sbl.py",
+    ],
     "app/services/line_cli/cards.py": ["tests/test_line_cli_flow.py"],
-    "app/services/line_cli/handlers.py": ["tests/test_line_cli_flow.py"],
+    "app/services/line_cli/handlers.py": [
+        "tests/test_line_cli_flow.py",
+        "tests/test_line_cli_handlers_sbl.py",
+    ],
+    "app/services/line_cli/queue.py": ["tests/test_line_async_queue.py"],
+    "app/services/line_cli/rich_menu.py": ["tests/test_line_cli_handlers_sbl.py"],
+    "scripts/setup_rich_menu.py": ["tests/test_line_cli_handlers_sbl.py"],
     "app/services/line_cli/__init__.py": ["tests/test_line_cli_parser.py"],
+    "app/brokers/krungsri/sbl_realtime_driver.py": [
+        "tests/test_sbl_account_driver.py",
+        "tests/test_line_cli_handlers_sbl.py",
+    ],
+    "app/services/sbl_intelligence_service.py": [
+        "tests/test_sbl_intelligence.py",
+        "tests/test_line_cli_handlers_sbl.py",
+    ],
     # Pillar 1 session (CLI-RCA-005: /login lib NameError — missing `import os`)
     "app/mcp/pillars/pillar1_session.py": ["tests/test_pillar1_session.py"],
     # Pillar 2 portfolio (CLI-RCA-003 Anti-Mock balances; RCA-002/RCA-006 holdings)
@@ -111,6 +131,8 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     # Contracts / infra
     "app/schemas/auth.py": ["tests/test_type_safe_auth.py"],
     "app/db/session.py": ["tests/test_db.py"],
+    "app/db/models.py": ["tests/test_db.py", "tests/test_db_multi_account.py"],
+    "scripts/migrate_multi_account.py": ["tests/test_db_multi_account.py"],
     # Config + admin console control (/console redesign 2026-10-10)
     "app/core/config.py": [
         "tests/test_admin_console.py",
@@ -168,6 +190,17 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/broker_cdp/client.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     "scripts/broker_cdp/brokers.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     "scripts/broker_cdp/session_daemon.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
+    # B.2/B.3/B.7 — CDP gateway: tab manager + portfolio auto-sync + manual-order sync
+    "app/services/broker_cdp/manager.py": ["tests/test_broker_cdp_routing.py"],
+    "app/services/broker_cdp/__init__.py": ["tests/test_broker_cdp_routing.py"],
+    "app/services/broker_cdp/sync_service.py": [
+        "tests/test_broker_cdp_sync.py",
+        "tests/test_broker_cdp_order_sync.py",
+    ],
+    # B.6 — LIVE order executor (DRY_RUN guard / Anti-Mock order no / SBL + uptick gates)
+    "app/services/broker_cdp/order_executor.py": ["tests/test_broker_cdp_order_executor.py"],
+    "scripts/broker_cdp/sync_probe.py": ["tests/test_broker_cdp_sync.py"],
+    "scripts/broker_cdp/order_sync_probe.py": ["tests/test_broker_cdp_order_sync.py"],
     "tests/test_kss_probe.py": ["tests/test_kss_probe.py"],
     "tests/test_liberator_probe.py": ["tests/test_liberator_probe.py"],
     # Shared test harness — conftest.py holds fixtures (no tests of its own). Changed fixtures

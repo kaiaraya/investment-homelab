@@ -483,6 +483,280 @@ def negotiate_card(
 
 
 # --------------------------------------------------------------------------- #
+# Phase B — order confirmation + receipt cards (B.5)
+# --------------------------------------------------------------------------- #
+_BROKER_LABEL = {"kss": "KSS", "lib": "LIB"}
+_SIDE_LABEL = {"buy": "BUY", "sell": "SELL", "short": "SHORT", "cover": "COVER"}
+#: side → colour (buy/cover = green, sell/short = red).
+_SIDE_COLOR = {"buy": UP, "sell": DOWN, "short": DOWN, "cover": UP}
+
+
+def _postback_button(label: str, data: str, display_text: str, color: str = "#334155") -> Dict[str, Any]:
+    return {
+        "type": "button", "style": "primary", "color": color, "height": "sm", "flex": 1,
+        "action": {"type": "postback", "label": label, "data": data, "displayText": display_text},
+    }
+
+
+def trade_confirmation_card(
+    *,
+    draft_id: str,
+    cmd: str,
+    symbol: str,
+    volume: int,
+    price: float,
+    broker: str,
+    account: str,
+    account_no: Optional[str],
+    total_thb: float,
+    ttl_seconds: int,
+    budget_thb: Optional[float] = None,
+    ref_market_price: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Human-in-the-loop confirm card for a drafted Phase-B order (nothing submitted).
+
+    The two footer buttons carry the opaque ``draft_id`` in their postback payload;
+    the colour of the title badge follows the side (green BUY/COVER, red SELL/SHORT).
+    """
+    side_label = _SIDE_LABEL.get((cmd or "").lower(), (cmd or "").upper())
+    side_color = _SIDE_COLOR.get((cmd or "").lower(), FG)
+    broker_label = _BROKER_LABEL.get((broker or "").lower(), (broker or "").upper())
+    account_label = "MARGIN" if (account or "").lower() == "margin" else "CASH"
+
+    body: List[Dict[str, Any]] = [
+        _kv("หุ้น", symbol),
+        _kv("คำสั่ง", side_label, side_color),
+    ]
+    if budget_thb is not None:
+        body.append(_kv("งบประมาณที่ตั้ง", f"฿{float(budget_thb):,.2f}"))
+        body.append(_kv("ราคาอ้างอิงตลาด", f"฿{float(ref_market_price or price):.2f}"))
+        body.append(_kv("จำนวนคำนวณ", f"{int(volume):,} หุ้น (Board Lot)"))
+        body.append(_kv("มูลค่ารวม", f"฿{float(total_thb):,.2f}"))
+    else:
+        body.append(_kv("จำนวน", f"{int(volume):,} หุ้น"))
+        body.append(_kv("ราคา", f"฿{float(price):.2f}"))
+        body.append(_kv("มูลค่า", f"฿{float(total_thb):,.2f}"))
+
+    body.extend([
+        _kv("บัญชี", f"{broker_label} · {account_label}" + (f" {account_no}" if account_no else "")),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell(f"⏱️ การ์ดหมดอายุใน {int(ttl_seconds) // 60} นาที — ราคา/วงเงินอาจเปลี่ยน", MUTED, wrap=True),
+    ])
+
+    confirm_data = f"action=trade_draft_confirm&draft_id={draft_id}"
+    cancel_data = f"action=trade_draft_cancel&draft_id={draft_id}"
+    footer = [
+        _postback_button("✅ ยืนยัน", confirm_data,
+                         f"✅ ยืนยันคำสั่ง {side_label} {symbol} {int(volume):,} @ ฿{float(price):.2f}", UP),
+        _postback_button("❌ ยกเลิก", cancel_data, f"❌ ยกเลิกคำสั่ง {side_label} {symbol}", DOWN),
+    ]
+
+    return _flex(
+        f"ยืนยันคำสั่ง {side_label} {symbol} {int(volume):,} @ ฿{float(price):.2f}",
+        _bubble(title=f"🧾 ยืนยันคำสั่ง {side_label} {symbol}", badge=side_label,
+                badge_bg=side_color, body=body, footer=footer),
+    )
+
+
+def trade_receipt_card(
+    *,
+    draft_id: str,
+    outcome: str,
+    cmd: Optional[str] = None,
+    symbol: Optional[str] = None,
+    volume: Optional[int] = None,
+    price: Optional[float] = None,
+    broker: Optional[str] = None,
+    account: Optional[str] = None,
+    account_no: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Receipt after a draft postback — confirm hands off to the executor, cancel drops it."""
+    confirmed = outcome == "confirmed"
+    side_label = _SIDE_LABEL.get((cmd or "").lower(), (cmd or "").upper()) if cmd else None
+    broker_label = _BROKER_LABEL.get((broker or "").lower(), (broker or "").upper()) if broker else None
+
+    if confirmed:
+        head, head_color = "✅ ยืนยันคำสั่งแล้ว", UP
+        detail = "ส่งต่อให้ executor ดำเนินการ — กำลังส่งคำสั่งไปยังโบรกเกอร์"
+        badge = "CONFIRMED"
+    else:
+        head, head_color = "❌ ยกเลิกคำสั่งแล้ว", DOWN
+        detail = "draft ถูกลบออกแล้ว — ไม่มีการส่งคำสั่ง"
+        badge = "CANCELLED"
+
+    body: List[Dict[str, Any]] = [
+        _cell(head, head_color, weight="bold"),
+        _kv("draft_id", draft_id),
+    ]
+    if symbol:
+        body.append(_kv("หุ้น", symbol))
+    if side_label:
+        body.append(_kv("คำสั่ง", side_label, _SIDE_COLOR.get((cmd or "").lower(), FG)))
+    if volume is not None:
+        body.append(_kv("จำนวน", f"{int(volume):,} หุ้น"))
+    if price is not None:
+        body.append(_kv("ราคา", f"฿{float(price):.2f}"))
+    if broker_label:
+        account_label = "MARGIN" if (account or "").lower() == "margin" else "CASH"
+        body.append(_kv("บัญชี", f"{broker_label} · {account_label}" + (f" {account_no}" if account_no else "")))
+    body.append({"type": "separator", "margin": "md", "color": "#334155"})
+    body.append(_cell(detail, MUTED, wrap=True))
+
+    return _flex(
+        f"{head} (draft {draft_id})",
+        _bubble(title=f"🧾 ใบรับคำสั่ง {draft_id}", badge=badge, badge_bg=head_color, body=body),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# SBL Cards (Loop 2)
+# --------------------------------------------------------------------------- #
+def sbl_status_card(lots: List[Dict[str, Any]], asof_time: str) -> Dict[str, Any]:
+    """Displays active borrowed lots on Krungsri MARGIN 3024959."""
+    if not lots:
+        body = [
+            _cell("ไม่มีรายการหุ้นยืม SBL คงค้าง", MUTED),
+            _cell("บัญชี Krungsri MARGIN (3024959) พร้อมใช้งาน", UP),
+            {"type": "separator", "margin": "md", "color": "#334155"},
+            _cell(f"อัปเดตเมื่อ {asof_time}", MUTED),
+        ]
+        return _flex(
+            "สถานะหุ้นยืม SBL: ไม่มีหุ้นยืมค้าง",
+            _bubble(title="📦 หุ้นยืม SBL คงค้าง (KSS)", badge="SBL", badge_bg="#6366f1", body=body),
+            quick=["/sbl pool PTT", "/sbl sync", "/port kss"],
+        )
+
+    rows: List[Dict[str, Any]] = [
+        _row([
+            _cell("หุ้น", MUTED, flex=2, weight="bold"),
+            _cell("คงเหลือ", MUTED, flex=2, align="end", weight="bold"),
+            _cell("ดอกเบี้ย", MUTED, flex=2, align="end", weight="bold"),
+        ]),
+        {"type": "separator", "margin": "xs", "color": "#334155"},
+    ]
+    for lot in lots:
+        sym = str(lot.get("symbol", "-"))
+        qty = int(lot.get("remaining_qty", 0) or 0)
+        fee = float(lot.get("borrow_fee_rate", 3.5) or 3.5)
+        xd = lot.get("ex_dividend_date")
+        row_cells = [
+            _cell(sym, FG, flex=2, weight="bold"),
+            _cell(f"{qty:,}", FG, flex=2, align="end"),
+            _cell(f"{fee:.2f}%", WARN, flex=2, align="end"),
+        ]
+        rows.append(_row(row_cells))
+        if xd:
+            rows.append(_cell(f"⚠️ เตือน XD: {xd}", DOWN, size="xxs"))
+
+    rows.append({"type": "separator", "margin": "md", "color": "#334155"})
+    rows.append(_cell(f"อัปเดตเมื่อ {asof_time} · บัญชี MARGIN 3024959", MUTED))
+
+    return _flex(
+        f"สถานะหุ้นยืม SBL ({len(lots)} รายการ)",
+        _bubble(title=f"📦 หุ้นยืม SBL คงค้าง ({len(lots)} รายการ)", badge="SBL", badge_bg="#6366f1", body=rows),
+        quick=["/sbl sync", "/port kss", "/help return"],
+    )
+
+
+def sbl_pool_card(symbol: str, available_qty: int, fee_rate: float = 3.50) -> Dict[str, Any]:
+    """Displays available inventory for a symbol in Krungsri TradeMan SBL pool."""
+    avail_text = f"{available_qty:,} หุ้น" if available_qty > 0 else "ไม่มีในคลัง"
+    avail_color = UP if available_qty > 0 else DOWN
+    body = [
+        _kv("หุ้น", symbol),
+        _kv("จำนวนในคลัง", avail_text, avail_color),
+        _kv("อัตราดอกเบี้ยยืม", f"{fee_rate:.2f}% ต่อปี", WARN),
+        _kv("โบรกเกอร์", "Krungsri TradeMan (MARGIN)"),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell("💡 สั่งยืมด้วยคำสั่ง /borrow หรือกดปุ่มด้านล่าง", MUTED, wrap=True),
+    ]
+    quick = [f"/borrow {symbol} 100", f"/borrow {symbol} 1000"] if available_qty > 0 else ["/sbl"]
+    return _flex(
+        f"คลังหุ้นยืม SBL: {symbol} มี {avail_text}",
+        _bubble(title=f"🔍 คลังหุ้นยืม SBL ({symbol})", badge="POOL", badge_bg="#6366f1", body=body),
+        quick=quick,
+    )
+
+
+def sbl_borrow_confirm_card(
+    *, draft_id: str, symbol: str, volume: int, fee_rate: float = 3.50, xd_warning: Optional[str] = None
+) -> Dict[str, Any]:
+    """Confirmation card for SBL stock borrow."""
+    body = [
+        _kv("หุ้น", symbol),
+        _kv("จำนวนขอยืม", f"{volume:,} หุ้น"),
+        _kv("อัตราดอกเบี้ย", f"{fee_rate:.2f}% ต่อปี", WARN),
+        _kv("บัญชี", "Krungsri MARGIN 3024959"),
+    ]
+    if xd_warning:
+        body.append(_cell(f"⚠️ {xd_warning}", DOWN, wrap=True))
+    body.append({"type": "separator", "margin": "md", "color": "#334155"},)
+    body.append(_cell("⏱️ คำขอยืมผ่านระบบ SBL Krungsri — กรุณากดยืนยัน", MUTED, wrap=True))
+
+    confirm_data = f"action=sbl_borrow_confirm&draft_id={draft_id}"
+    cancel_data = f"action=sbl_borrow_cancel&draft_id={draft_id}"
+    footer = [
+        _postback_button("✅ ยืนยันยืม", confirm_data, f"✅ ยืนยันขอยืมหุ้น {symbol} {volume:,} หุ้น", UP),
+        _postback_button("❌ ยกเลิก", cancel_data, f"❌ ยกเลิกขอยืมหุ้น {symbol}", DOWN),
+    ]
+    return _flex(
+        f"ยืนยันขอยืมหุ้น SBL {symbol} {volume:,} หุ้น",
+        _bubble(title=f"📦 ยืนยันขอยืมหุ้น SBL ({symbol})", badge="BORROW", badge_bg="#6366f1", body=body, footer=footer),
+    )
+
+
+def sbl_return_confirm_card(
+    *, draft_id: str, symbol: str, volume: int, days_held: int = 0, accrued_fee: float = 0.0
+) -> Dict[str, Any]:
+    """Confirmation card for SBL stock return."""
+    body = [
+        _kv("หุ้น", symbol),
+        _kv("จำนวนที่คืน", f"{volume:,} หุ้น"),
+        _kv("ระยะเวลาที่ยืม", f"{days_held} วัน"),
+        _kv("ดอกเบี้ยสะสมโดยประมาณ", f"฿{accrued_fee:,.2f}"),
+        _kv("บัญชี", "Krungsri MARGIN 3024959"),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell("💡 คืนหุ้นเพื่อหยุดการคิดดอกเบี้ยยืมรายวัน", MUTED, wrap=True),
+    ]
+    confirm_data = f"action=sbl_return_confirm&draft_id={draft_id}"
+    cancel_data = f"action=sbl_return_cancel&draft_id={draft_id}"
+    footer = [
+        _postback_button("✅ ยืนยันคืน", confirm_data, f"✅ ยืนยันคืนหุ้น {symbol} {volume:,} หุ้น", UP),
+        _postback_button("❌ ยกเลิก", cancel_data, f"❌ ยกเลิกคืนหุ้น {symbol}", DOWN),
+    ]
+    return _flex(
+        f"ยืนยันคืนหุ้น SBL {symbol} {volume:,} หุ้น",
+        _bubble(title=f"📦 ยืนยันคืนหุ้น SBL ({symbol})", badge="RETURN", badge_bg="#6366f1", body=body, footer=footer),
+    )
+
+
+def quick_trade_selector_card() -> Dict[str, Any]:
+    """Interactive trade side selector card for Rich Menu Quick Trade button."""
+    body = [
+        _cell("เลือกประเภทคำสั่งซื้อขายที่ต้องการส่ง:", FG, weight="bold"),
+        _cell("• ฝั่งซื้อ/ขายปกติ ส่งผ่าน Liberator (CASH)", MUTED, size="xxs"),
+        _cell("• ฝั่งชอร์ต/คัฟเวอร์ ส่งผ่าน Krungsri (MARGIN)", MUTED, size="xxs"),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                _msg_button("🟢 ซื้อหุ้น (BUY · LIB CASH)", "/buy PTT 50k", color="#166534"),
+                _msg_button("🔴 ขายหุ้น (SELL · LIB CASH)", "/sell PTT 1000 35.0", color="#991b1b"),
+                _msg_button("🟣 ชอร์ตหุ้น (SHORT · KSS MARGIN)", "/short PTT 1000", color="#581c87"),
+                _msg_button("🔵 ปิดชอร์ต (COVER · KSS MARGIN)", "/cover PTT 1000", color="#1e40af"),
+            ],
+        },
+    ]
+    return _flex(
+        "⚡ เลือกประเภทคำสั่ง Quick Trade",
+        _bubble(title="⚡ Quick Trade Studio", badge="TRADE", badge_bg="#3b82f6", body=body),
+        quick=["/buy PTT 50k", "/sell PTT 1000", "/sbl", "/port all sync"],
+    )
+
+
+# --------------------------------------------------------------------------- #
 # carousel
 # --------------------------------------------------------------------------- #
 def carousel(bubbles: List[Dict[str, Any]], alt: str) -> Dict[str, Any]:
@@ -497,6 +771,13 @@ __all__ = [
     "orders_card",
     "nego_card",
     "negotiate_card",
+    "trade_confirmation_card",
+    "trade_receipt_card",
+    "sbl_status_card",
+    "sbl_pool_card",
+    "sbl_borrow_confirm_card",
+    "sbl_return_confirm_card",
+    "quick_trade_selector_card",
     "carousel",
 ]
 

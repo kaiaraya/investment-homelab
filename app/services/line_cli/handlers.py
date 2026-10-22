@@ -13,15 +13,26 @@ The service instance is injected by ``line_service`` (avoids a circular import).
 """
 
 import asyncio
+import inspect
 import logging
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs
 
 from sqlalchemy import select
 
 from app.core.config import settings
 from app.services.line_cli import cards
-from app.services.line_cli.parser import CliCommand, CliError
+from app.services.line_cli.parser import (
+    CliCommand,
+    CliError,
+    TradeOrder,
+    SblCommand,
+    SblBorrowOrder,
+    SblReturnOrder,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +45,15 @@ BROKER_LABEL = {"kss": "KSS", "lib": "LIB"}
 
 #: display symbols for /status
 _STATE_EMOJI = {"alive": "🟢", "pending": "🟡", "down": "🔴", "never": "⚪"}
+
+# --------------------------------------------------------------------------- #
+# Phase-B order-draft store (B.5) — in-memory, TTL-evicted
+# --------------------------------------------------------------------------- #
+#: draft lifetime in seconds (3 minutes — matches ``settings.CARD_TTL_SECONDS``).
+DRAFT_TTL_SECONDS = 180
+#: live drafts keyed by ``draft_id``. Single-process gateway: a restart drops them
+#: by design (same convention as ``conversation_state`` / ``_pending_batches``).
+_DRAFTS: Dict[str, Dict[str, Any]] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +130,41 @@ async def _broker_session_alive(broker: str) -> bool:
     from app.brokers import liberator_plugin
     health = await liberator_plugin.get_health()
     return bool(health.get("is_authenticated"))
+
+
+async def _broker_sync_orders_cdp(broker: str) -> Optional[Dict[str, Any]]:
+    """B.7 — diff the order ledger against `orders`, record manual orders (best-effort)."""
+    try:
+        from app.services.broker_cdp.sync_service import sync_orders_from_cdp
+        ord_result = await sync_orders_from_cdp(broker)
+        if ord_result.get("new_manual_count"):
+            logger.info(f"B.7 manual-order sync {broker}: +{ord_result['new_manual_count']} manual order(s)")
+        return ord_result
+    except Exception as e:
+        logger.warning(f"CDP order sync for {broker} skipped: {type(e).__name__}: {e}")
+        return None
+
+
+async def _broker_sync_cdp(broker: str) -> Optional[Dict[str, Any]]:
+    """B.3/B.7 — persist balance + holdings AND diff the order ledger from the CDP tab.
+
+    Opens its own DB session and commits (the webhook session is read-only here, so the
+    sync must not depend on the caller to commit). Best-effort: a missing daemon or a
+    broken tab is logged, never raised, so a `/port|/cash sync` still renders the live card.
+    """
+    try:
+        from app.services.broker_cdp.sync_service import sync_portfolio_from_cdp
+        result = await sync_portfolio_from_cdp(broker)
+    except Exception as e:
+        logger.warning(f"CDP portfolio sync for {broker} skipped: {type(e).__name__}: {e}")
+        result = None
+
+    # B.7 — diff the order ledger to catch orders the human placed manually on the
+    # frontend (source='manual_sync'). Separate best-effort step so a portfolio failure
+    # never masks it, and vice-versa.
+    await _broker_sync_orders_cdp(broker)
+
+    return result
 
 
 async def _broker_health(broker: str) -> Dict[str, Any]:
@@ -775,6 +830,14 @@ async def _handle_read(
                     return {"status": "CLI_SESSION_DOWN", "broker": b}
             await service._send_reply(reply_token, _text(f"🔄 กำลังดึงข้อมูลสด {label}…"))
             for b in brokers:
+                # B.3/B.7: persist balance + holdings from the CDP tab before pushing the
+                # live card (best-effort — a missing daemon/tab never fails the read; the
+                # card still renders). `/orders sync` additionally diffs the order ledger so
+                # a trade the human placed manually is recorded (source='manual_sync').
+                if kind in ("port", "cash"):
+                    await _broker_sync_cdp(b)
+                elif kind == "orders":
+                    await _broker_sync_orders_cdp(b)
                 await service.push_message(await _live_card(kind, b), to_user_id=push_target)
         except Exception as e:
             logger.exception(f"LINE CLI /{kind} {parsed.broker} sync failed")
@@ -1193,6 +1256,632 @@ async def _handle_negotiate(
 
 
 # --------------------------------------------------------------------------- #
+# Phase B — order draft + confirmation card + postback (B.5)
+# --------------------------------------------------------------------------- #
+def _new_draft_id() -> str:
+    return f"DRAFT-{uuid.uuid4().hex[:8].upper()}"
+
+
+def _store_draft(draft: Dict[str, Any]) -> None:
+    _DRAFTS[draft["draft_id"]] = draft
+
+
+def _take_draft(draft_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Fetch **and remove** a live draft; an expired/missing id returns ``None``.
+
+    ``draft_id`` is opaque to the user (an in-memory UUID fragment), so popping it
+    is also the idempotency guard: a replayed postback can never confirm twice.
+    """
+    if not draft_id:
+        return None
+    draft = _DRAFTS.pop(draft_id, None)
+    if draft is None:
+        return None
+    if time.time() - draft.get("created_at", 0.0) > DRAFT_TTL_SECONDS:
+        return None
+    return draft
+
+
+def _purge_drafts() -> int:
+    """Drop expired drafts (diagnostics/tests). Returns how many were removed."""
+    now = time.time()
+    expired = [k for k, d in _DRAFTS.items() if now - d.get("created_at", 0.0) > DRAFT_TTL_SECONDS]
+    for k in expired:
+        _DRAFTS.pop(k, None)
+    return len(expired)
+
+
+def _resolve_account_no(broker: str, account: str) -> Optional[str]:
+    """Resolve the DB ``account_no`` for a ``(broker, account)`` pair.
+
+    ``None`` means the pair is not a real account (e.g. ``lib:margin``) or the
+    number was never configured — the caller fails the check, never guesses.
+    """
+    broker = (broker or "").lower()
+    account = (account or "cash").lower()
+    if broker == "kss":
+        key = "TRADEMAN_ACCOUNT_NO_MARGIN" if account == "margin" else "TRADEMAN_ACCOUNT_NO_CASH"
+        return (getattr(settings, key, "") or "").strip() or None
+    if broker == "lib":
+        if account != "cash":
+            return None                       # Liberator has no margin account
+        return (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "").strip() or None
+    return None
+
+
+async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
+    """Phase-B pre-trade guardrails — DB-backed, no live quote (code-only).
+
+    Covers what a draft can prove *without firing a broker call*: holdings/SBL
+    availability (symbol), board lot, and ``line_available`` from ``broker_accounts``.
+    Tick size / order-value ceiling are pure and also checked here so a bad price is
+    rejected before the card is drawn. The live short-uptick rule (G6) needs a quote
+    and therefore stays with the B.6 executor, which runs the full ``validator``
+    right before submit.
+
+    Returns ``{"ok": bool, "code"? , "message"? , "account_no"?}``.
+    """
+    from app.db.models import BrokerAccount, Position, SBLBorrowLot
+    from app.services.validator import validator
+
+    side = (order.cmd or "").lower()
+    symbol = order.symbol
+
+    # 0. Reject short and cover on non-Krungsri or non-margin account (Broker Isolation)
+    if side in ("short", "cover") and (order.broker != "kss" or order.account != "margin"):
+        return {
+            "ok": False,
+            "code": "E_BAD_BROKER",
+            "message": "การขายชอร์ต (/short) และปิดสถานะ (/cover) รองรับเฉพาะ Krungsri บัญชี Margin 3024959 เท่านั้น",
+        }
+
+    # 0.1 Resolve effective price (explicit or from live broker quote)
+    if order.price is not None:
+        price = float(order.price)
+    else:
+        quote = await _broker_quote(order.broker, symbol)
+        if quote.get("success") is False or quote.get("source") == "unavailable":
+            return {"ok": False, "code": "E_NO_QUOTE",
+                    "message": f"อ่านราคาตลาดของ {symbol} จาก {BROKER_LABEL.get(order.broker, order.broker)} ไม่ได้ — ระบุราคาเอง เช่น /{order.cmd} {symbol} 100 12.50"}
+        if side in ("buy", "cover"):
+            price = float(quote.get("offer_1") or quote.get("last") or 0.0)
+        else:
+            price = float(quote.get("bid_1") or quote.get("last") or 0.0)
+        if price <= 0.0:
+            return {"ok": False, "code": "E_NO_QUOTE",
+                    "message": f"ราคาตลาดสดของ {symbol} ว่างเปล่า — กรุณาระบุราคาเอง"}
+
+    # 0.2 Resolve effective volume (explicit shares or board-lot calculated from budget)
+    if order.amount_mode == "value":
+        target_val = float(order.target_value or 0.0)
+        shares = int(((target_val / price) + 1e-9) // 100) * 100
+        if shares < 100:
+            min_thb = price * 100
+            action_th = "ซื้อ" if side == "buy" else "ขาย" if side == "sell" else "เปิดชอร์ต" if side == "short" else "ปิด short"
+            return {"ok": False, "code": "E_INSUFFICIENT_BUDGET",
+                    "message": f"งบประมาณ ฿{target_val:,.2f} ไม่พอ{action_th}ขั้นต่ำ 100 หุ้น (ราคาปัจจุบัน ฿{price:.2f} ต้องใช้อย่างน้อย ฿{min_thb:,.2f})"}
+        volume = shares
+    else:
+        volume = int(order.volume)
+
+    account_no = _resolve_account_no(order.broker, order.account)
+    if not account_no:
+        return {"ok": False, "code": "E_BAD_ACCOUNT",
+                "message": f"บัญชี {order.account} ของ {BROKER_LABEL.get(order.broker, order.broker)} ไม่มี — "
+                           f"ใช้ {'margin' if order.broker == 'kss' else 'cash'}"}
+
+    # 1. board lot (SET equity) — validator is the single source of truth.
+    ok, err = validator.validate_board_lot(volume, symbol)
+    if not ok:
+        return {"ok": False, "code": "E_BAD_LOT", "message": f"จำนวนหุ้นไม่ผ่าน board lot — {err}"}
+
+    # 2. tick size + order-value ceiling (pure, no quote needed).
+    ok, err = validator.validate_tick_size(price)
+    if not ok:
+        return {"ok": False, "code": "E_BAD_TICK", "message": f"ราคาไม่ผ่าน tick size — {err}"}
+    ok, err = validator.validate_order_value(volume, price)
+    if not ok:
+        return {"ok": False, "code": "E_VALUE_CEILING", "message": f"มูลค่าคำสั่งเกินเพดาน — {err}"}
+
+    # 3. holdings / SBL availability from DB (the "symbol" check).
+    if side in ("sell", "cover"):
+        wanted = "LONG" if side == "sell" else "SHORT"
+        res = await db.execute(select(Position).where(
+            Position.account_no == account_no,
+            Position.symbol == symbol,
+            Position.position_type == wanted,
+        ))
+        pos = res.scalar_one_or_none()
+        held = int(getattr(pos, "volume", 0) or 0) if pos else 0
+        if held <= 0:
+            return {"ok": False, "code": "E_NO_POSITION",
+                    "message": f"ไม่พบ {symbol} ({wanted}) ในพอร์ตที่จะ{'ขาย' if side == 'sell' else 'ปิด short'}ได้"}
+        if volume > held:
+            return {"ok": False, "code": "E_INSUFFICIENT_POSITION",
+                    "message": f"ถือ {symbol} แค่ {held:,} หุ้น (สั่ง {volume:,} หุ้น)"}
+    elif side == "short":
+        from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+        risk = krungsri_sbl_driver.check_symbol_risk(symbol)
+        if risk.get("is_blocked") and risk.get("verdict") == "HARD_BLOCKED_XD_XR":
+            return {
+                "ok": False,
+                "code": "E_SBL_XD_BLOCKED",
+                "message": risk.get("reason") or f"⛔ ห้ามเปิดสถานะชอร์ต: หุ้น {symbol} ติดเครื่องหมาย XD/XR",
+            }
+        res = await db.execute(select(SBLBorrowLot).where(
+            SBLBorrowLot.symbol == symbol,
+            SBLBorrowLot.status.in_(("ACTIVE", "PARTIAL_RETURNED")),
+            SBLBorrowLot.remaining_qty > 0))
+        active_lots = res.scalars().all()
+        total_sbl_avail = sum(l.remaining_qty for l in active_lots)
+        if total_sbl_avail < volume:
+            needed = volume - total_sbl_avail
+            msg = (f"ไม่มีหุ้นยืม SBL ของ {symbol} (ต้องการ {volume:,} หุ้น) — พิมพ์ /sbl pool {symbol} หรือ /borrow {symbol} {volume} เพื่อยืมก่อน"
+                   if total_sbl_avail == 0 else
+                   f"มีหุ้นยืม SBL ของ {symbol} เพียง {total_sbl_avail:,} หุ้น (ต้องการ {volume:,} หุ้น) — ขอยืมเพิ่มอีก {needed:,} หุ้น")
+            return {"ok": False, "code": "E_NO_SBL",
+                    "message": msg,
+                    "quick_reply": [f"/sbl pool {symbol}", f"/borrow {symbol} {needed if total_sbl_avail > 0 else volume}"]}
+
+    # 4. line-available from DB (buying-power consuming sides only).
+    if side in ("buy", "short"):
+        res = await db.execute(select(BrokerAccount).where(BrokerAccount.account_no == account_no))
+        acc = res.scalar_one_or_none()
+        line_avail = getattr(acc, "line_available", None) if acc else None
+        if line_avail is None:
+            return {"ok": False, "code": "E_NO_LINE_AVAILABLE",
+                    "message": f"อ่าน line available ของ {account_no} ไม่ได้ — /cash {order.broker} sync ก่อน"}
+        total_thb = volume * price
+        if total_thb > line_avail:
+            return {"ok": False, "code": "E_INSUFFICIENT_LINE",
+                    "message": f"วงเงินไม่พอ: คำสั่ง ฿{total_thb:,.2f} > line available ฿{line_avail:,.2f}"}
+
+    return {"ok": True, "account_no": account_no, "resolved_volume": volume, "resolved_price": price}
+
+
+async def _handle_trade_order(
+    order: TradeOrder, service: Any, reply_token: Optional[str],
+    push_target: Optional[str], db: Any,
+) -> Dict[str, Any]:
+    """``/buy|/sell|/short|/cover`` — pre-trade check → draft → confirmation card (B.5)."""
+    from app.services.kill_switch_service import kill_switch_service
+
+    if kill_switch_service.is_active():                       # G1 — money movement
+        await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
+        return {"status": "CLI_KILL_SWITCH"}
+
+    # Refresh the DB snapshot first (best-effort)
+    await _broker_sync_cdp(order.broker)
+
+    check = await _pre_trade_check(order, db)
+    if not check.get("ok"):
+        quick = check.get("quick_reply")
+        await service._send_reply(reply_token, _text(f"❌ {check.get('message', 'คำสั่งไม่ผ่านเกณฑ์')}", quick=quick))
+        return {"status": "CLI_TRADE_REJECTED", "code": check.get("code"),
+                "reason": check.get("message")}
+
+    volume = check["resolved_volume"]
+    price = check["resolved_price"]
+    draft: Dict[str, Any] = {
+        "draft_id": _new_draft_id(),
+        "cmd": order.cmd,
+        "side_letter": order.side_letter,
+        "symbol": order.symbol,
+        "volume": volume,
+        "price": price,
+        "total_thb": volume * price,
+        "budget_thb": order.target_value if order.amount_mode == "value" else None,
+        "ref_market_price": price if order.price is None else None,
+        "broker": order.broker,
+        "account": order.account,
+        "account_no": check.get("account_no"),
+        "created_at": time.time(),
+    }
+    _store_draft(draft)
+
+    card = cards.trade_confirmation_card(
+        draft_id=draft["draft_id"], cmd=draft["cmd"], symbol=draft["symbol"],
+        volume=draft["volume"], price=draft["price"], broker=draft["broker"],
+        account=draft["account"], account_no=draft["account_no"],
+        total_thb=draft["total_thb"], ttl_seconds=DRAFT_TTL_SECONDS,
+        budget_thb=draft.get("budget_thb"),
+        ref_market_price=draft.get("ref_market_price"),
+    )
+    await service._send_reply(reply_token, card)
+    return {"status": "CLI_TRADE_DRAFTED", "draft_id": draft["draft_id"], "card": card}
+
+
+async def _send_or_push(service: Any, reply_token: Optional[str], push_target: Optional[str], msg: Any) -> None:
+    """Delivers message via push_message (without reusing reply_token) when target available."""
+    if push_target and hasattr(service, "push_message"):
+        try:
+            p_res = service.push_message(msg, to_user_id=push_target)
+            if inspect.isawaitable(p_res):
+                await p_res
+            return
+        except Exception as pe:
+            logger.error(f"Failed to push message to {push_target}: {pe}")
+    if hasattr(service, "_send_reply"):
+        await service._send_reply(reply_token, msg)
+
+
+async def handle_postback(
+    data: str, *, db: Any, raw_event: Dict[str, Any], service: Any,
+) -> Optional[Dict[str, Any]]:
+    """Phase-B order-draft & Loop 2 SBL postbacks."""
+    params = {k: v[0] for k, v in (parse_qs(data or "")).items()}
+    action = params.get("action", "")
+    reply_token = (raw_event or {}).get("replyToken")
+    user_id, group_id, source_type, push_target = _source_of(raw_event)
+
+    # 1. Quick Trade Menu
+    if action == "quick_trade_menu":
+        card = cards.quick_trade_selector_card()
+        await service._send_reply(reply_token, card)
+        return {"status": "QUICK_TRADE_MENU_DISPLAYED"}
+
+    # 2. SBL Borrow Postbacks
+    if action == "sbl_borrow_cancel":
+        draft = _take_draft(params.get("draft_id"))
+        sym = (draft or {}).get("symbol", "-")
+        await _send_or_push(service, reply_token, push_target, _text(f"❌ ยกเลิกคำขอยืมหุ้น {sym}"))
+        return {"status": "SBL_BORROW_CANCELLED"}
+
+    if action == "sbl_borrow_confirm":
+        from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+        from app.db.models import SBLBorrowLot
+        from app.services.sbl_intelligence_service import sbl_intelligence_service
+        draft = _take_draft(params.get("draft_id"))
+        if not draft:
+            await _send_or_push(service, reply_token, push_target, _text("⏳ การ์ดขอยืมหุ้นหมดอายุแล้ว"))
+            return {"status": "SBL_DRAFT_EXPIRED"}
+        sym = draft["symbol"]
+        vol = draft["volume"]
+        risk_res = await sbl_intelligence_service.check_xd_risk(sym)
+        if risk_res.get("xd_risk"):
+            msg = risk_res.get("reason") or f"⛔ ห้ามยืมหุ้นเด็ดขาด: หุ้น {sym} ติดเครื่องหมาย {risk_res.get('type', 'XD')} — มีความเสี่ยงต้องจ่ายเงินปันผลชดเชย 100%"
+            await _send_or_push(service, reply_token, push_target, _text(msg))
+            return {"status": "SBL_BORROW_FAILED", "error": msg, "code": "E_SBL_XD_BLOCKED"}
+        res = await krungsri_sbl_driver.execute_sbl_borrow(sym, vol)
+        if res.get("success") or res.get("status") in ("SUBMITTED", "SBL_BORROW_DRY_RUN"):
+            lot = SBLBorrowLot(
+                lot_id=f"SBL-{sym}-{int(time.time())}",
+                broker_tx_id=str(res.get("transaction_id") or ""),
+                symbol=sym,
+                borrow_qty=vol,
+                remaining_qty=vol,
+                borrow_fee_rate=3.50,
+                borrow_date=datetime.now().date(),
+                status="ACTIVE",
+            )
+            db.add(lot)
+            await db.commit()
+            mode_tag = "🧪 [DRY-RUN]" if settings.DRY_RUN_MODE else "✅"
+            msg = f"{mode_tag} ยื่นขอยืมหุ้นสำเร็จ: {sym} {vol:,} หุ้น (ดอกเบี้ย 3.50% ต่อปี) · บัญชี MARGIN 3024959"
+            await _send_or_push(service, reply_token, push_target, _text(msg, quick=[f"/short {sym} {vol}"]))
+            return {"status": "SBL_BORROWED", "symbol": sym, "volume": vol}
+        else:
+            err = res.get("error") or "เกิดข้อผิดพลาดในการส่งคำขอยืม"
+            await _send_or_push(service, reply_token, push_target, _text(f"❌ ขอยืมหุ้นไม่สำเร็จ: {err}"))
+            return {"status": "SBL_BORROW_FAILED", "error": err}
+
+    # 3. SBL Return Postbacks
+    if action == "sbl_return_cancel":
+        draft = _take_draft(params.get("draft_id"))
+        sym = (draft or {}).get("symbol", "-")
+        await _send_or_push(service, reply_token, push_target, _text(f"❌ ยกเลิกการคืนหุ้น {sym}"))
+        return {"status": "SBL_RETURN_CANCELLED"}
+
+    if action == "sbl_return_confirm":
+        from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+        from app.db.models import SBLBorrowLot
+        draft = _take_draft(params.get("draft_id"))
+        if not draft:
+            await _send_or_push(service, reply_token, push_target, _text("⏳ การ์ดขอคืนหุ้นหมดอายุแล้ว"))
+            return {"status": "SBL_DRAFT_EXPIRED"}
+        sym = draft["symbol"]
+        vol = draft["volume"]
+        res = await krungsri_sbl_driver.return_sbl_shares(lot_id=draft.get("lot_id", sym), return_qty=vol, symbol=sym)
+        if not (res.get("success") or res.get("status") in ("SUBMITTED", "SBL_RETURN_DRY_RUN")):
+            err = res.get("error") or "เกิดข้อผิดพลาดในการส่งคำขอคืนหุ้น"
+            await _send_or_push(service, reply_token, push_target, _text(f"❌ คืนหุ้นไม่สำเร็จ: {err}"))
+            return {"status": "SBL_RETURN_FAILED", "error": err}
+
+        rem_to_return = vol
+        res_db = await db.execute(
+            select(SBLBorrowLot)
+            .where(
+                SBLBorrowLot.symbol == sym,
+                SBLBorrowLot.status.in_(("ACTIVE", "PARTIAL_RETURNED")),
+                SBLBorrowLot.remaining_qty > 0
+            )
+            .order_by(SBLBorrowLot.borrow_date.asc())
+        )
+        for lot in res_db.scalars().all():
+            if rem_to_return <= 0:
+                break
+            deduct = min(lot.remaining_qty, rem_to_return)
+            lot.remaining_qty -= deduct
+            rem_to_return -= deduct
+            if lot.remaining_qty == 0:
+                lot.status = "FULLY_RETURNED"
+                lot.return_date = datetime.now().date()
+            elif deduct > 0:
+                lot.status = "PARTIAL_RETURNED"
+        await db.commit()
+
+        mode_tag = "🧪 [DRY-RUN]" if settings.DRY_RUN_MODE else "✅"
+        msg = f"{mode_tag} ส่งคำขอคืนหุ้นสำเร็จ: {sym} {vol:,} หุ้น · บัญชี MARGIN 3024959"
+        await _send_or_push(service, reply_token, push_target, _text(msg, quick=["/sbl", "/port kss"]))
+        return {"status": "SBL_RETURNED", "symbol": sym, "volume": vol}
+
+    # 4. Trade Draft Confirm / Cancel
+    if action not in ("trade_draft_confirm", "trade_draft_cancel"):
+        return None
+
+    draft_id = params.get("draft_id")
+
+    if action == "trade_draft_cancel":
+        draft = _take_draft(draft_id)
+        card = cards.trade_receipt_card(
+            draft_id=draft_id or "-", outcome="cancelled",
+            cmd=(draft or {}).get("cmd"), symbol=(draft or {}).get("symbol"),
+            volume=(draft or {}).get("volume"), price=(draft or {}).get("price"),
+        )
+        await service._send_reply(reply_token, card)
+        return {"status": "TRADE_DRAFT_CANCELLED", "draft_id": draft_id,
+                "found": draft is not None}
+
+    draft = _take_draft(draft_id)
+    if draft is None:
+        await service._send_reply(reply_token, _text(
+            "⏳ การ์ดคำสั่งหมดอายุแล้ว (3 นาที) — ส่งคำสั่งใหม่เพื่อขอราคา/วงเงินล่าสุด"))
+        return {"status": "TRADE_DRAFT_EXPIRED", "draft_id": draft_id}
+
+    card = cards.trade_receipt_card(
+        draft_id=draft["draft_id"], outcome="confirmed", cmd=draft["cmd"],
+        symbol=draft["symbol"], volume=draft["volume"], price=draft["price"],
+        broker=draft.get("broker"), account=draft.get("account"),
+        account_no=draft.get("account_no"),
+    )
+    await service._send_reply(reply_token, card)
+
+    # B.6 wiring: execute the confirmed order NOW
+    from app.services.broker_cdp.order_executor import execute_confirmed_order
+    try:
+        exec_res = await execute_confirmed_order(draft)
+    except Exception as e:
+        exec_res = {"success": False, "status": "EXECUTOR_ERROR", "error": str(e)}
+
+    status = exec_res.get("status")
+    bno = exec_res.get("broker_order_no")
+    if exec_res.get("success") and status == "SUBMITTED":
+        result_txt = (f"✅ ส่งคำสั่งสำเร็จ — {draft['symbol']} {draft['cmd'].upper()} "
+                      f"{draft['volume']:,} @ ฿{draft['price']:.2f}\nออเดอร์ #{bno}")
+    elif exec_res.get("success") and status == "DRY_RUN":
+        result_txt = (f"🧪 DRY-RUN ผ่าน (ไม่ยิงจริง): {draft['symbol']} {draft['cmd'].upper()} "
+                      f"{draft['volume']:,} @ ฿{draft['price']:.2f}")
+    else:
+        result_txt = f"❌ ไม่ได้ส่งคำสั่ง: {exec_res.get('error') or status or 'ไม่สำเร็จ'}"
+
+    # Push execution result to originating chat (never reuse reply_token!)
+    if push_target and hasattr(service, "push_message"):
+        try:
+            p_res = service.push_message(_text(result_txt), to_user_id=push_target)
+            if inspect.isawaitable(p_res):
+                await p_res
+        except Exception as pe:
+            logger.error(f"Failed to push trade execution result: {pe}")
+
+    return {"status": "TRADE_DRAFT_CONFIRMED", "draft_id": draft["draft_id"],
+            "order": {k: draft[k] for k in ("cmd", "symbol", "volume", "price",
+                                             "broker", "account", "account_no")},
+            "execution": exec_res}
+
+
+# --------------------------------------------------------------------------- #
+# /sbl, /borrow, /return (Loop 2 SBL Suite)
+# --------------------------------------------------------------------------- #
+async def _handle_sbl(
+    parsed: SblCommand, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
+) -> Dict[str, Any]:
+    from app.db.models import SBLBorrowLot
+    from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+
+    if parsed.subcmd == "pool" and parsed.symbol:
+        try:
+            avail_qty = await krungsri_sbl_driver.scrape_sbl_available_inventory(parsed.symbol)
+        except Exception as e:
+            logger.error(f"SBL pool query failed: {e}")
+            avail_qty = 0
+        card = cards.sbl_pool_card(parsed.symbol, avail_qty, fee_rate=3.50)
+        await service._send_reply(reply_token, card)
+        return {"status": "CLI_SBL_POOL", "symbol": parsed.symbol, "available_qty": avail_qty}
+
+    # /sbl or /sbl sync
+    if parsed.has("sync"):
+        await service._send_reply(reply_token, _text("🔄 กำลังดึงข้อมูลหุ้นยืม SBL จาก SBL Real Time…"))
+        try:
+            scraped = await krungsri_sbl_driver.scrape_sbl_lots()
+            for item in scraped or []:
+                sym = item.get("symbol")
+                if not sym:
+                    continue
+                tx_id = str(item.get("broker_tx_id") or "")
+                res = await db.execute(select(SBLBorrowLot).where(SBLBorrowLot.symbol == sym, SBLBorrowLot.status == "ACTIVE"))
+                existing = res.scalars().first()
+                if existing:
+                    existing.remaining_qty = int(item.get("remaining_qty") or existing.remaining_qty)
+                else:
+                    new_lot = SBLBorrowLot(
+                        lot_id=f"SBL-{sym}-{int(time.time())}",
+                        broker_tx_id=tx_id or None,
+                        symbol=sym,
+                        borrow_qty=int(item.get("borrow_qty") or 0),
+                        remaining_qty=int(item.get("remaining_qty") or 0),
+                        borrow_price=float(item.get("borrow_price") or 0.0) or None,
+                        borrow_fee_rate=float(item.get("borrow_fee_rate") or 3.5),
+                        borrow_date=datetime.now().date(),
+                        status="ACTIVE",
+                    )
+                    db.add(new_lot)
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Failed to sync SBL lots from CDP: {e}")
+
+    # Read from DB
+    res = await db.execute(
+        select(SBLBorrowLot)
+        .where(
+            SBLBorrowLot.status.in_(("ACTIVE", "PARTIAL_RETURNED")),
+            SBLBorrowLot.remaining_qty > 0
+        )
+        .order_by(SBLBorrowLot.borrow_date.asc())
+    )
+    lots_db = res.scalars().all()
+    lots_data = [
+        {
+            "symbol": l.symbol,
+            "remaining_qty": l.remaining_qty,
+            "borrow_fee_rate": l.borrow_fee_rate,
+            "borrow_date": str(l.borrow_date),
+            "ex_dividend_date": str(l.ex_dividend_date) if l.ex_dividend_date else None,
+        }
+        for l in lots_db
+    ]
+    asof = _now_bkk().strftime("%H:%M:%S")
+    card = cards.sbl_status_card(lots_data, asof)
+    if parsed.has("sync") and push_target:
+        await service.push_message(card, to_user_id=push_target)
+    else:
+        await service._send_reply(reply_token, card)
+    return {"status": "CLI_SBL_STATUS", "count": len(lots_data)}
+
+
+async def _handle_sbl_borrow(
+    order: SblBorrowOrder, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
+) -> Dict[str, Any]:
+    from app.services.kill_switch_service import kill_switch_service
+    from app.services.sbl_intelligence_service import sbl_intelligence_service
+
+    if kill_switch_service.is_active():
+        await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
+        return {"status": "CLI_KILL_SWITCH"}
+
+    if order.volume <= 0 or order.volume % 100 != 0:
+        await service._send_reply(reply_token, _text("❌ จำนวนหุ้นยืมต้องเป็นทวีคูณของ 100 หุ้น (Board Lot)"))
+        return {"status": "CLI_SBL_REJECTED", "reason": "bad_board_lot"}
+
+    try:
+        risk_res = await sbl_intelligence_service.check_xd_risk(order.symbol)
+        if risk_res.get("xd_risk"):
+            msg = risk_res.get("reason") or f"⛔ ห้ามยืมหุ้นเด็ดขาด: หุ้น {order.symbol} ติดเครื่องหมาย {risk_res.get('type', 'XD')} (กำหนดวัน {risk_res.get('xd_date')}) มีความเสี่ยงต้องจ่ายเงินปันผลชดเชย 100%"
+            await service._send_reply(reply_token, _text(msg))
+            return {
+                "status": "CLI_SBL_REJECTED",
+                "code": "E_SBL_XD_BLOCKED",
+                "reason": msg,
+            }
+    except Exception as e:
+        logger.warning(f"Error checking XD risk for borrow {order.symbol}: {e}")
+
+    draft_id = _new_draft_id()
+    draft = {
+        "draft_id": draft_id,
+        "type": "sbl_borrow",
+        "symbol": order.symbol,
+        "volume": order.volume,
+        "fee_rate": 3.50,
+        "broker": "kss",
+        "account": "margin",
+        "created_at": time.time(),
+    }
+    _store_draft(draft)
+
+    card = cards.sbl_borrow_confirm_card(
+        draft_id=draft_id,
+        symbol=order.symbol,
+        volume=order.volume,
+        fee_rate=3.50,
+        xd_warning=None,
+    )
+    await service._send_reply(reply_token, card)
+    return {"status": "CLI_SBL_BORROW_DRAFTED", "draft_id": draft_id}
+
+
+async def _handle_sbl_return(
+    order: SblReturnOrder, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
+) -> Dict[str, Any]:
+    from app.db.models import SBLBorrowLot
+
+    res = await db.execute(
+        select(SBLBorrowLot)
+        .where(
+            SBLBorrowLot.symbol == order.symbol,
+            SBLBorrowLot.status.in_(("ACTIVE", "PARTIAL_RETURNED")),
+            SBLBorrowLot.remaining_qty > 0
+        )
+        .order_by(SBLBorrowLot.borrow_date.asc())
+    )
+    lots = res.scalars().all()
+    if not lots:
+        await service._send_reply(reply_token, _text(f"❌ ไม่พบหุ้นยืม SBL ของ {order.symbol} ในระบบที่จะคืนได้"))
+        return {"status": "CLI_SBL_NO_LOT"}
+
+    total_rem = sum(l.remaining_qty for l in lots)
+    if order.volume is not None:
+        if order.volume <= 0 or order.volume % 100 != 0:
+            await service._send_reply(reply_token, _text("❌ จำนวนหุ้นคืนต้องเป็นทวีคูณของ 100 หุ้น (Board Lot) หรือ all"))
+            return {"status": "CLI_SBL_REJECTED", "reason": "bad_board_lot"}
+        if order.volume > total_rem:
+            await service._send_reply(
+                reply_token,
+                _text(f"❌ มีหุ้นยืม SBL ของ {order.symbol} แค่ {total_rem:,} หุ้น (สั่งคืน {order.volume:,} หุ้น)",
+                      quick=[f"/return {order.symbol} {total_rem}", f"/return {order.symbol} all"])
+            )
+            return {"status": "CLI_SBL_INSUFFICIENT_LOT", "held": total_rem, "requested": order.volume}
+
+    return_qty = order.volume or total_rem
+    primary_lot = lots[0]
+    days_held = max((datetime.now().date() - primary_lot.borrow_date).days, 0)
+
+    # Multi-lot FIFO accrued fee calculation
+    rem_fee_calc = return_qty
+    accrued = 0.0
+    for l in lots:
+        if rem_fee_calc <= 0:
+            break
+        q = min(l.remaining_qty, rem_fee_calc)
+        d = max((datetime.now().date() - l.borrow_date).days, 1)
+        price_ref = l.borrow_price or 10.0
+        accrued += (q * price_ref * (l.borrow_fee_rate / 100.0) / 365.0) * d
+        rem_fee_calc -= q
+
+    draft_id = _new_draft_id()
+    draft = {
+        "draft_id": draft_id,
+        "type": "sbl_return",
+        "lot_id": primary_lot.lot_id,
+        "symbol": order.symbol,
+        "volume": return_qty,
+        "days_held": days_held,
+        "accrued_fee": accrued,
+        "created_at": time.time(),
+    }
+    _store_draft(draft)
+
+    card = cards.sbl_return_confirm_card(
+        draft_id=draft_id,
+        symbol=order.symbol,
+        volume=return_qty,
+        days_held=days_held,
+        accrued_fee=accrued,
+    )
+    await service._send_reply(reply_token, card)
+    return {"status": "CLI_SBL_RETURN_DRAFTED", "draft_id": draft_id}
+
+
+# --------------------------------------------------------------------------- #
 # Entrypoint (called by line_service)
 # --------------------------------------------------------------------------- #
 async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: Any) -> Dict[str, Any]:
@@ -1219,6 +1908,18 @@ async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: An
         await service._send_reply(reply_token, _text(msg, quick=parsed.quick_reply or None))
         return {"status": "CLI_ERROR", "code": parsed.code}
 
+    if isinstance(parsed, TradeOrder):
+        return await _handle_trade_order(parsed, service, reply_token, push_target, db)
+
+    if isinstance(parsed, SblCommand):
+        return await _handle_sbl(parsed, service, reply_token, push_target, db)
+
+    if isinstance(parsed, SblBorrowOrder):
+        return await _handle_sbl_borrow(parsed, service, reply_token, push_target, db)
+
+    if isinstance(parsed, SblReturnOrder):
+        return await _handle_sbl_return(parsed, service, reply_token, push_target, db)
+
     cmd = parsed.cmd
     if cmd == "help":
         return await _handle_help(parsed, service, reply_token)
@@ -1234,9 +1935,20 @@ async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: An
         return await _handle_nego(parsed, service, reply_token, push_target, db)
     if cmd == "negotiate":
         return await _handle_negotiate(parsed, service, reply_token, push_target, db)
+    if cmd == "quicktrade":
+        card = cards.quick_trade_selector_card()
+        await service._send_reply(reply_token, card)
+        return {"status": "QUICK_TRADE_MENU_DISPLAYED"}
+    if cmd == "halt":
+        from app.services.kill_switch_service import kill_switch_service
+        res = await kill_switch_service.activate(reason="Triggered via LINE CLI /halt", triggered_by="LINE_USER")
+        reply_text = "🚨 [EMERGENCY KILL SWITCH ACTIVATED]\nระบบหยุดการเทรดอัตโนมัติทั้งหมดทันที และส่งคำขอยกเลิกออเดอร์ค้างทั้งหมดเรียบร้อยแล้ว\nพิมพ์ 'RESET' หรือ 'RESUME' เพื่อปลดล็อก"
+        await service._send_reply(reply_token, _text(reply_text))
+        return {"status": "KILL_SWITCH_ACTIVATED", "details": res}
 
     await service._send_reply(reply_token, _text("❓ ไม่รู้จักคำสั่ง · พิมพ์ /help"))
     return {"status": "CLI_UNKNOWN", "cmd": cmd}
 
 
-__all__ = ["handle", "_LOCKS", "_STARTED", "_in_nego_window", "_plan_nego"]
+__all__ = ["handle", "handle_postback", "_LOCKS", "_STARTED", "_DRAFTS",
+           "_in_nego_window", "_plan_nego", "_purge_drafts", "DRAFT_TTL_SECONDS"]
