@@ -2060,8 +2060,11 @@ async def handle_postback(
 
     draft = _take_draft(draft_id)
     if draft is None:
+        from app.core.config import settings as _settings
+        mins = int(_settings.CARD_TTL_SECONDS) // 60
+        ttl_th = f"{mins} นาที" if mins >= 1 else f"{int(_settings.CARD_TTL_SECONDS)} วินาที"
         await service._send_reply(reply_token, _text(
-            "⏳ การ์ดคำสั่งหมดอายุแล้ว (3 นาที) — ส่งคำสั่งใหม่เพื่อขอราคา/วงเงินล่าสุด"))
+            f"⏳ การ์ดคำสั่งหมดอายุแล้ว ({ttl_th}) — ส่งคำสั่งใหม่เพื่อขอราคา/วงเงินล่าสุด"))
         return {"status": "TRADE_DRAFT_EXPIRED", "draft_id": draft_id}
 
     card = cards.trade_receipt_card(
