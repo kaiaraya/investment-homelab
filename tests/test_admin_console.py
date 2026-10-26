@@ -18,7 +18,19 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
+from app.api.v1.endpoints.admin import COMPONENTS
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def isolate_admin_console_env_and_settings():
+    """P5 test hygiene: snapshot & restore all component flags, and patch _write_env_key by default."""
+    snapshot = {c["env_key"]: getattr(settings, c["env_key"], None) for c in COMPONENTS}
+    with patch("app.api.v1.endpoints.admin._write_env_key"):
+        yield
+    for k, v in snapshot.items():
+        if v is not None and hasattr(settings, k):
+            setattr(settings, k, v)
 
 
 def _client() -> AsyncClient:

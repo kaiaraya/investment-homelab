@@ -29,6 +29,30 @@ def snapshot_runbook_hashes(root: Path = REPO_LEARNED_WORKFLOWS) -> Dict[str, st
         if p.is_file()
     }
 
+def _clean_test_db_files() -> None:
+    """P4 DB hygiene: remove any leftover test_homelab.db* (including -wal, -shm)."""
+    for f in Path(".").glob("test_homelab.db*"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+
+def pytest_sessionstart(session):
+    """P4 DB hygiene: clean up test database artifacts before any test executes."""
+    _clean_test_db_files()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """P4 DB hygiene: dispose engine and clean up test database artifacts on exit."""
+    try:
+        import asyncio
+        asyncio.run(test_engine.dispose())
+    except Exception:
+        pass
+    _clean_test_db_files()
+
+
 test_engine = create_async_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -56,7 +80,9 @@ import app.services.daily_scenario_runner
 import app.services.scenario_matrix
 import app.services.broker_cdp.sync_service
 
+app.db.session.engine = test_engine
 app.db.session.AsyncSessionLocal = TestingSessionLocal
+app.db.session.AsyncSessionClick2Win = TestingSessionLocal
 app.browser.trademan_driver.AsyncSessionLocal = TestingSessionLocal
 app.browser.session_sentinel.AsyncSessionLocal = TestingSessionLocal
 app.browser.auth_driver.AsyncSessionLocal = TestingSessionLocal

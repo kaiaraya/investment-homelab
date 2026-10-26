@@ -318,11 +318,54 @@ def compile_changed(changed: Sequence[str]) -> Tuple[bool, str]:
     return ok, detail
 
 
-def run_pytest(targets: Sequence[str], label: str) -> int:
-    print(f"{BLUE}▶{RESET} {label}: {' '.join(targets)}")
+def clean_test_db() -> None:
+    """P4 DB hygiene: remove any leftover test_homelab.db* (including -wal, -shm)."""
+    import glob
+    for p in glob.glob(os.path.join(REPO_ROOT, "test_homelab.db*")):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
+def detect_changed_symbols(paths: Sequence[str]) -> List[str]:
+    """P3 fast mode: extract modified function/class names from git diff hunk headers."""
+    import re
+    files = _py_files(paths)
+    if not files:
+        return []
+    symbols: set = set()
+    for diff_cmd in (
+        ["git", "diff", "-U0", "HEAD", "--", *files],
+        ["git", "diff", "-U0", "--", *files],
+    ):
+        try:
+            proc = subprocess.run(diff_cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+            for line in proc.stdout.splitlines():
+                if line.startswith("@@"):
+                    m = re.search(r"@@.*@@\s*(?:async\s+)?(?:def|class)\s+([a-zA-Z0-9_]+)", line)
+                    if m:
+                        sym = m.group(1).lstrip("_")
+                        if sym and len(sym) >= 3:
+                            symbols.add(sym)
+            if symbols:
+                break
+        except Exception:
+            pass
+    return sorted(symbols)
+
+
+def run_pytest(targets: Sequence[str], label: str, extra_args: Optional[Sequence[str]] = None) -> int:
+    clean_test_db()
+    cmd = [PYTHON, "-m", "pytest", *targets, "-q"]
+    if extra_args:
+        cmd.extend(extra_args)
+    display_args = f" {' '.join(extra_args)}" if extra_args else ""
+    print(f"{BLUE}▶{RESET} {label}: {' '.join(targets)}{display_args}")
     started = time.time()
-    proc = subprocess.run([PYTHON, "-m", "pytest", *targets, "-q"], cwd=REPO_ROOT)
+    proc = subprocess.run(cmd, cwd=REPO_ROOT)
     elapsed = time.time() - started
+    clean_test_db()
     if proc.returncode == 0:
         print(f"{GREEN}{BOLD}PASS{RESET} ({label}) in {elapsed:.1f}s")
     else:
@@ -337,6 +380,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("paths", nargs="*", help="ไฟล์ที่แก้ใน unit นี้ (repo-relative หรือ absolute)")
     parser.add_argument("--tests", nargs="+", default=[], help="ระบุ test target เอง (ข้าม mapping)")
     parser.add_argument("--full", action="store_true", help="full suite — ใช้ครั้งเดียวตอนปิดงาน")
+    parser.add_argument("--fast", action="store_true", help="fast mode — รันเฉพาะ test ที่ตรงกับ symbol ที่แก้ (<=10s)")
     parser.add_argument("--dry-run", action="store_true", help="แสดงแผนแล้วจบ (ไม่รัน test)")
     args = parser.parse_args(argv)
 
