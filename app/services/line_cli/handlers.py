@@ -1692,7 +1692,13 @@ def _resolve_account_no(broker: str, account: str) -> Optional[str]:
     if broker == "lib":
         if account != "cash":
             return None                       # Liberator has no margin account
-        return (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "").strip() or None
+        # ``LIBERATOR_ACCOUNT_NO`` may be the 8-digit accountNo (70559382) while every
+        # ``account_no`` column stores the 7-digit investor id (7055938) that
+        # ``sync_service._scrape_liberator`` writes. Normalise through the same helper
+        # the writer uses, or every read misses the row and /buy lib dies with
+        # E_NO_LINE_AVAILABLE right after a successful /cash lib sync.
+        from app.services.broker_cdp.sync_service import liberator_db_account_no
+        return liberator_db_account_no()
     return None
 
 

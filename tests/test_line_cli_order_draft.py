@@ -108,17 +108,17 @@ async def _seed_account(db, account_no=None, broker="LIBERATOR",
     from app.db.models import BrokerAccount
     from sqlalchemy import select
     from app.core.config import settings
+    from app.services.broker_cdp.sync_service import liberator_db_account_no
 
-    target_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()
-    accs = set()
+    # Seed ONLY the identity the production reader resolves. Seeding both the
+    # 7-digit investor id and the 8-digit accountNo used to hide a real bug:
+    # /buy lib returned E_NO_LINE_AVAILABLE live even though the test was green.
     if account_no:
-        accs.add(str(account_no).strip())
+        accs = {str(account_no).strip()}
+    elif broker == "LIBERATOR":
+        accs = {liberator_db_account_no()}
     else:
-        accs.add(target_acc)
-
-    if broker == "LIBERATOR":
-        accs.add(target_acc)
-        accs.add("7055938")
+        accs = {(getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()}
 
     for acc in accs:
         existing = (await db.execute(
@@ -134,17 +134,12 @@ async def _seed_account(db, account_no=None, broker="LIBERATOR",
 async def _seed_position(db, symbol="PTT", account_no=None,
                          position_type="LONG", volume=500):
     from app.db.models import Position
-    from app.core.config import settings
+    from app.services.broker_cdp.sync_service import liberator_db_account_no
 
-    target_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()
-    accs = set()
     if account_no:
-        accs.add(str(account_no).strip())
+        accs = {str(account_no).strip()}
     else:
-        accs.add(target_acc)
-
-    accs.add(target_acc)
-    accs.add("7055938")
+        accs = {liberator_db_account_no()}
 
     for acc in accs:
         db.add(Position(account_no=acc, symbol=symbol, position_type=position_type,
@@ -165,8 +160,8 @@ async def _seed_sbl(db, symbol="TISCO", remaining_qty=1000):
 @pytest.mark.asyncio
 async def test_buy_drafts_and_shows_confirmation_card(service, db_session):
     from app.core.config import settings
-    lib_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()
-    await _seed_account(db_session, lib_acc, "LIBERATOR", "CASH_BALANCE", line_available=50_000.0)
+    from app.services.broker_cdp.sync_service import liberator_db_account_no
+    await _seed_account(db_session, liberator_db_account_no(), "LIBERATOR", "CASH_BALANCE", line_available=50_000.0)
 
     res = await _run(service, "/buy PTT 100 12.50", db=db_session)
 
@@ -194,6 +189,32 @@ def test_liberator_account_no_7_vs_8_digit_relationship():
     if lib_acc:
         assert lib_acc.startswith("7055938")
         assert len(lib_acc) in (7, 8)
+
+
+def test_liberator_pre_trade_reader_uses_the_sync_writer_identity():
+    """Regression: the reader must resolve the SAME account_no the sync writes.
+
+    Live bug (2026-10-26): ``/buy lib`` returned ``E_NO_LINE_AVAILABLE`` immediately
+    after ``/cash lib sync`` displayed a balance, because ``_resolve_account_no``
+    returned the raw 8-digit ``LIBERATOR_ACCOUNT_NO`` (70559382) while
+    ``broker_accounts.account_no`` held the 7-digit investor id (7055938).
+    """
+    from app.core.config import settings
+    from app.services.broker_cdp.sync_service import liberator_db_account_no
+    from app.services.line_cli.handlers import _resolve_account_no
+
+    resolved = _resolve_account_no("lib", "cash")
+    assert resolved, "lib:cash must resolve to a real account number"
+    assert resolved == liberator_db_account_no()
+    assert len(resolved) == 7, f"expected the 7-digit investor id, got {resolved!r}"
+    # Works whether the operator configured the 7- or 8-digit form.
+    original = settings.LIBERATOR_ACCOUNT_NO
+    try:
+        for configured in ("7055938", "70559382"):
+            settings.LIBERATOR_ACCOUNT_NO = configured
+            assert _resolve_account_no("lib", "cash") == "7055938"
+    finally:
+        settings.LIBERATOR_ACCOUNT_NO = original
 
 
 @pytest.mark.asyncio

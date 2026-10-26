@@ -216,6 +216,48 @@ async def test_sync_kss_short_suffix_and_borrowed_excluded(prepare_test_db, patc
 
 
 @pytest.mark.asyncio
+async def test_sync_refreshes_updated_at(prepare_test_db, patch_get_tab):
+    """A re-sync must move ``updated_at``.
+
+    A raw ``ON CONFLICT DO UPDATE`` bypasses SQLAlchemy's ``onupdate=func.now()``,
+    so synced rows kept their first-insert timestamp while carrying fresh values —
+    any staleness check reading ``updated_at`` would reject live data.
+    """
+    import asyncio
+
+    from tests.conftest import TestingSessionLocal
+
+    patch_get_tab(FakePage(KSS_FAKE))
+    async with TestingSessionLocal() as db:
+        await sync_service.sync_portfolio_from_cdp("kss", db=db)
+        await db.commit()
+
+    async with TestingSessionLocal() as db:
+        first = (await db.execute(select(BrokerAccount))).scalars().one().updated_at
+
+    await asyncio.sleep(1.1)  # SQLite func.now() has 1-second resolution
+    patch_get_tab(FakePage(KSS_FAKE))
+    async with TestingSessionLocal() as db:
+        await sync_service.sync_portfolio_from_cdp("kss", db=db)
+        await db.commit()
+
+    async with TestingSessionLocal() as db:
+        second = (await db.execute(select(BrokerAccount))).scalars().one().updated_at
+
+    assert second > first, f"updated_at did not advance: {first} -> {second}"
+
+
+@pytest.mark.asyncio
+async def test_liberator_db_account_no_normalises_8_digit_settings(monkeypatch):
+    """Reader and writer must agree on the 7-digit investor id."""
+    from app.core.config import settings
+
+    for configured in ("7055938", "70559382", " 70559382 "):
+        monkeypatch.setattr(settings, "LIBERATOR_ACCOUNT_NO", configured)
+        assert sync_service.liberator_db_account_no() == "7055938"
+
+
+@pytest.mark.asyncio
 async def test_sync_is_upsert_not_duplicate(prepare_test_db, patch_get_tab):
     """A second sync of the same account updates rows, never duplicates them."""
     from tests.conftest import TestingSessionLocal

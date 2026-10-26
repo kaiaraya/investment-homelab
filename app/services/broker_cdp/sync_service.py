@@ -24,7 +24,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,6 +87,20 @@ def extract_account_no(text: Any) -> Optional[str]:
     """Pull the first 7-digit account number out of a header/selector string."""
     m = _ACCOUNT_NO_RE.search(str(text or ""))
     return m.group(1) if m else None
+
+
+def liberator_db_account_no() -> str:
+    """Canonical DB identity for the Liberator CASH account.
+
+    ``LIBERATOR_ACCOUNT_NO`` may carry either the 7-digit investor id (``7055938``)
+    or the 8-digit account number (``70559382``). Every table keyed by ``account_no``
+    (``broker_accounts``/``positions``/``orders``) stores the **7-digit** investor id,
+    because that is what ``_scrape_liberator`` writes. Resolving the raw setting
+    without this normalisation makes reads miss rows the sync just wrote — the
+    live symptom is ``E_NO_LINE_AVAILABLE`` on every ``/buy lib`` even after
+    ``/cash lib sync`` succeeded.
+    """
+    return extract_account_no(getattr(settings, "LIBERATOR_ACCOUNT_NO", "")) or "7055938"
 
 
 #: Trailing single-letter board/position marker in the KSS Streaming symbol cell,
@@ -271,7 +285,7 @@ async def _scrape_kss(page: Any) -> Dict[str, Any]:
 
 async def _scrape_liberator(page: Any) -> Dict[str, Any]:
     raw = await page.evaluate(_LIBERATOR_SCRAPE_JS) or {}
-    account_no = extract_account_no(getattr(settings, "LIBERATOR_ACCOUNT_NO", "")) or "7055938"
+    account_no = liberator_db_account_no()
     account_type = map_liberator_account_type(raw.get("account_type")) or "CASH_BALANCE"
     cash_balance = _to_float(raw.get("cash_balance"))
     line_available = _to_float(raw.get("line_available"))
@@ -313,6 +327,10 @@ def _account_upsert_stmt(**values: Any):
             "total_equity": ins.excluded.total_equity,
             "excess_equity": ins.excluded.excess_equity,
             "purchasing_power": ins.excluded.purchasing_power,
+            # SQLAlchemy ``onupdate=func.now()`` does NOT fire for a raw
+            # ``ON CONFLICT DO UPDATE``, so a synced row kept its first-insert
+            # timestamp forever while its values were fresh.
+            "updated_at": func.now(),
         },
     )
 
@@ -330,6 +348,7 @@ def _position_upsert_stmt(**values: Any):
             "market_value": ins.excluded.market_value,
             "unrealized_pnl": ins.excluded.unrealized_pnl,
             "unrealized_pnl_pct": ins.excluded.unrealized_pnl_pct,
+            "updated_at": func.now(),
         },
     )
 
@@ -631,7 +650,7 @@ async def scrape_orders_from_cdp(broker: str) -> Dict[str, Any]:
             orders = _parse_kss_order_rows(raw.get("rows") or [])
         else:
             raw = await page.evaluate(_LIBERATOR_ORDER_LEDGER_JS) or {}
-            account_no = extract_account_no(getattr(settings, "LIBERATOR_ACCOUNT_NO", "")) or "7055938"
+            account_no = liberator_db_account_no()
             orders = _parse_liberator_order_rows(raw.get("rows") or [])
 
     return {"broker": db_broker, "account_no": account_no, "orders": orders}
