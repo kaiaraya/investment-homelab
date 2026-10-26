@@ -124,12 +124,25 @@ CDP probe (ใหม่, read-only, ไม่ launch/ไม่ login)
 
 → **0a เสร็จเชิงหลักฐานแล้ว** เหลือแค่ codify ตารางนี้ลง `scripts/broker_cdp/brokers.py` (constants + helper `is_authenticated_path(broker, purpose, url)`) ซึ่งรวมอยู่ใน `CDP-1`
 
-## 8. แผนที่การ์ด (ยังไม่เปิด — รออนุมัติ)
+## 8. แผนที่การ์ด (ปิดแล้ว 4/5 — 2026-10-26)
 
-| การ์ด | รวม sub-task | Tier | Model | ต้องมี witness |
+| การ์ด | รวม sub-task | Tier | commit | ผล |
 |---|---|---|---|---|
-| `CDP-1` | 0a + A.1 | 🟢 T0 | jules-3.6-flash | ไม่ |
-| `CDP-2` | A.2 + C.2 | 🟢 T0 | jules-3.6-flash | ไม่ |
-| `CDP-3` | B.1 + B.2 + B.3 | 🟡 T1 | jules-3.1-pro | ไม่ |
-| `CDP-4` | A.3a + C.1 | 🟡 T1 | jules-3.1-pro | ไม่ |
-| `CDP-5` | A.3b (G3) | 🔴 T2 | — | **ใช่** (พร้อม 2.7/2.8) |
+| `CDP-1` `t_033b4521` | 0a + A.1 | 🟢 T0 | `cf99046` | probe 5 สถานะ + path contract · live: kss/streaming, kss/sbl, lib/portfolio = AUTHENTICATED · Chromium 12→12 |
+| `CDP-2` `t_2b531977` | A.2 + C.2 | 🟢 T0 | `aaa7a10` | `/status` อ่าน probe · `authenticated=true source=CDP port=9333 pid=59445` |
+| `CDP-3` `t_f4b373d4` | B.1 + B.2 + B.3 | 🟡 T1 | `51d927e` | `/login` = attach zero-OTP · `/logout` ไม่ปิดเบราว์เซอร์ · `force` = ทางเดียวที่ขอ OTP |
+| `CDP-4` `t_cadae6a7` | A.3a + C.1 | 🟡 T1 | `eacdcff` (+ handlers ใน `51d927e`) | MCP `cdp` block ตรงกับ `/status` · guards ใช้ probe · **G3 ยัง flag-only** |
+| `CDP-5` `t_73d6e7e6` | A.3b (G3) | 🔴 T2 | — | **เปลี่ยนวิธี**: env-gate แทน worker+witness แยก |
+
+### CDP-5 เปลี่ยนรูปแบบ (2026-10-26 — ตัดพิธีตามคำขอผู้ใช้)
+
+G3 ไม่ต้องรอ witness เพื่อ "แก้โค้ด" อีก — ผูกกับ setting ใหม่แทน:
+
+```python
+if not await _broker_session_alive(broker, allow_cdp=settings.LINE_NEGO_CDP_GATE):   # G3
+```
+
+- `LINE_NEGO_CDP_GATE` default **False** → พฤติกรรมเดิมทุกอย่าง (flag-only) ไม่ต้องมี witness ก่อน
+- วัน witness: `LINE_NEGO_CDP_GATE=true` ใน `.env` + restart gateway → G3 รับ CDP AUTHENTICATED
+- fail-closed คงอยู่: `LOGIN_PAGE` / `NO_TARGET_TAB` / `DAEMON_DOWN` / `UNKNOWN` ไม่ผ่าน G3 แม้เปิด flag (มีเทสต์ล็อก)
+- เทสต์ใหม่: `test_nego_g3_accepts_cdp_when_gate_enabled` · `test_nego_g3_still_blocks_login_page_when_gate_enabled` · ของเดิม `test_nego_g3_guard_calls_session_alive_without_cdp` ยังผ่านเพราะ default False
