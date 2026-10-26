@@ -22,7 +22,7 @@ import json
 import logging
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 from typing import Dict, Any, List, Optional
 
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -103,6 +103,29 @@ def _parse_cache_timestamp(raw: Any) -> Optional[datetime]:
         # Legacy writers stamped naive UTC (datetime.utcnow()); assume UTC.
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _parse_book_date(date_str: Any) -> Optional[date]:
+    """Parse a SBL XD/XR calendar ``book_date`` cell into a ``date``.
+
+    The calendar grid is DD/MM/YYYY (e.g. ``07/10/2026``); tolerate ``-`` as a
+    separator. Returns ``None`` for anything unparseable — callers must treat
+    ``None`` as fail-closed.
+    """
+    s = str(date_str or "").strip()
+    if not s:
+        return None
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _bkk_today() -> date:
+    """Today's date in Bangkok (+07) — the SET calendar's home timezone."""
+    return (datetime.now(timezone.utc) + timedelta(hours=7)).date()
 
 
 class KrungsriSBLRealtimeDriver:
@@ -512,21 +535,27 @@ class KrungsriSBLRealtimeDriver:
             out.update(extra)
             return out
 
-        # 1. XD/XR hard block — independent of snapshot age.
+        # 1. XD/XR hard block — but only while the corporate action is still
+        #    pending (book_date is today or in the future). Once the ex-date has
+        #    passed, the 100% dividend-compensation trap is gone and the XD block
+        #    must be lifted, not linger forever on an ageing snapshot.
         xd_match = next((x for x in xd_list if isinstance(x, dict) and (x.get("symbol") or "").strip().upper() == sym), None)
         if xd_match:
             b_date = xd_match.get("book_date", "")
             x_type = xd_match.get("type", "XD")
-            return _result(
-                True,
-                "HARD_BLOCKED_XD_XR",
-                f"⛔ บล็อกคำสั่ง (ติด {x_type} วันที่ {b_date})",
-                (
-                    f"⛔ ห้ามเปิดสถานะขายชอร์ต (Short Sell) เด็ดขาด เนื่องจากหุ้น {sym} มีกำหนดขึ้นเครื่องหมาย {x_type} "
-                    f"ในวันที่ {b_date} ซึ่งตามกฎเกณฑ์ SBL ผู้ยืมจะต้องจ่ายเงินชดเชยปันผลหรือสิทธิ์ 100% ให้แก่ผู้ให้ยืม"
-                ),
-                corporate_action=xd_match,
-            )
+            bd = _parse_book_date(b_date)
+            if bd is None or bd >= _bkk_today():
+                return _result(
+                    True,
+                    "HARD_BLOCKED_XD_XR",
+                    f"⛔ บล็อกคำสั่ง (ติด {x_type} วันที่ {b_date})",
+                    (
+                        f"⛔ ห้ามเปิดสถานะขายชอร์ต (Short Sell) เด็ดขาด เนื่องจากหุ้น {sym} มีกำหนดขึ้นเครื่องหมาย {x_type} "
+                        f"ในวันที่ {b_date} ซึ่งตามกฎเกณฑ์ SBL ผู้ยืมจะต้องจ่ายเงินชดเชยปันผลหรือสิทธิ์ 100% ให้แก่ผู้ให้ยืม"
+                    ),
+                    corporate_action=xd_match,
+                )
+            logger.info(f"SBL risk: {sym} {x_type} book_date {b_date} is in the past — XD block lifted")
 
         # 2./3. No trustworthy snapshot → fail closed.
         if status.get("state") != "CACHE_FRESH":

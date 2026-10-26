@@ -9,6 +9,7 @@ import app.brokers.krungsri.sbl_realtime_driver as sbl_mod
 from app.brokers.krungsri.sbl_realtime_driver import (
     KrungsriSBLRealtimeDriver,
     krungsri_sbl_driver,
+    _bkk_today,
 )
 from app.core.config import settings
 
@@ -173,6 +174,39 @@ def test_fresh_cache_xd_marker_blocks_borrow():
     assert risk["is_blocked"] is True
     assert risk["verdict"] == "HARD_BLOCKED_XD_XR"
     assert "ชดเชยปันผล" in risk["reason"]
+
+
+def test_xd_marker_with_past_book_date_lifts_block():
+    """B2: an XD marker whose book_date has already passed no longer hard-blocks.
+
+    The ex-dividend event already happened, so the dividend-compensation trap is
+    gone — the symbol must fall through to the pool checks instead of being
+    blocked forever on an ageing snapshot.
+    """
+    past = (_bkk_today() - timedelta(days=3)).strftime("%d/%m/%Y")
+    cache = _fresh(
+        set50=[{"symbol": "PTT", "available_qty": 99999, "borrow_fee_pct": 3.5}],
+        xd=[{"symbol": "PTT", "book_date": past, "type": "XD"}],
+    )
+    drv = _driver_with(cache)
+    with patch.object(drv, "get_cached_data", return_value=cache):
+        risk = drv.check_symbol_risk("PTT")
+    assert risk["verdict"] != "HARD_BLOCKED_XD_XR"
+    assert risk["verdict"] == "BORROW_ALLOWED"   # inventory > 0, no XD trap left
+    assert risk["is_blocked"] is False
+
+
+def test_xd_marker_with_unparseable_book_date_still_blocks():
+    """Fail-closed: a book_date we cannot parse must keep the XD hard-block."""
+    cache = _fresh(
+        set50=[{"symbol": "PTT", "available_qty": 99999, "borrow_fee_pct": 3.5}],
+        xd=[{"symbol": "PTT", "book_date": "7 ต.ค. 2569", "type": "XD"}],
+    )
+    drv = _driver_with(cache)
+    with patch.object(drv, "get_cached_data", return_value=cache):
+        risk = drv.check_symbol_risk("PTT")
+    assert risk["verdict"] == "HARD_BLOCKED_XD_XR"
+    assert risk["is_blocked"] is True
 
 
 def test_fresh_cache_symbol_absent_blocks_borrow():
