@@ -194,10 +194,11 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
     "scripts/broker_probe.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     "scripts/broker_cdp/client.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
-    "scripts/broker_cdp/brokers.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
+    "scripts/broker_cdp/brokers.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py", "tests/test_cdp_session_probe.py"],
     "scripts/broker_cdp/session_daemon.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     # B.2/B.3/B.7 — CDP gateway: tab manager + portfolio auto-sync + manual-order sync
     "app/services/broker_cdp/manager.py": ["tests/test_broker_cdp_routing.py"],
+    "app/services/broker_cdp/session_probe.py": ["tests/test_cdp_session_probe.py"],
     "app/services/broker_cdp/__init__.py": ["tests/test_broker_cdp_routing.py"],
     "app/services/broker_cdp/sync_service.py": [
         "tests/test_broker_cdp_sync.py",

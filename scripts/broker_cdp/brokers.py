@@ -18,6 +18,74 @@ from app.core.config import settings
 logger = logging.getLogger("broker_cdp_brokers")
 
 # ────────────────────────────────────────────────────────────────────────────
+# Path Contract & Authenticated URL Specs
+# ────────────────────────────────────────────────────────────────────────────
+
+AUTH_PATHS = {
+    ("kss", "streaming"): ["wme2.settrade.com/realtime/streaming7/StreamingPage"],
+    ("kss", "sbl"):       ["krungsrisecurities.com/sblweb/MainSBL.aspx"],
+    ("kss", "member"):    ["krungsrisecurities.com/th/member/"],
+    ("lib", "portfolio"): ["webtrade.liberator.co.th/Market",
+                           "webtrade.liberator.co.th/Portfolio",
+                           "webtrade.liberator.co.th/Trade"],
+}
+
+LOGIN_MARKERS = ["/login", "login.aspx", "/signin", "/otp", "/twofa", "/member/login", "/auth/"]
+
+
+def is_authenticated_path(broker: str, purpose: str, url: str) -> bool:
+    """Check whether the given URL matches the authenticated path contract for broker/purpose.
+
+    Enforces:
+    1. Rejects if any LOGIN_MARKERS match (path or full URL).
+    2. Rejects bare root paths (/ or empty).
+    3. Matches host and path prefix against AUTH_PATHS for (broker, purpose).
+    """
+    if not url:
+        return False
+
+    url_clean = url.strip().lower()
+    parsed = urlparse(url if "://" in url else ("//" + url))
+    path_clean = (parsed.path or "").lower()
+
+    # Guard LOGIN_MARKERS first (case-insensitive)
+    for marker in LOGIN_MARKERS:
+        m = marker.lower()
+        if m in path_clean or m in url_clean:
+            return False
+
+    if path_clean in ("", "/"):
+        return False
+
+    b_key = "lib" if (broker or "").lower() in ("lib", "liberator") else (broker or "").lower()
+    p_key = (purpose or "").lower()
+
+    candidates = AUTH_PATHS.get((b_key, p_key))
+    if not candidates:
+        candidates = AUTH_PATHS.get(((broker or "").lower(), p_key))
+    if not candidates:
+        return False
+
+    netloc = (parsed.netloc or "").lower()
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    host_and_path = f"{netloc}{parsed.path}".lower()
+
+    for auth_path in candidates:
+        target = auth_path.lower()
+        if target.startswith("www."):
+            target = target[4:]
+        if host_and_path.startswith(target):
+            if target.endswith("/"):
+                return True
+            rem = host_and_path[len(target):]
+            if rem == "" or rem[0] in ("/", "?", "#", "."):
+                return True
+
+    return False
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # KSS — Settrade Streaming via Krungsri SSO (port 9333)
 # ────────────────────────────────────────────────────────────────────────────
 
