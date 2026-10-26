@@ -6,7 +6,7 @@ Provides:
    - Cell 1 (Top-Left):     📊 พอร์ต & เงินสด (/port all sync)
    - Cell 2 (Top-Right):    📋 คำสั่ง & สถานะ (/orders all sync)
    - Cell 3 (Bottom-Left):  🔐 สถานะระบบ (/status)
-   - Cell 4 (Bottom-Right): ⚡ ซื้อ/ขาย Quick Trade (Postback: action=quick_trade_menu)
+   - Cell 4 (Bottom-Right): ⚡ ต่อราคา (Postback: action=nego_menu)
 2. API management: create, upload image, set default, list, delete.
 3. Dark theme HTML generator for Playwright screenshot rendering.
 """
@@ -82,8 +82,8 @@ def get_homelab_rich_menu_spec() -> Dict[str, Any]:
                 },
                 "action": {
                     "type": "postback",
-                    "data": "action=quick_trade_menu",
-                    "displayText": "⚡ Quick Trade เมนูซื้อขาย"
+                    "data": "action=nego_menu",
+                    "displayText": "⚡ ต่อราคาออเดอร์ค้าง"
                 }
             }
         ]
@@ -218,12 +218,12 @@ def get_rich_menu_html() -> str:
     <div class="badge">/status</div>
   </div>
 
-  <!-- Bottom Right: Quick Trade Menu -->
+  <!-- Bottom Right: Nego Menu (ต่อราคา) -->
   <div class="grid-cell cell-trade">
     <div class="icon-container icon-trade">⚡</div>
-    <div class="title">Quick Trade</div>
-    <div class="subtitle">BUY • SELL • SHORT • COVER</div>
-    <div class="badge">เมนูโต้ตอบด่วน 🚀</div>
+    <div class="title">ต่อราคา</div>
+    <div class="subtitle">Match Spread • ล่อราคา (Lure)</div>
+    <div class="badge">⚡ ต่อราคาออเดอร์ค้าง</div>
   </div>
 </body>
 </html>"""

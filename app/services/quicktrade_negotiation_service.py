@@ -165,11 +165,17 @@ def tick_distance_exceeds(old: float, new: float, max_ticks: int) -> bool:
 
 
 def plan_negotiation(order: OrderSnapshot, quote: Quote, *,
-                     max_ticks: Optional[int] = None) -> NegotiationDecision:
+                     max_ticks: Optional[int] = None,
+                     target_price: Optional[float] = None) -> NegotiationDecision:
     """Bind a live quote to an order and produce the final decision.
 
     Preserves the order's remaining volume (invariant 3) and flips a no-op amendment
     (target == current price) to ``NO_CHANGE`` so the caller never re-submits needlessly.
+
+    When ``target_price`` is provided (the nego-menu N2/N4 path), it overrides the
+    passive policy as the proposed price — the caller's price is actually sent instead
+    of being silently re-chosen. It still passes every guardrail below, so a caller can
+    never submit a rejected price.
 
     Guardrails added by ``TASK-loop1-2`` (D2):
     - **G4** - the target must pass the SET tick-size validator, else
@@ -182,7 +188,10 @@ def plan_negotiation(order: OrderSnapshot, quote: Quote, *,
 
     Every violation clears ``target_price`` so no caller can submit a rejected price.
     """
-    d = compute_passive_price(order.side, quote.best_bid, quote.best_offer, quote.last)
+    if target_price is not None:
+        d = NegotiationDecision(outcome=NegotiationOutcome.OK, target_price=float(target_price))
+    else:
+        d = compute_passive_price(order.side, quote.best_bid, quote.best_offer, quote.last)
     d.side = order.side
     d.current_price = order.price
     d.volume = order.balance
@@ -237,6 +246,7 @@ async def negotiate_order_price(
     pin: Optional[str] = None,
     dry_run: Optional[bool] = None,
     execute: bool = True,
+    target_price: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Passively re-price an existing Krungsri Quick Trade order.
 
@@ -244,6 +254,10 @@ async def negotiate_order_price(
     live quote, applies the policy, and (on ``OK`` + ``execute``) amends the price
     in place via the driver. Never fabricates a result: unreadable quote/order, an
     uptick violation or a driver error are all reported as failures.
+
+    ``target_price`` (N4): when set, it is the proposed amendment price — the
+    caller's computed price is actually used (still through G4/G5/G6) instead of
+    the passive policy re-choosing one. ``None`` keeps the passive behaviour.
     """
     # Lazy import keeps this module browser-free at import time.
     from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
@@ -283,7 +297,7 @@ async def negotiate_order_price(
 
     quote = Quote(symbol=q.get("symbol") or order.symbol, best_bid=q.get("best_bid"),
                   best_offer=q.get("best_offer"), last=q.get("last"))
-    decision = plan_negotiation(order, quote)
+    decision = plan_negotiation(order, quote, target_price=target_price)
 
     result: Dict[str, Any] = {
         "success": decision.outcome in (NegotiationOutcome.OK, NegotiationOutcome.NO_CHANGE),

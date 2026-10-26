@@ -114,6 +114,35 @@ def test_plan_target_within_max_ticks_is_ok():
     assert d.target_price == 30.00
 
 
+def test_plan_target_price_override_is_used():
+    """N4: an explicit target_price is used, not silently re-chosen passively."""
+    # Passive policy would target best_bid (29.75) for this BUY; the caller's
+    # target (30.00, the offer) must win — both are within 3 ticks of 29.25.
+    d = plan_negotiation(_order(side="BUY", price=29.25),
+                         Quote(symbol="MTC", best_bid=29.75, best_offer=30.00, last=29.75),
+                         target_price=30.00)
+    assert d.outcome is NegotiationOutcome.OK
+    assert d.target_price == 30.00
+
+
+def test_plan_target_price_override_still_guarded_by_g5():
+    """N4: the override passes G4/G5 — a too-far price is still refused."""
+    d = plan_negotiation(_order(side="BUY", price=29.25),
+                         Quote(symbol="MTC", best_bid=30.00, best_offer=30.50, last=30.00),
+                         target_price=30.50)
+    assert d.outcome is NegotiationOutcome.MAX_TICKS_EXCEEDED
+    assert d.target_price is None
+
+
+def test_plan_target_price_override_uptick_guard():
+    """N4: a SHORT override not above last still trips G6."""
+    d = plan_negotiation(_order(side="SHORT", price=29.25),
+                         Quote(symbol="MTC", best_bid=28.00, best_offer=29.00, last=29.50),
+                         target_price=29.00)
+    assert d.outcome is NegotiationOutcome.UPTICK_VIOLATION
+    assert d.target_price is None
+
+
 def test_plan_max_ticks_override_is_honoured():
     q = Quote(symbol="MTC", best_bid=30.00, best_offer=30.25, last=30.00)
     assert plan_negotiation(_order(side="BUY", price=29.25), q).outcome is NegotiationOutcome.OK

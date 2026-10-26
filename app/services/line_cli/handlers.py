@@ -485,10 +485,12 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
         )
     if broker == "kss":
         from app.services.quicktrade_negotiation_service import negotiate_order_price
-        # ``new_price`` is deliberately ignored: the service re-reads the live quote,
-        # applies G4/G5/G6 itself and amends on the SAME order_no.
+        # ``new_price`` is the caller's computed target (N2/N4). Pass it through so
+        # the service does NOT re-choose a passive price; ``<= 0`` means "no explicit
+        # price" (the /nego batch path) and falls back to the passive policy.
         res = await negotiate_order_price(
-            order_no, symbol=symbol, side=side, balance=int(volume) or None)
+            order_no, symbol=symbol, side=side, balance=int(volume) or None,
+            target_price=(float(new_price) if new_price and float(new_price) > 0 else None))
         res["path"] = "QUICKTRADE_INPLACE"
         return res
     # ── LIB (LIVE) ───────────────────────────────────────────────────────────────
