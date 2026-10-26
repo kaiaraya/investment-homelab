@@ -131,14 +131,103 @@ def _broker_platform(broker: str) -> str:
     return "TRADEMAN" if broker == "kss" else "LIBERATOR"
 
 
-async def _broker_session_alive(broker: str) -> bool:
-    """Is there a live, already-authenticated session? (never auto-logins)"""
+async def _broker_session_alive(broker: str, allow_cdp: bool = True) -> bool:
+    """Is there a live, already-authenticated session? (never auto-logins)
+
+    ``allow_cdp=True`` (default) makes the read-only CDP probe the primary truth, so a
+    session that lives in the daemon's Chrome still counts after a gateway restart. The
+    probe never launches a browser, never navigates and never logs in; only
+    ``AUTHENTICATED`` is accepted — ``DAEMON_DOWN``/``LOGIN_PAGE``/``NO_TARGET_TAB``/
+    ``UNKNOWN`` (or a probe error) fall back to the legacy in-process flag.
+
+    ``allow_cdp=False`` keeps the flag-only behaviour on purpose: the money guard
+    (``/nego`` G3) calls it this way until the witness-gated rollout is signed off
+    (CDP-5), so a probe can never loosen a trade-time gate.
+    """
+    if allow_cdp:
+        purpose = _ATTACH_PURPOSE.get((broker or "").strip().lower(), "streaming")
+        try:
+            from app.services.broker_cdp.session_probe import cdp_session_status
+            probe = await cdp_session_status(broker, purpose=purpose)
+            if probe.get("state") == "AUTHENTICATED":
+                return True
+        except Exception as e:  # noqa: BLE001
+            logger.debug("session probe failed for %s: %s", broker, e)
+
+    # Fallback (also the only path with allow_cdp=False): in-process flag.
     if broker == "kss":
         from app.browser.auth_driver import auth_driver
         return bool(auth_driver.is_authenticated)
     from app.brokers import liberator_plugin
     health = await liberator_plugin.get_health()
     return bool(health.get("is_authenticated"))
+
+
+#: CDP purpose per broker used by /login attach (matches the probe's purpose map).
+_ATTACH_PURPOSE = {"kss": "streaming", "lib": "portfolio"}
+
+#: Remote-debugging port per broker, for the user-facing zero-OTP message.
+_CDP_PORT = {"kss": 9333, "lib": 9334}
+
+
+async def _attach_session_cdp(broker: str) -> Optional[Dict[str, Any]]:
+    """Zero-OTP `/login`: attach to an already-authenticated daemon tab.
+
+    Returns the probe dict (plus ``attached``/``page_url``) when the driver is now
+    wired to the daemon's tab, ``None`` when anything is off and the caller must fall
+    back to the legacy login path.
+
+    Read-only by contract: it only runs the CDP session probe and the drivers'
+    ``connect_cdp()`` — never launches a browser, never navigates, never fires an OTP.
+    """
+    purpose = _ATTACH_PURPOSE.get(broker, "streaming")
+    try:
+        from app.services.broker_cdp.session_probe import cdp_session_status
+        probe = await cdp_session_status(broker, purpose=purpose)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("login attach probe failed for %s: %s", broker, e)
+        return None
+
+    if probe.get("state") != "AUTHENTICATED":
+        return None
+
+    try:
+        if broker == "kss":
+            from app.browser.streaming_driver import streaming_driver
+            ok = await streaming_driver.connect_cdp(target=purpose)
+            page = streaming_driver.page
+        else:
+            from app.brokers.liberator.driver import liberator_driver
+            ok = await liberator_driver.connect_cdp(target=purpose)
+            page = liberator_driver.page
+    except Exception as e:  # noqa: BLE001
+        logger.warning("login attach failed for %s: %s: %s", broker, type(e).__name__, e)
+        return None
+
+    if not ok:
+        return None
+
+    attached = dict(probe)
+    attached["attached"] = True
+    attached["page_url"] = getattr(page, "url", None)
+    logger.info("LINE /login %s attached to the live CDP tab (%s)", broker, attached["page_url"])
+    return attached
+
+
+async def _detach_session_cdp(broker: str) -> bool:
+    """Disconnect this process from the daemon tab without closing the daemon's Chrome."""
+    try:
+        if broker == "kss":
+            from app.browser.streaming_driver import streaming_driver
+            return await streaming_driver.disconnect_cdp()
+        from app.brokers.liberator.driver import liberator_driver
+        if getattr(liberator_driver, "_cdp_connected", False):
+            await liberator_driver.close()      # CDP-aware: stops Playwright only
+            return True
+        return False
+    except Exception as e:  # noqa: BLE001
+        logger.debug("logout detach failed for %s: %s", broker, e)
+        return False
 
 
 async def _broker_sync_orders_cdp(broker: str) -> Optional[Dict[str, Any]]:
@@ -383,7 +472,9 @@ _HELP_TEXT = (
     "Pillar 1 · Session\n"
     "  /status [kss|lib]        สถานะระบบ\n"
     "  /login kss|lib|all [force]\n"
-    "  /logout kss|lib|all\n"
+    "    ไม่ใส่ force = เชื่อมกับแท็บที่เปิดอยู่ (zero-OTP)\n"
+    "    ใส่ force = เปิด browser ใหม่ + ขอ OTP\n"
+    "  /logout kss|lib|all      ตัดการเชื่อมต่อ (แท็บ daemon ยังเปิด)\n"
     "Pillar 2 · Portfolio\n"
     "  /port [kss|lib] [sync]   หุ้นที่ถือ + P/L\n"
     "  /cash [kss|lib] [sync]   เงินสด / กำลังซื้อ\n"
@@ -569,14 +660,9 @@ async def _handle_login(
         await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
         return {"status": "CLI_KILL_SWITCH"}
 
-    brokers = ["kss", "lib"] if parsed.broker == "all" else [parsed.broker]
+    broker_arg = (parsed.broker or "").strip().lower()
+    brokers: List[str] = ["kss", "lib"] if broker_arg == "all" else [broker_arg]
     force = parsed.has("force")
-
-    # Invariant 9 — never fire SMS unless the relay gate is live.
-    relay = await otp_relay_readiness.check()
-    if not relay.ready:
-        await service._send_reply(reply_token, _text(f"🚫 OTP relay ยังไม่พร้อม: {relay.reason} — ยังไม่ส่ง SMS"))
-        return {"status": "CLI_RELAY_NOT_READY", "ready": False}
 
     key = ("login", parsed.broker or "-")
     lock = _lock_for(*key)
@@ -587,12 +673,44 @@ async def _handle_login(
 
     async with lock:
         _STARTED[key] = _now_bkk().strftime("%H:%M:%S")
-        order_txt = " → ".join(BROKER_LABEL[b] for b in brokers)
-        await service._send_reply(reply_token, _text(
-            f"🔐 กำลังเข้าระบบ {order_txt}… เมื่อได้ SMS ให้พิมพ์ OTP 6 หลักในกลุ่มนี้ (หมดเวลาใน 3 นาที)"))
         results: List[Dict[str, Any]] = []
         try:
-            for b in brokers:
+            # ── Phase 1 — zero-OTP: attach to the daemon tab that is already logged in ──
+            pending: List[str] = []
+            if force:
+                pending = list(brokers)     # `force` is the only path that opens a browser + OTP
+            else:
+                for b in brokers:
+                    attached = await _attach_session_cdp(b)
+                    if not attached:
+                        pending.append(b)
+                        continue
+                    port = attached.get("port") or _CDP_PORT.get(b) or "-"
+                    await service.push_message(
+                        _text(f"🟢 {BROKER_LABEL[b]} เชื่อมกับแท็บที่เปิดอยู่แล้ว (zero-OTP) · {port}",
+                              quick=[f"/port {b}", f"/status {b}"]),
+                        to_user_id=push_target)
+                    results.append({
+                        "broker": b,
+                        "status": "attached",
+                        "port": port,
+                        "url_path": attached.get("url_path"),
+                        "page_url": attached.get("page_url"),
+                    })
+            if not pending:
+                return {"status": "CLI_LOGIN", "results": results}
+
+            # ── Phase 2 — legacy path: needs a real login, so the SMS gate applies ──
+            # Invariant 9 — never fire SMS unless the relay gate is live.
+            relay = await otp_relay_readiness.check()
+            if not relay.ready:
+                await service._send_reply(reply_token, _text(f"🚫 OTP relay ยังไม่พร้อม: {relay.reason} — ยังไม่ส่ง SMS"))
+                return {"status": "CLI_RELAY_NOT_READY", "ready": False, "results": results}
+
+            order_txt = " → ".join(BROKER_LABEL[b] for b in pending)
+            await service._send_reply(reply_token, _text(
+                f"🔐 กำลังเข้าระบบ {order_txt}… เมื่อได้ SMS ให้พิมพ์ OTP 6 หลักในกลุ่มนี้ (หมดเวลาใน 3 นาที)"))
+            for b in pending:
                 if await _broker_session_alive(b) and not force:
                     await service.push_message(
                         _text(f"🟢 {BROKER_LABEL[b]} เชื่อมต่ออยู่แล้ว — ใช้ /login {b} force เพื่อเข้าใหม่"),
@@ -612,9 +730,9 @@ async def _handle_login(
                         _text(f"❌ {BROKER_LABEL[b]} เข้าระบบไม่สำเร็จ: {err}"), to_user_id=push_target)
                     results.append({"broker": b, "status": "failed", "detail": err})
         except Exception as e:
-            logger.exception(f"LINE CLI /login {order_txt} failed")
+            logger.exception(f"LINE CLI /login {parsed.broker} failed")
             await service.push_message(
-                _text(f"❌ {order_txt} เข้าระบบไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
+                _text(f"❌ {parsed.broker} เข้าระบบไม่สำเร็จ: {type(e).__name__}: {str(e)[:120]}"),
                 to_user_id=push_target)
             results.append({"broker": parsed.broker, "status": "failed",
                             "detail": f"{type(e).__name__}: {str(e)[:120]}"})
@@ -623,23 +741,72 @@ async def _handle_login(
     return {"status": "CLI_LOGIN", "results": results}
 
 
+async def _close_owned_browsers(broker: str) -> bool:
+    """Close browsers THIS process launched — never a CDP daemon's Chrome.
+
+    The order/quote paths now attach to the daemon (which owns the visible browser), so
+    ``/logout`` must only drop that attachment (``_detach_session_cdp``) and close
+    whatever Playwright browser this process started itself.
+    """
+    closed = False
+    try:
+        if broker == "kss":
+            from app.browser.auth_driver import auth_driver
+            from app.browser.streaming_auth_driver import streaming_auth_driver
+            for drv in (auth_driver, streaming_auth_driver):
+                if (getattr(drv, "browser", None) is not None
+                        or getattr(drv, "context", None) is not None):
+                    await drv.close()
+                    closed = True
+        else:
+            from app.brokers import liberator_plugin
+            from app.brokers.liberator.driver import liberator_driver
+            from app.browser.tab_manager import tab_manager
+            tab = tab_manager.get_tab("liberator")
+            owns_tab = bool(tab is not None and not tab.is_closed())
+            if owns_tab or getattr(liberator_driver, "browser", None) is not None:
+                await liberator_plugin.close()
+                closed = True
+    except Exception as e:  # noqa: BLE001
+        logger.debug("logout close-owned failed for %s: %s", broker, e)
+    return closed
+
+
 # --------------------------------------------------------------------------- #
 # /logout
 # --------------------------------------------------------------------------- #
 async def _handle_logout(parsed: CliCommand, service: Any, reply_token: Optional[str]) -> Dict[str, Any]:
-    brokers = ["kss", "lib"] if parsed.broker == "all" else [parsed.broker]
+    broker_arg = (parsed.broker or "").strip().lower()
+    brokers: List[str] = ["kss", "lib"] if broker_arg == "all" else [broker_arg]
     lines: List[str] = []
     for b in brokers:
-        if not await _broker_session_alive(b):
-            lines.append(f"⚪ {BROKER_LABEL[b]} ไม่ได้เข้าระบบอยู่แล้ว")
-            continue
-        if b == "kss":
-            from app.browser.auth_driver import auth_driver
-            await auth_driver.close()
-        else:
+        try:
+            alive = await _broker_session_alive(b)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("logout session check failed for %s: %s", b, e)
+            alive = False
+
+        # B.2 — cut THIS process loose; the daemon's Chrome keeps running.
+        cdp_dropped = await _detach_session_cdp(b)
+        had_session = bool(alive or cdp_dropped)
+        owned_closed = False
+        if had_session:
+            # Legacy drivers may still own a browser they launched themselves.
             from app.brokers import liberator_plugin
-            await liberator_plugin.close()
-        lines.append(f"👋 ออกจากระบบ {BROKER_LABEL[b]} แล้ว (ปิด browser session)")
+            if b == "lib" and not cdp_dropped:
+                await liberator_plugin.close()
+                owned_closed = True
+            else:
+                owned_closed = await _close_owned_browsers(b)
+
+        port = _CDP_PORT.get(b) or "-"
+        if had_session or owned_closed:
+            lines.append(
+                f"👋 ออกจากระบบ {BROKER_LABEL[b]} แล้ว — ตัดการเชื่อมต่อจากโปรเซสนี้เท่านั้น "
+                f"(แท็บยังเปิดอยู่ที่ CDP {port})")
+        else:
+            lines.append(
+                f"⚪ {BROKER_LABEL[b]} ไม่ได้เข้าระบบอยู่แล้ว (โปรเซสนี้) — แท็บยังเปิดอยู่ที่ CDP {port}")
     await service._send_reply(reply_token, _text("\n".join(lines)))
     return {"status": "CLI_LOGOUT", "brokers": brokers}
 
@@ -1267,7 +1434,10 @@ async def _handle_nego(
     if not _in_nego_window():                                 # G2
         await service._send_reply(reply_token, _text(f"🌙 นอกเวลาที่อนุญาต ({settings.LINE_NEGO_WINDOWS})"))
         return {"status": "CLI_OUT_OF_HOURS"}
-    if not await _broker_session_alive(broker):               # G3
+    # G3 — money guard: deliberately flag-only (``allow_cdp=False``). The CDP probe is
+    # allowed to *report* a session for /status//login//logout//sync, but a probe must
+    # never widen a trade-time gate; it only becomes CDP-aware after the CDP-5 witness.
+    if not await _broker_session_alive(broker, allow_cdp=False):   # G3
         await service._send_reply(reply_token, _text(f"🔴 {BROKER_LABEL[broker]} session หลุด — /login {broker} ก่อน"))
         return {"status": "CLI_SESSION_DOWN", "broker": broker}
 

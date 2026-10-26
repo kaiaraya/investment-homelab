@@ -10,7 +10,8 @@ where Broker Isolation lives.
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,6 +25,10 @@ REAL_LIVE_CARD = handlers._live_card
 #: Same idea for the two broker edges that the routing tests must exercise themselves.
 REAL_BROKER_OPEN_ORDERS = handlers._broker_open_orders
 REAL_BROKER_MODIFY = handlers._broker_modify
+
+#: The autouse `_broker_edges` fixture stubs the CDP attach helper — keep the real one
+#: so the CDP-3 unit tests below can drive it directly.
+REAL_ATTACH_SESSION_CDP = handlers._attach_session_cdp
 
 
 # --------------------------------------------------------------------------- #
@@ -82,6 +87,9 @@ def _broker_edges(monkeypatch):
     }))
     monkeypatch.setattr(handlers, "_live_card", AsyncMock(return_value={"type": "flex", "altText": "live"}))
     monkeypatch.setattr(handlers, "_broker_sync_cdp", AsyncMock(return_value=None))
+    # CDP attach/detach is stubbed so no test ever touches a real daemon on 9333/9334.
+    monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(return_value=None))
+    monkeypatch.setattr(handlers, "_detach_session_cdp", AsyncMock(return_value=False))
     monkeypatch.setattr(handlers, "_in_nego_window", lambda now=None: True)
     handlers._LOCKS.clear()
     handlers._STARTED.clear()
@@ -232,6 +240,202 @@ async def test_logout_when_not_logged_in(service, db_session, monkeypatch):
     monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
     res = await _run(service, "/logout kss", db=db_session)
     assert "ไม่ได้เข้าระบบอยู่แล้ว" in service.last_text()
+
+
+# --------------------------------------------------------------------------- #
+# CDP-3 — /login = attach (zero-OTP) · /logout = detach only
+# --------------------------------------------------------------------------- #
+ATTACHED_KSS = {
+    "broker": "kss",
+    "purpose": "streaming",
+    "state": "AUTHENTICATED",
+    "daemon_up": True,
+    "port": 9333,
+    "url_path": "/realtime/streaming7/StreamingPage.jsp",
+    "page_url": "https://wme2.settrade.com/realtime/streaming7/StreamingPage.jsp",
+    "attached": True,
+}
+
+
+@pytest.mark.asyncio
+async def test_login_attaches_cdp_without_otp(service, db_session, monkeypatch):
+    """Probe AUTHENTICATED → attach; `session_login_broker` must NEVER be called."""
+    monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(return_value=dict(ATTACHED_KSS)))
+    login = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    # Relay down proves the attach path is truly zero-OTP: no SMS gate is consulted.
+    _patch_relay(monkeypatch, ready=False, reason="relay down")
+
+    res = await _run(service, "/login kss", db=db_session)
+
+    assert res["status"] == "CLI_LOGIN"
+    assert res["results"][0]["status"] == "attached"
+    assert res["results"][0]["port"] == 9333
+    assert res["results"][0]["url_path"] == "/realtime/streaming7/StreamingPage.jsp"
+    login.assert_not_awaited()                                    # Done-when #1
+    texts = [_text_of(m) for m, _ in service.pushes]
+    assert any("zero-OTP" in t and "9333" in t for t in texts)     # D2: push with port
+    assert not any("OTP 6 หลัก" in t for t in texts + [service.last_text()])
+
+
+@pytest.mark.asyncio
+async def test_login_all_attaches_both_without_otp(service, db_session, monkeypatch):
+    attach = AsyncMock(side_effect=[
+        dict(ATTACHED_KSS),
+        {**ATTACHED_KSS, "broker": "lib", "purpose": "portfolio", "port": 9334},
+    ])
+    monkeypatch.setattr(handlers, "_attach_session_cdp", attach)
+    login = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    _patch_relay(monkeypatch, ready=False, reason="relay down")
+
+    res = await _run(service, "/login all", db=db_session)
+
+    assert [r["status"] for r in res["results"]] == ["attached", "attached"]
+    assert [r["port"] for r in res["results"]] == [9333, 9334]
+    login.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_login_force_never_attaches_and_still_asks_otp(service, db_session, monkeypatch):
+    """`force` stays the only path that opens a browser + OTP."""
+    attach = AsyncMock(return_value=dict(ATTACHED_KSS))
+    monkeypatch.setattr(handlers, "_attach_session_cdp", attach)
+    login = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    _patch_relay(monkeypatch, ready=True)
+
+    res = await _run(service, "/login kss force", db=db_session)
+
+    attach.assert_not_awaited()
+    login.assert_awaited_once()
+    assert login.await_args.kwargs["force_fresh"] is True
+    assert res["results"][0]["status"] == "ok"
+    assert "OTP 6 หลัก" in service.last_text()
+
+
+@pytest.mark.asyncio
+async def test_login_falls_back_to_otp_when_attach_fails(service, db_session, monkeypatch):
+    monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(return_value=None))
+    monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
+    login = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    _patch_relay(monkeypatch, ready=True)
+
+    res = await _run(service, "/login lib", db=db_session)
+
+    assert res["results"][0]["status"] == "ok"
+    login.assert_awaited_once()
+    assert login.await_args.kwargs["platform"] == "LIBERATOR"
+
+
+@pytest.mark.asyncio
+async def test_login_partial_attach_then_otp_for_the_rest(service, db_session, monkeypatch):
+    """`/login all` with only kss attached: lib still falls back to the OTP flow."""
+    monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(side_effect=[dict(ATTACHED_KSS), None]))
+    monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
+    login = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    _patch_relay(monkeypatch, ready=True)
+
+    res = await _run(service, "/login all", db=db_session)
+
+    assert [(r["broker"], r["status"]) for r in res["results"]] == [("kss", "attached"), ("lib", "ok")]
+    login.assert_awaited_once()
+    assert login.await_args.kwargs["platform"] == "LIBERATOR"
+
+
+@pytest.mark.asyncio
+async def test_attach_session_cdp_returns_none_when_probe_not_authenticated(monkeypatch):
+    probe = AsyncMock(return_value={"state": "LOGIN_PAGE", "port": 9333})
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status", probe)
+    from app.browser.streaming_driver import streaming_driver
+    connect = AsyncMock(return_value=True)
+    monkeypatch.setattr(streaming_driver, "connect_cdp", connect)
+
+    assert await REAL_ATTACH_SESSION_CDP("kss") is None
+    connect.assert_not_awaited()          # never attach blindly
+
+
+@pytest.mark.asyncio
+async def test_attach_session_cdp_connects_kss_streaming_tab(monkeypatch):
+    probe = AsyncMock(return_value={"state": "AUTHENTICATED", "port": 9333,
+                                    "url_path": "/realtime/streaming7/StreamingPage.jsp"})
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status", probe)
+    from app.browser.streaming_driver import StreamingDriver, streaming_driver
+    fake_page = SimpleNamespace(url="https://wme2.settrade.com/realtime/streaming7/StreamingPage.jsp")
+    monkeypatch.setattr(StreamingDriver, "page", property(lambda self: fake_page))
+    connect = AsyncMock(return_value=True)
+    monkeypatch.setattr(streaming_driver, "connect_cdp", connect)
+
+    out = await REAL_ATTACH_SESSION_CDP("kss")
+
+    assert out["attached"] is True
+    assert out["page_url"] == fake_page.url
+    connect.assert_awaited_once_with(target="streaming")
+
+
+@pytest.mark.asyncio
+async def test_attach_session_cdp_connects_liberator_portfolio_tab(monkeypatch):
+    probe = AsyncMock(return_value={"state": "AUTHENTICATED", "port": 9334})
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status", probe)
+    from app.brokers.liberator.driver import liberator_driver
+    fake_page = SimpleNamespace(url="https://webtrade.liberator.co.th/Portfolio")
+    monkeypatch.setattr(liberator_driver, "page", fake_page)
+    connect = AsyncMock(return_value=True)
+    monkeypatch.setattr(liberator_driver, "connect_cdp", connect)
+
+    out = await REAL_ATTACH_SESSION_CDP("lib")
+
+    assert out["attached"] is True
+    assert out["port"] == 9334
+    assert connect.await_args.kwargs["target"] == "portfolio"
+
+
+@pytest.mark.asyncio
+async def test_attach_session_cdp_returns_none_when_connect_fails(monkeypatch):
+    probe = AsyncMock(return_value={"state": "AUTHENTICATED", "port": 9333})
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status", probe)
+    from app.browser.streaming_driver import streaming_driver
+    monkeypatch.setattr(streaming_driver, "connect_cdp", AsyncMock(return_value=False))
+
+    assert await REAL_ATTACH_SESSION_CDP("kss") is None
+
+
+@pytest.mark.asyncio
+async def test_streaming_disconnect_cdp_never_closes_the_browser():
+    from app.browser.streaming_driver import StreamingDriver
+    drv = StreamingDriver()
+    pw, browser = AsyncMock(), AsyncMock()
+    page = SimpleNamespace(url="https://wme2.settrade.com/realtime/streaming7/StreamingPage.jsp")
+    drv._cdp_pw, drv._cdp_browser, drv._cdp_context = pw, browser, AsyncMock()
+    drv.page_override, drv._cdp_connected = page, True
+
+    assert await drv.disconnect_cdp() is True
+
+    pw.stop.assert_awaited_once()
+    browser.close.assert_not_awaited()                 # daemon's Chrome must stay open
+    assert drv._cdp_connected is False and drv.page_override is None
+    assert await drv.disconnect_cdp() is False         # idempotent
+
+
+@pytest.mark.asyncio
+async def test_logout_kss_detaches_cdp_and_keeps_daemon_tab(service, db_session, monkeypatch):
+    detach = AsyncMock(return_value=True)
+    monkeypatch.setattr(handlers, "_detach_session_cdp", detach)
+    from app.browser.auth_driver import auth_driver
+    close = AsyncMock()
+    monkeypatch.setattr(auth_driver, "close", close)
+    monkeypatch.setattr(handlers, "_close_owned_browsers", AsyncMock(return_value=False))
+
+    res = await _run(service, "/logout kss", db=db_session)
+
+    assert res["status"] == "CLI_LOGOUT"
+    detach.assert_awaited_once_with("kss")
+    text = service.last_text()
+    assert "ตัดการเชื่อมต่อจากโปรเซสนี้" in text
+    assert "CDP 9333" in text and "แท็บยังเปิดอยู่" in text
+    assert "ปิด browser" not in text
 
 
 # --------------------------------------------------------------------------- #

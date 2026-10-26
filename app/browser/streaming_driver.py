@@ -191,6 +191,29 @@ class StreamingDriver:
         logger.info("Streaming attached to CDP daemon tab '%s': %s", target, page.url)
         return True
 
+    async def disconnect_cdp(self) -> bool:
+        """Drop the CDP attachment WITHOUT closing the daemon's Chrome.
+
+        ``/logout`` uses this: the daemon (port 9333) owns the live, human-visible
+        browser, so logging out of this process must only stop *our* Playwright
+        connection. Returns True when an attachment was actually dropped.
+        """
+        was_connected = self._cdp_connected
+        pw = self._cdp_pw
+        self._cdp_pw = None
+        self._cdp_browser = None
+        self._cdp_context = None
+        self._cdp_connected = False
+        self.page_override = None
+        if pw is not None:
+            try:
+                await pw.stop()
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Streaming disconnect_cdp stop failed: %s", e)
+        if was_connected:
+            logger.info("Streaming detached from CDP daemon (daemon browser kept alive)")
+        return was_connected
+
     # ------------------------------------------------------------------
     # Navigation helpers
     # ------------------------------------------------------------------
