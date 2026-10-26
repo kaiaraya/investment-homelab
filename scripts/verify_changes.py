@@ -94,6 +94,9 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_line_cli_handlers_sbl.py",
         "tests/test_sbl_realtime_snippets.py",
     ],
+    # nego-menu (ต่อราคา) — N1 market clock / N2 price planner
+    "app/services/market_clock.py": ["tests/test_market_clock.py"],
+    "app/services/nego_pricer.py": ["tests/test_nego_pricer.py"],
     "app/services/sbl_intelligence_service.py": [
         "tests/test_sbl_intelligence.py",
         "tests/test_line_cli_handlers_sbl.py",
