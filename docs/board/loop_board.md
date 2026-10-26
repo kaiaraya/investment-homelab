@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:07.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:15.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-26 14:07
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 43 · archived 17
+- **Generated:** 2026-10-26 14:15
+- **Counts:** running 0 · ready 1 · todo 0 · scheduled 1 · blocked 6 · triage 2 · review 0 · done 43 · archived 17
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,6 +27,7 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
+| `t_3f64c12f` | **ready** | `homelab-build` | 🟢 T0 · 2.11d /short tests ต้องมี fresh-cache fixture (2.11c ทำให้แดง) |
 | `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 | `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
 | `t_25ba3820` | **blocked** | `default` | ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback |
@@ -35,6 +36,7 @@
 | `t_75795660` | **blocked** | `homelab-build` | 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
 | `t_e2c587f7` | **blocked** | `homelab-build` | 🔴 T2 · [Liberator] · P.4-lib Order submit ผ่าน JS (buy/sell/change/cancel) + Anti-Mock |
 | `t_e3f4fc6f` | **triage** | `default` | 🔧 T0 · Fix test fixture: Liberator account 7-digit (7055938) vs 8-digit (70559382) |
+| `t_2293ae5f` | **triage** | `default` | 🟢 T0 · /sbl sync ยัง launch Chromium clone — ต่อ sbl_read.js ผ่าน CDP (zero-OTP) |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
