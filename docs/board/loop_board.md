@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:15.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:24.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-26 14:15
-- **Counts:** running 0 · ready 1 · todo 0 · scheduled 1 · blocked 6 · triage 2 · review 0 · done 43 · archived 17
+- **Generated:** 2026-10-26 14:24
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 2 · review 0 · done 44 · archived 17
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,7 +27,6 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_3f64c12f` | **ready** | `homelab-build` | 🟢 T0 · 2.11d /short tests ต้องมี fresh-cache fixture (2.11c ทำให้แดง) |
 | `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 | `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
 | `t_25ba3820` | **blocked** | `default` | ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback |
@@ -42,6 +41,7 @@
 
 | id | completed | title |
 |---|---|---|
+| `t_3f64c12f` | 2026-10-26 14:23 | 🟢 T0 · 2.11d /short tests ต้องมี fresh-cache fixture (2.11c ทำให้แดง) |
 | `t_5f2d4b60` | 2026-10-26 14:05 | 🟡 T1 · 2.11c /short + /borrow pre-trade ต้องบล็อก verdict CACHE_MISS/CACHE_STALE |
 | `t_a31b5c2b` | 2026-10-26 13:51 | 🟡 T1 · 2.11b SBL check_symbol_risk fail-closed เมื่อ cache ว่าง/เก่า |
 | `t_c2b11416` | 2026-10-26 13:46 | 🟢 T0 · 2.2b Draft TTL อ่านจาก settings.CARD_TTL_SECONDS (แทน hardcode 180) |
@@ -51,7 +51,6 @@
 | `t_2c403ecd` | 2026-10-26 11:47 | 🔔 เปิดตลาด · 🔍 0a · 2.0a Probe — quote source สำหรับ value sizing (TradeMan REST |
 | `t_ce767c92` | 2026-10-26 11:06 | 🟢 T0 · [Liberator+Streaming] · P.4c Support Stepper (+/-) Price Adjustment & Tic |
 | `t_14f992b6` | 2026-10-26 10:51 | 🟢 T0 · [SBL Realtime] · P.5a SBL read JS (PP / inventory / XD-XR) |
-| `t_888884c1` | 2026-10-26 10:36 | 🟡 T1 · [Streaming+Liberator] · P.2 Convert read-only scrape → JS-first + Playwri |
 
 ---
 
