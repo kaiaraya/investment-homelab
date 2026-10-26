@@ -111,6 +111,45 @@ async def test_quick_trade_menu_postback(db_session):
         service._send_reply.assert_called_once()
 
 
+def test_quick_trade_selector_buttons_are_all_parseable():
+    """Every selector button must send a command the parser actually accepts.
+
+    Two of the four shipped a form the parser rejects (``/short PTT 1000`` /
+    ``/cover PTT 1000`` — both need a price), so tapping them produced
+    ``E_MISSING_ARG`` and no card. A message button sends instantly and cannot be
+    edited, so the shipped text IS the command.
+    """
+    import json
+
+    from app.services.line_cli.cards import quick_trade_selector_card
+    from app.services.line_cli.parser import parse
+
+    card = quick_trade_selector_card()
+    texts = []
+
+    def _walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "button":
+                action = node.get("action") or {}
+                if action.get("type") == "message":
+                    texts.append(action["text"])
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                _walk(v)
+
+    _walk(card)
+    json.dumps(card)  # payload stays serialisable
+
+    assert len(texts) == 4, texts
+    for text in texts:
+        parsed = parse(text)
+        assert not isinstance(parsed, Exception), f"{text!r} does not parse: {parsed}"
+        assert getattr(parsed, "cmd", None), f"{text!r} parsed to {parsed!r}"
+    assert {p.cmd for p in (parse(t) for t in texts)} == {"buy", "sell", "short", "cover"}
+
+
 @pytest.mark.asyncio
 async def test_short_pre_trade_check_missing_sbl(db_session):
     # Pre-trade check for short without any SBL lots in DB on stock with no XD risk (fresh cache)

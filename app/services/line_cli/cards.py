@@ -760,8 +760,11 @@ def quick_trade_selector_card() -> Dict[str, Any]:
             "contents": [
                 _msg_button("🟢 ซื้อหุ้น (BUY · LIB CASH)", "/buy PTT 50k", color="#166534"),
                 _msg_button("🔴 ขายหุ้น (SELL · LIB CASH)", "/sell PTT 1000 35.0", color="#991b1b"),
-                _msg_button("🟣 ชอร์ตหุ้น (SHORT · KSS MARGIN)", "/short PTT 1000", color="#581c87"),
-                _msg_button("🔵 ปิดชอร์ต (COVER · KSS MARGIN)", "/cover PTT 1000", color="#1e40af"),
+                # SHORT/COVER require a price argument; a bare ``/short PTT 1000``
+                # returns E_MISSING_ARG and the tap does nothing. Value mode (``50k``)
+                # is the one form that parses without a hand-typed price.
+                _msg_button("🟣 ชอร์ตหุ้น (SHORT · KSS MARGIN)", "/short PTT 50k", color="#581c87"),
+                _msg_button("🔵 ปิดชอร์ต (COVER · KSS MARGIN)", "/cover PTT 50k", color="#1e40af"),
             ],
         },
     ]
