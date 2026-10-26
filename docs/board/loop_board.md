@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:49.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 15:44.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-26 14:49
-- **Counts:** running 1 · ready 0 · todo 3 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 46 · archived 17
+- **Generated:** 2026-10-26 15:44
+- **Counts:** running 1 · ready 0 · todo 1 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 48 · archived 17
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,9 +27,7 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_2b531977` | **running** | `homelab-build` | 🟢 T0 · CDP-2 /status ใช้ probe + โชว์ port/pid/ที่มา |
-| `t_f4b373d4` | **todo** | `homelab-build` | 🟡 T1 · CDP-3 /login = attach แท็บเดิม (zero-OTP) + logout ไม่ปิดเบราว์เซอร์ |
-| `t_cadae6a7` | **todo** | `homelab-build` | 🟡 T1 · CDP-4 _broker_session_alive ใช้ probe (ยกเว้น G3) + MCP ตรงกัน |
+| `t_cadae6a7` | **running** | `homelab-build` | 🟡 T1 · CDP-4 _broker_session_alive ใช้ probe (ยกเว้น G3) + MCP ตรงกัน |
 | `t_73d6e7e6` | **todo** | `default` | 🔴 T2 · CDP-5 G3 money guard รับ CDP (ต้องมี witness) |
 | `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 | `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
@@ -44,6 +42,8 @@
 
 | id | completed | title |
 |---|---|---|
+| `t_f4b373d4` | 2026-10-26 15:14 | 🟡 T1 · CDP-3 /login = attach แท็บเดิม (zero-OTP) + logout ไม่ปิดเบราว์เซอร์ |
+| `t_2b531977` | 2026-10-26 15:04 | 🟢 T0 · CDP-2 /status ใช้ probe + โชว์ port/pid/ที่มา |
 | `t_033b4521` | 2026-10-26 14:42 | 🟢 T0 · CDP-1 session probe (read-only) + path contract |
 | `t_e3f4fc6f` | 2026-10-26 14:37 | Fix Liberator test fixture account number mismatch (7-digit vs 8-digit) |
 | `t_3f64c12f` | 2026-10-26 14:23 | 🟢 T0 · 2.11d /short tests ต้องมี fresh-cache fixture (2.11c ทำให้แดง) |
@@ -52,8 +52,6 @@
 | `t_c2b11416` | 2026-10-26 13:46 | 🟢 T0 · 2.2b Draft TTL อ่านจาก settings.CARD_TTL_SECONDS (แทน hardcode 180) |
 | `t_17d8aeea` | 2026-10-26 13:15 | 🟢 T0 · 0.1-0.2 Version the JS-first layer + commit P.1-P.5 by topic |
 | `t_96f02cf9` | 2026-10-26 12:26 | 🔴 T2 · [SBL Realtime] · P.5 SBL borrow/return ผ่าน JS |
-| `t_a1d5c9c4` | 2026-10-26 11:54 | 🔍 0a · [Liberator+Streaming] · P.4a HAR capture — Liberator order + Streaming Ch |
-| `t_2c403ecd` | 2026-10-26 11:47 | 🔔 เปิดตลาด · 🔍 0a · 2.0a Probe — quote source สำหรับ value sizing (TradeMan REST |
 
 ---
 
