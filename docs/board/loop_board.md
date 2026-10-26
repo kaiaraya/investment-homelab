@@ -1,27 +1,59 @@
-# Loop Board — Loop 1 (SNAPSHOT)
+# Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — 2026-10-26.** The source of truth is the Hermes Kanban board:
-> `hermes kanban --board investment-homelab list`. This file is kept as a readable history and is no
-> longer updated by the loop; if the two disagree, the Kanban board wins.
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 13:35.** The source of truth is the Hermes Kanban board:
+> `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
+> disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
+> hand-edit the live sections.
 > **Platform:** Hermes-only. Jules, Cline and the Antigravity IDE loop are **retired**
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Loop:** 1
-- **Opened:** 2026-10-15
-- **Closed:** —
+- **Generated:** 2026-10-26 13:35
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 40 · archived 17
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
+- **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
-## วิธีใช้ (อัปเดต 2026-10-26)
-- **Kanban board** = ความจริง: การ์ดมี status/assignee/evidence และถูก dispatch โดย gateway
-- **`default` (planner)** = เขียน/แก้การ์ด, สั่ง `set-model`, verdict, squash `main`
+## วิธีใช้
+- **Kanban board** = ความจริง: status/assignee/evidence อยู่บนการ์ด และ gateway dispatch เอง
+- **`default` (planner)** = เขียน/แก้การ์ด, `set-model`, verdict, squash `main`
 - **`homelab-build`** = T0 (`gemini-3.8-flash`) / T1 (`gemini-3.1-pro`) เขียนโค้ด + unit test
 - **`homelab-review`** (`gemini-3.1-pro`) = diff audit + `verify_changes.py` + §Review Report
-- **`homelab-colab`** = งาน GPU/CPU ผ่าน `colab` CLI (การ์ด `☁️ Colab`)
-- **Human** = gate #1 (อนุมัติแผน/0a probe) · gate #2 (squash `main`) · witness 🔴T2 ที่หน้าจอ
-- ตารางคอลัมน์ 1–6 ด้านล่าง = ประวัติของ loop ที่ปิดไปแล้ว (อ่านได้ ไม่ต้องอัปเดต)
+- **`homelab-colab`** = งาน GPU/CPU ผ่าน `colab` CLI
+- **Human** = gate #1 (อนุมัติแผน/probe) · gate #2 (squash `main`) · witness 🔴T2 ที่หน้าจอ
 
 ---
+
+## 🟨 การ์ดที่ยังเปิดอยู่ (live)
+
+| id | status | assignee | title |
+|---|---|---|---|
+| `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
+| `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
+| `t_25ba3820` | **blocked** | `default` | ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback |
+| `t_15869000` | **blocked** | `default` | ⏰ ปิดตลาด · 🟠 HITL · 2.10 confirm/cancel TTL (human taps) |
+| `t_ee3c1ac6` | **blocked** | `default` | ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short |
+| `t_75795660` | **blocked** | `homelab-build` | 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
+| `t_e2c587f7` | **blocked** | `homelab-build` | 🔴 T2 · [Liberator] · P.4-lib Order submit ผ่าน JS (buy/sell/change/cancel) + Anti-Mock |
+| `t_e3f4fc6f` | **triage** | `default` | 🔧 T0 · Fix test fixture: Liberator account 7-digit (7055938) vs 8-digit (70559382) |
+
+## ✅ ปิดล่าสุด 10 ใบ
+
+| id | completed | title |
+|---|---|---|
+| `t_17d8aeea` | 2026-10-26 13:15 | 🟢 T0 · 0.1-0.2 Version the JS-first layer + commit P.1-P.5 by topic |
+| `t_96f02cf9` | 2026-10-26 12:26 | 🔴 T2 · [SBL Realtime] · P.5 SBL borrow/return ผ่าน JS |
+| `t_a1d5c9c4` | 2026-10-26 11:54 | 🔍 0a · [Liberator+Streaming] · P.4a HAR capture — Liberator order + Streaming Ch |
+| `t_2c403ecd` | 2026-10-26 11:47 | 🔔 เปิดตลาด · 🔍 0a · 2.0a Probe — quote source สำหรับ value sizing (TradeMan REST |
+| `t_ce767c92` | 2026-10-26 11:06 | 🟢 T0 · [Liberator+Streaming] · P.4c Support Stepper (+/-) Price Adjustment & Tic |
+| `t_14f992b6` | 2026-10-26 10:51 | 🟢 T0 · [SBL Realtime] · P.5a SBL read JS (PP / inventory / XD-XR) |
+| `t_888884c1` | 2026-10-26 10:36 | 🟡 T1 · [Streaming+Liberator] · P.2 Convert read-only scrape → JS-first + Playwri |
+| `t_e007f8bb` | 2026-10-26 10:34 | 🟢 T0 · [Streaming+Liberator] · P.4b Value sizing ผ่าน getQuote JS (_broker_quote |
+| `t_03a7b02a` | 2026-10-26 10:25 | 🟢 T0 · P.3 Probe SOP → bookmarklet DOM dump (0a probe speedup) |
+| `t_42251025` | 2026-10-26 10:20 | 🟢 T0 · P.1 JS snippet runner + bookmarklet library (quote/portfolio/orders/balan |
+
+---
+
+## 📜 ประวัติ Loop 1 (frozen 2026-10-26 — อ่านอย่างเดียว)
 
 ## 🔴 1. Backlog (Argon — Main Loop Candidates)
 | # | Task | Tier / Model | Probe | Owner | Status | Handoff |
