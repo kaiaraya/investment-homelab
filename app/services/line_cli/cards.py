@@ -782,6 +782,81 @@ def carousel(bubbles: List[Dict[str, Any]], alt: str) -> Dict[str, Any]:
     return {"type": "flex", "altText": alt, "contents": {"type": "carousel", "contents": bubbles}}
 
 
+# --------------------------------------------------------------------------- #
+# /nego menu (ต่อราคา — N3 postback flow)
+# --------------------------------------------------------------------------- #
+def nego_menu_card(*, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Carousel of unmatched open orders across both brokers; each bubble carries
+    the 🎯 match / 🪤 lure mode buttons whose postback payloads identify the order."""
+    bubbles: List[Dict[str, Any]] = []
+    for o in orders:
+        broker = str(o.get("broker", "")).lower()
+        broker_label = _BROKER_LABEL.get(broker, broker.upper())
+        side = str(o.get("side", "")).upper()
+        side_color = _SIDE_COLOR.get(side.lower(), FG)
+        order_no = str(o.get("order_no", ""))
+        mode_match = f"action=nego_mode&broker={broker}&order_no={order_no}&mode=match"
+        mode_lure = f"action=nego_mode&broker={broker}&order_no={order_no}&mode=lure"
+
+        body: List[Dict[str, Any]] = [
+            _kv("ออเดอร์", f"#{order_no}"),
+            _kv("ราคาเดิม", f"฿{float(o.get('price', 0.0) or 0.0):.2f}"),
+            _kv("ค้าง", f"{int(o.get('balance', 0) or 0):,} / {int(o.get('volume', 0) or 0):,} หุ้น"),
+            _cell("🎯 match — ข้าม spread ชน best offer/bid ทันที", MUTED, size="xxs", wrap=True),
+            _cell("🪤 lure — ต่อท้ายคิวที่ราคาฝั่งตัวเอง (ไม่ match)", MUTED, size="xxs", wrap=True),
+        ]
+        footer = [
+            _postback_button("🎯 Match", mode_match, f"🎯 ต่อราคา {side} {o.get('symbol','')} แบบ match", UP),
+            _postback_button("🪤 ล่อ", mode_lure, f"🪤 ต่อราคา {side} {o.get('symbol','')} แบบ lure", WARN),
+        ]
+        bubbles.append(_bubble(
+            title=f"{side} {o.get('symbol','')}",
+            badge=f"{broker_label}",
+            badge_bg=side_color,
+            body=body, footer=footer,
+        ))
+
+    return carousel(bubbles, f"⚡ ต่อราคา — {len(orders)} ออเดอร์ค้าง")
+
+
+def nego_draft_card(
+    *,
+    draft_id: str,
+    symbol: str,
+    side: str,
+    order_no: str,
+    broker_label: str,
+    old_price: float,
+    new_price: float,
+    mode_label: str,
+    ttl_seconds: int,
+) -> Dict[str, Any]:
+    """Draft confirm card for one price amendment (nothing submitted yet)."""
+    side_color = _SIDE_COLOR.get(side.lower(), FG)
+    body: List[Dict[str, Any]] = [
+        _kv("หุ้น", symbol),
+        _kv("คำสั่ง", side, side_color),
+        _kv("ออเดอร์", f"#{order_no}"),
+        _kv("โหมด", mode_label),
+        _kv("ราคาเดิม", f"฿{float(old_price):.2f}"),
+        _kv("ราคาใหม่", f"฿{float(new_price):.2f}", UP),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell(f"⏱️ การ์ดหมดอายุใน {int(ttl_seconds) // 60} นาที — ราคาอาจเปลี่ยน", MUTED, wrap=True),
+    ]
+    confirm_data = f"action=nego_confirm&draft_id={draft_id}"
+    cancel_data = f"action=nego_cancel&draft_id={draft_id}"
+    footer = [
+        _postback_button("✅ ยืนยัน", confirm_data,
+                         f"✅ ยืนยันต่อราคา {side} {symbol} → ฿{float(new_price):.2f}", UP),
+        _postback_button("❌ ยกเลิก", cancel_data, f"❌ ยกเลิกต่อราคา {side} {symbol}", DOWN),
+    ]
+    return _flex(
+        f"ยืนยันต่อราคา {side} {symbol} ฿{float(old_price):.2f} → ฿{float(new_price):.2f}",
+        _bubble(title=f"🧾 ต่อราคา {symbol}", badge=f"{broker_label} · {mode_label}",
+                badge_bg=side_color, body=body, footer=footer),
+    )
+
+
 __all__ = [
     "quick_reply",
     "status_card",
@@ -797,6 +872,8 @@ __all__ = [
     "sbl_borrow_confirm_card",
     "sbl_return_confirm_card",
     "quick_trade_selector_card",
+    "nego_menu_card",
+    "nego_draft_card",
     "carousel",
 ]
 

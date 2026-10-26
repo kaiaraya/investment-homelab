@@ -425,6 +425,44 @@ async def _broker_open_orders(broker: str) -> List[Dict[str, Any]]:
     return out
 
 
+async def _scrape_nego_orders() -> List[Dict[str, Any]]:
+    """All unmatched open orders across **both** brokers, read live from CDP.
+
+    This is the read-only feed for the nego-menu postback (N3). A broker whose
+    scrape fails is skipped rather than fabricating an empty ledger (Anti-Mock):
+    its orders simply do not appear, and a fully-empty result is reported to the
+    user as "ไม่มีออเดอร์ค้าง".
+    """
+    from app.services.broker_cdp.sync_service import map_ledger_side, scrape_orders_from_cdp
+    out: List[Dict[str, Any]] = []
+    for broker in ("kss", "lib"):
+        try:
+            snap = await scrape_orders_from_cdp(broker)
+        except Exception as e:
+            logger.warning("nego_menu: CDP scrape failed for %s: %s", broker, e)
+            continue
+        for o in (snap.get("orders") or []):
+            side = map_ledger_side(o.get("side"))
+            if side is None:
+                continue
+            balance = int(o.get("balance", 0) or 0)
+            status = str(o.get("status", "")).upper()
+            if balance <= 0:
+                continue
+            if any(t in status for t in ("CANCEL", "FILL", "MATCH", "REJECT", "EXPIRE", "VOID")):
+                continue
+            out.append({
+                "broker": broker,
+                "order_no": str(o.get("broker_order_no") or ""),
+                "symbol": str(o.get("symbol", "")).upper(),
+                "side": side,
+                "price": float(o.get("price", 0.0) or 0.0),
+                "volume": int(o.get("volume", 0) or 0),
+                "balance": balance,
+            })
+    return out
+
+
 async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol: str, side: str, volume: int) -> Dict[str, Any]:
     """
     Amend an order in place, routed per broker (Broker Isolation).
@@ -1926,6 +1964,139 @@ async def _send_or_push(service: Any, reply_token: Optional[str], push_target: O
         await service._send_reply(reply_token, msg)
 
 
+async def _handle_nego_postback(
+    action: str,
+    params: Dict[str, str],
+    service: Any,
+    reply_token: Optional[str],
+    push_target: Optional[str],
+) -> Dict[str, Any]:
+    """N3 — the interactive ต่อราคา (nego-menu) postback flow.
+
+    Read-only until confirm: the menu and mode-select only scrape CDP and plan a
+    price; nothing touches a broker until ``nego_confirm``, which routes through
+    ``_broker_modify`` (DRY_RUN in TEST). The draft's ``_take_draft`` pop is the
+    idempotency guard, so a replayed confirm can never amend twice.
+    """
+    from app.services.market_clock import is_nego_window, next_open_window
+    from app.services.nego_pricer import plan_price
+
+    if action == "nego_menu":
+        if not is_nego_window():
+            await _send_or_push(service, reply_token, push_target,
+                                _text(f"🌙 นอกเวลาต่อราคา — {next_open_window()}"))
+            return {"status": "NEGO_OUT_OF_HOURS"}
+        orders = await _scrape_nego_orders()
+        if not orders:
+            await _send_or_push(service, reply_token, push_target,
+                                _text("ℹ️ ไม่มีออเดอร์ค้าง (ยังไม่ match) ให้ต่อราคา — ลอง /orders all sync"))
+            return {"status": "NEGO_MENU_EMPTY"}
+        await service._send_reply(reply_token, cards.nego_menu_card(orders=orders))
+        return {"status": "NEGO_MENU_DISPLAYED", "count": len(orders)}
+
+    if action == "nego_mode":
+        if not is_nego_window():
+            await _send_or_push(service, reply_token, push_target,
+                                _text(f"🌙 นอกเวลาต่อราคา — {next_open_window()}"))
+            return {"status": "NEGO_OUT_OF_HOURS"}
+        broker = (params.get("broker") or "").lower()
+        order_no = params.get("order_no") or ""
+        mode = (params.get("mode") or "").lower()
+        if broker not in ("kss", "lib") or not order_no or mode not in ("match", "lure"):
+            return {"status": "NEGO_BAD_POSTBACK"}
+
+        # Re-read the order from CDP for authoritative side/price/volume — never
+        # trust a crafted postback payload for anything the amend will act on.
+        from app.services.broker_cdp.sync_service import map_ledger_side, scrape_orders_from_cdp
+        order = None
+        try:
+            snap = await scrape_orders_from_cdp(broker)
+            for o in (snap.get("orders") or []):
+                if str(o.get("broker_order_no") or "") == order_no:
+                    order = o
+                    break
+        except Exception as e:
+            logger.warning("nego_mode: CDP scrape failed for %s: %s", broker, e)
+        if not order:
+            await _send_or_push(service, reply_token, push_target,
+                                _text(f"❌ ไม่พบออเดอร์ #{order_no} ใน {BROKER_LABEL.get(broker, broker.upper())} — อาจถูก match/ยกเลิกไปแล้ว"))
+            return {"status": "NEGO_ORDER_GONE"}
+
+        side = map_ledger_side(order.get("side"))
+        symbol = str(order.get("symbol", "")).upper()
+        old_price = float(order.get("price", 0.0) or 0.0)
+        volume = int(order.get("balance", 0) or order.get("volume", 0) or 0)
+        if not side or not symbol or volume <= 0:
+            await _send_or_push(service, reply_token, push_target,
+                                _text(f"❌ อ่านข้อมูลออเดอร์ #{order_no} ไม่ครบ — ไม่ต่อราคา (fail-closed)"))
+            return {"status": "NEGO_ORDER_UNREADABLE"}
+
+        quote = await _broker_quote(broker, symbol)
+        plan = plan_price(side, mode, quote.get("bid_1"), quote.get("offer_1"),
+                          quote.get("last"), old_price)
+        if not plan.get("ok"):
+            reason = plan.get("reason") or "ไม่สามารถคำนวณราคา"
+            if reason == "NO_CHANGE":
+                await _send_or_push(service, reply_token, push_target,
+                                    _text(f"⏭️ ออเดอร์ #{order_no} {symbol} อยู่ที่ราคาเป้าหมายแล้ว"))
+                return {"status": "NEGO_NO_CHANGE"}
+            await _send_or_push(service, reply_token, push_target, _text(f"❌ {reason}"))
+            return {"status": "NEGO_PLAN_FAILED", "reason": reason}
+
+        draft_id = _new_draft_id()
+        _store_draft({
+            "draft_id": draft_id, "created_at": time.time(),
+            "broker": broker, "order_no": order_no, "symbol": symbol, "side": side,
+            "volume": volume, "old_price": old_price, "new_price": plan["price"],
+            "mode": mode,
+        })
+        mode_label = "🎯 Match เลย" if mode == "match" else "🪤 ล่อราคา"
+        card = cards.nego_draft_card(
+            draft_id=draft_id, symbol=symbol, side=side, order_no=order_no,
+            broker_label=BROKER_LABEL.get(broker, broker.upper()),
+            old_price=old_price, new_price=plan["price"], mode_label=mode_label,
+            ttl_seconds=_draft_ttl_seconds(),
+        )
+        await service._send_reply(reply_token, card)
+        return {"status": "NEGO_DRAFTED", "draft_id": draft_id}
+
+    if action == "nego_cancel":
+        draft = _take_draft(params.get("draft_id"))
+        sym = (draft or {}).get("symbol", "-")
+        await _send_or_push(service, reply_token, push_target, _text(f"❌ ยกเลิกต่อราคา {sym}"))
+        return {"status": "NEGO_CANCELLED"}
+
+    # nego_confirm
+    from app.services.trade_dispatcher import trade_dispatcher
+    draft = _take_draft(params.get("draft_id"))
+    if not draft:
+        ttl = _draft_ttl_seconds()
+        ttl_th = f"{ttl // 60} นาที" if ttl >= 60 else f"{ttl} วินาที"
+        await _send_or_push(service, reply_token, push_target,
+                            _text(f"⏳ การ์ดต่อราคาหมดอายุแล้ว ({ttl_th}) — กดเลือกโหมดใหม่"))
+        return {"status": "NEGO_DRAFT_EXPIRED"}
+
+    res = await _broker_modify(
+        draft["broker"], order_no=draft["order_no"], new_price=draft["new_price"],
+        symbol=draft["symbol"], side=draft["side"], volume=draft["volume"])
+
+    is_dry = (not trade_dispatcher.is_live) or bool(getattr(settings, "DRY_RUN_MODE", False))
+    status = str(res.get("status") or "")
+    ok = bool(res.get("success")) or status in ("OPEN", "MATCHED", "MODIFIED", "SUBMITTED")
+    if ok:
+        tag = "🧪 [DRY-RUN]" if is_dry else "✅"
+        matched = " (match แล้ว)" if res.get("is_matched") else ""
+        msg = (f"{tag} ต่อราคา {draft['side']} {draft['symbol']} #{draft['order_no']} "
+               f"฿{float(draft['old_price']):.2f} → ฿{float(draft['new_price']):.2f}{matched}")
+        await _send_or_push(service, reply_token, push_target,
+                            _text(msg, quick=[f"/orders {draft['broker']} sync"]))
+        return {"status": "NEGO_CONFIRMED", "order_no": draft["order_no"],
+                "dry_run": is_dry, "broker_result": res}
+    err = str(res.get("error") or res.get("message") or "ล้มเหลว")
+    await _send_or_push(service, reply_token, push_target, _text(f"❌ ต่อราคาไม่สำเร็จ: {err}"))
+    return {"status": "NEGO_FAILED", "error": err, "broker_result": res}
+
+
 async def handle_postback(
     data: str, *, db: Any, raw_event: Dict[str, Any], service: Any,
 ) -> Optional[Dict[str, Any]]:
@@ -1940,6 +2111,10 @@ async def handle_postback(
         card = cards.quick_trade_selector_card()
         await service._send_reply(reply_token, card)
         return {"status": "QUICK_TRADE_MENU_DISPLAYED"}
+
+    # 1.5 Nego Menu (ต่อราคา) — N3 postback flow
+    if action in ("nego_menu", "nego_mode", "nego_confirm", "nego_cancel"):
+        return await _handle_nego_postback(action, params, service, reply_token, push_target)
 
     # 2. SBL Borrow Postbacks
     if action == "sbl_borrow_cancel":
