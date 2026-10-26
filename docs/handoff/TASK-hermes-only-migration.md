@@ -1,6 +1,6 @@
 # TASK — Migration: Development Loop → Hermes-only (retire Jules / Cline / Antigravity IDE)
 
-- **Status:** DRAFT — M.0 ✅ · M.1 ✅ · M.2 ✅ · M.3 ✅ · M.4 ✅ · M.5 ✅ · M.6 ✅ · M.7 ✅ · M.8 ✅ · M.9 (live dry-run) · รอ gate #2 = human squash `chore/hermes-only-migration` → `main`
+- **Status:** ✅ DONE — M.0–M.9 ครบ + **gate #2 ปิดแล้ว 2026-10-26**: squash `chore/hermes-only-migration` → `main` = `6bb8bad`, squash `task/jsfirst-p1-p5` → `main` = `a9fda0f` (content ตรงกับ branch เป๊ะ, `git diff` ว่าง)
 - **Created:** 2026-10-26 by Hermes `default` (planner lane)
 - **Lane / Tier:** `default` · process+docs (ไม่แตะ trading logic, ไม่แตะ `app/**` ยกเว้น M.7)
 - **Branch:** `chore/hermes-only-migration` (human squash → `main` = gate #2)
