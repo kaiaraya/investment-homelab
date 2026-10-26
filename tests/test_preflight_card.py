@@ -125,3 +125,41 @@ def test_touches_dom():
     assert pc.touches_dom("Probe: NONE\nSome text") is False
     assert pc.touches_dom("Touch streaming.settrade portal") is True
     assert pc.touches_dom("Pure docs update with no markers") is False
+
+
+def test_check_card_contract_gate_missing_verify_command_fails():
+    card = """# TASK-test-missing-verify
+- Tier: 🟢 T0
+- Probe: NONE
+
+## Acceptance
+- all pass
+"""
+    errors, _ = pc.check_card(card)
+    assert any("contract gate" in e.lower() and "verify command" in e.lower() for e in errors)
+
+
+def test_check_card_contract_gate_missing_acceptance_section_fails():
+    card = """# TASK-test-missing-acceptance
+- Tier: 🟢 T0
+- Probe: NONE
+- Verify: pytest tests/test_foo.py
+
+## Other Section
+- notes
+"""
+    errors, _ = pc.check_card(card)
+    assert any("contract gate" in e.lower() and ("acceptance" in e.lower() or "done when" in e.lower()) for e in errors)
+
+
+def test_check_card_contract_gate_done_when_satisfies_acceptance():
+    card = """# TASK-test-done-when
+- Tier: 🟢 T0
+- Probe: NONE
+- Verify: pytest tests/test_foo.py
+
+## Done when
+- all pass
+"""
+    errors, _ = pc.check_card(card)
+    assert not any("contract gate" in e.lower() for e in errors)

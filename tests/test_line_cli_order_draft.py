@@ -363,3 +363,116 @@ async def test_webhook_routes_trade_draft_confirm(client, db_session, monkeypatc
     results = resp.json()["results"]
     assert results and results[0]["status"] == "TRADE_DRAFT_CONFIRMED"
     assert results[0]["draft_id"] == draft_id
+
+
+# --------------------------------------------------------------------------- #
+# 2.1 — SHORT confirm must carry last_trade_price (G6) and fail closed
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_short_confirm_passes_last_trade_price(service, db_session, monkeypatch):
+    from app.services.broker_cdp import order_executor as oe
+
+    await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE",
+                        line_available=634_864.16)
+    await _seed_sbl(db_session, "TISCO", remaining_qty=1000)
+    drafted = await _run(service, "/short TISCO 100 124.50", db=db_session)
+    assert drafted["status"] == "CLI_TRADE_DRAFTED"
+
+    async def _quote(broker, symbol):
+        return {"last": 125.0, "bid_1": 124.9, "offer_1": 125.1, "source": "streaming_dom"}
+
+    monkeypatch.setattr(handlers, "_broker_quote", _quote)
+
+    seen = {}
+
+    async def _fake_exec(order, **kwargs):
+        seen["kwargs"] = kwargs
+        return {"success": True, "status": "DRY_RUN"}
+
+    monkeypatch.setattr(oe, "execute_confirmed_order", _fake_exec)
+
+    res = await handlers.handle_postback(
+        f"action=trade_draft_confirm&draft_id={drafted['draft_id']}",
+        db=db_session, raw_event=_event(), service=service,
+    )
+    assert res["status"] == "TRADE_DRAFT_CONFIRMED"
+    assert seen["kwargs"]["last_trade_price"] == 125.0
+
+
+@pytest.mark.asyncio
+async def test_short_confirm_without_quote_fails_closed(service, db_session, monkeypatch):
+    from app.services.broker_cdp import order_executor as oe
+
+    await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE",
+                        line_available=634_864.16)
+    await _seed_sbl(db_session, "TISCO", remaining_qty=1000)
+    drafted = await _run(service, "/short TISCO 100 124.50", db=db_session)
+
+    async def _no_quote(broker, symbol):
+        return {"last": None, "bid_1": None, "offer_1": None, "source": "unavailable"}
+
+    monkeypatch.setattr(handlers, "_broker_quote", _no_quote)
+
+    called = {"n": 0}
+
+    async def _fake_exec(order, **kwargs):
+        called["n"] += 1
+        return {"success": True, "status": "DRY_RUN"}
+
+    monkeypatch.setattr(oe, "execute_confirmed_order", _fake_exec)
+
+    res = await handlers.handle_postback(
+        f"action=trade_draft_confirm&draft_id={drafted['draft_id']}",
+        db=db_session, raw_event=_event(), service=service,
+    )
+    assert res["execution"]["status"] == "REJECTED"
+    assert res["execution"]["error_code"] == "E_NO_QUOTE"
+    assert called["n"] == 0          # never reached the executor
+
+
+# --------------------------------------------------------------------------- #
+# 2.6 — value-based sizing edge cases
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_value_order_resolves_board_lot_from_quote(service, db_session, monkeypatch):
+    await _seed_account(db_session, line_available=100_000.0)
+
+    async def _quote(broker, symbol):
+        return {"last": 12.50, "offer_1": 12.50, "bid_1": 12.40, "source": "streaming_dom"}
+
+    monkeypatch.setattr(handlers, "_broker_quote", _quote)
+
+    res = await _run(service, "/buy PTT 50k", db=db_session)
+    assert res["status"] == "CLI_TRADE_DRAFTED"
+    assert res["card"]["type"] == "flex"
+    assert "4,000" in _card_text(res["card"])       # 50,000 / 12.50 = 4,000 shares
+
+
+@pytest.mark.asyncio
+async def test_value_order_floors_not_ceils(service, db_session):
+    # explicit price → no quote needed; 50,000 / 34.50 = 1,449.27 → 1,400 shares
+    await _seed_account(db_session, line_available=100_000.0)
+    res = await _run(service, "/buy PTT 50000b 34.50", db=db_session)
+    assert res["status"] == "CLI_TRADE_DRAFTED"
+    assert "1,400" in _card_text(res["card"])
+
+
+@pytest.mark.asyncio
+async def test_value_order_insufficient_budget(service, db_session):
+    await _seed_account(db_session, line_available=100_000.0)
+    res = await _run(service, "/buy PTT 500b 34.50", db=db_session)
+    assert res["status"] == "CLI_TRADE_REJECTED"
+    assert res["code"] == "E_INSUFFICIENT_BUDGET"
+
+
+@pytest.mark.asyncio
+async def test_value_order_without_quote_is_rejected(service, db_session, monkeypatch):
+    await _seed_account(db_session, line_available=100_000.0)
+
+    async def _no_quote(broker, symbol):
+        return {"last": None, "bid_1": None, "offer_1": None, "source": "unavailable"}
+
+    monkeypatch.setattr(handlers, "_broker_quote", _no_quote)
+    res = await _run(service, "/buy PTT 50k", db=db_session)
+    assert res["status"] == "CLI_TRADE_REJECTED"
+    assert res["code"] == "E_NO_QUOTE"

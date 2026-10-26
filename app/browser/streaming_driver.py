@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 SYMBOL_INPUT_SELECTOR = "input[placeholder='Symbol']"
 VOLUME_INPUT_SELECTOR = "input[name='equity-place-order-vol'], input[placeholder='Volume']"
 PRICE_INPUT_SELECTOR = "input[name='price-input'], input[placeholder='Price']"
+PRICE_STEPPER_CONTAINER_SELECTOR = ".z-index-smart-price-volume, .css-zxyhmd"
+PRICE_STEPPER_TRIGGER_SELECTOR = ".display-flex:has(input[name='price-input']) .cursor-pointer, .css-1kqdsxq"
+PRICE_STEPPER_MINUS_SELECTOR = ".z-index-smart-price-volume .bg-color-loser-100, div.bg-color-loser-100:has-text('-')"
+PRICE_STEPPER_PLUS_SELECTOR = ".z-index-smart-price-volume .bg-color-gainer-100, div.bg-color-gainer-100:has-text('+')"
 PIN_INPUT_SELECTOR = "input#pin, input[placeholder='PIN']"
 
 BUY_RADIO_SELECTORS = [
@@ -72,10 +76,25 @@ COVER_RADIO_SELECTORS = [
 SUBMIT_SELECTORS = [
     "button.bg-color-dark-blue-60",
     "button:has-text('Submit')",
+    "button:has-text('Buy')",
+    "button:has-text('Sell')",
+    "button:has-text('Cover')",
+    "button:has-text('Short')",
     "button.bg-color-buy-button",
     "button.bg-color-sell-button",
+    "button[class*='bg-color-cover']",
+    "button[class*='bg-color-short']",
 ]
 CONFIRM_SELECTORS = [
+    "div:has-text('Order Confirmation') button.bg-color-cover-20",
+    "div:has-text('Order Confirmation') button.bg-color-buy-20",
+    "div:has-text('Order Confirmation') button.bg-color-sell-20",
+    "div:has-text('Order Confirmation') button[class*='bg-color-cover']",
+    "div:has-text('Order Confirmation') button[class*='bg-color-short']",
+    "div:has-text('Order Confirmation') button:has-text('Cover')",
+    "div:has-text('Order Confirmation') button:has-text('Buy')",
+    "div:has-text('Order Confirmation') button:has-text('Sell')",
+    "div:has-text('Order Confirmation') button:has-text('Short')",
     "div:has-text('Order Confirmation') button:has-text('Confirm')",
     "button:has-text('Confirm')",
     "button:has-text('ยืนยัน')",
@@ -327,6 +346,8 @@ class StreamingDriver:
         auto_launch: bool = False,
         price_type: Optional[str] = "Limit",
         bypass_dry_run: bool = False,
+        tick_offset: int = 0,
+        use_stepper: bool = False,
         **kwargs,
     ) -> Dict[str, Any]:
         """
@@ -380,10 +401,35 @@ class StreamingDriver:
             await vol_el.fill(str(volume))
             await page.wait_for_timeout(300)
 
-            # 4. Price
+            # 4. Price & Stepper trigger
             price_el = page.locator(PRICE_INPUT_SELECTOR).first
             await price_el.fill(f"{price:.2f}")
             await page.wait_for_timeout(300)
+
+            # Stepper adjustment if tick_offset or use_stepper requested
+            if tick_offset != 0 or use_stepper:
+                steps = tick_offset
+                if steps != 0:
+                    container = page.locator(PRICE_STEPPER_CONTAINER_SELECTOR).first
+                    if not (await container.is_visible()):
+                        trigger = page.locator(PRICE_STEPPER_TRIGGER_SELECTOR).first
+                        if await trigger.is_visible():
+                            await trigger.click()
+                        else:
+                            await price_el.click()
+                        await page.wait_for_timeout(200)
+                    btn_sel = PRICE_STEPPER_PLUS_SELECTOR if steps > 0 else PRICE_STEPPER_MINUS_SELECTOR
+                    btn = page.locator(btn_sel).first
+                    for _ in range(abs(steps)):
+                        if await btn.is_visible():
+                            await btn.click()
+                            await page.wait_for_timeout(100)
+                    val = await price_el.input_value()
+                    if val:
+                        try:
+                            price = float(str(val).replace(",", "").strip())
+                        except (ValueError, TypeError):
+                            pass
 
             # 5. PIN (if editable)
             if pin_val:
@@ -482,6 +528,38 @@ class StreamingDriver:
             if not page or page.is_closed():
                 return []
 
+            # 1. JS-first: fetch from Settrade DGW orders endpoint (P.2)
+            try:
+                js_orders = await page.evaluate(
+                    """async () => {
+                        let acct = '3024959';
+                        const acctMatch = document.body.innerText.match(/3024\d{3}/);
+                        if (acctMatch) acct = acctMatch[0];
+                        const r = await fetch(`https://apigw.settrade.com/api/dgw/v3/029/accounts/${acct}/orders`, {credentials: 'include'});
+                        if (!r.ok) return null;
+                        return await r.json();
+                    }"""
+                )
+                if isinstance(js_orders, list):
+                    unmatched = []
+                    for o in js_orders:
+                        status = str(o.get("showOrderStatus") or o.get("orderStatus") or "").upper()
+                        if any(st in status for st in ["QUEU", "OPEN", "PENDING", "PARTIAL", "WAIT"]):
+                            side = str(o.get("side") or "").upper()
+                            norm_side = "SHORT" if "SHORT" in side else ("COVER" if "COVER" in side else ("SELL" if "SELL" in side else "BUY"))
+                            unmatched.append({
+                                "broker_order_no": str(o.get("orderNo") or ""),
+                                "symbol": str(o.get("symbol") or "UNKNOWN").upper(),
+                                "side": norm_side,
+                                "raw_cells": [str(o.get("orderNo")), str(o.get("symbol")), str(o.get("side")), str(o.get("price")), str(o.get("vol")), status],
+                                "status": "QUEUED",
+                                "account_type": account_type or self.active_account_type,
+                            })
+                    return unmatched
+            except Exception as e:
+                logger.debug(f"JS-first open orders scrape failed, falling back to DOM: {e}")
+
+            # 2. Playwright selector fallback
             await self.switch_tab("order_status")
             await page.wait_for_timeout(800)
 
@@ -659,6 +737,40 @@ class StreamingDriver:
             if not page or page.is_closed():
                 return []
 
+            # 1. JS-first: fetch positions directly via Settrade DGW endpoint (P.2)
+            try:
+                js_data = await page.evaluate(
+                    """async () => {
+                        let acct = '3024959';
+                        const acctMatch = document.body.innerText.match(/3024\d{3}/);
+                        if (acctMatch) acct = acctMatch[0];
+                        const r = await fetch(`https://apigw.settrade.com/api/dgw/v3/029/accounts/${acct}`, {credentials: 'include'});
+                        if (!r.ok) return null;
+                        return await r.json();
+                    }"""
+                )
+                if js_data and "portfolio" in js_data and isinstance(js_data["portfolio"], list):
+                    positions: List[Dict[str, Any]] = []
+                    for item in js_data["portfolio"]:
+                        pos = {
+                            "symbol": str(item.get("symbol") or item.get("stockSymbol") or "").strip().upper(),
+                            "position_type": str(item.get("positionType") or item.get("side") or "LONG").strip().upper(),
+                            "start_vol": int(item.get("startVol") or item.get("startVolume") or 0),
+                            "available_volume": int(item.get("availableVol") or item.get("availableVolume") or item.get("volume") or 0),
+                            "actual_volume": int(item.get("actualVol") or item.get("actualVolume") or item.get("volume") or 0),
+                            "avg_cost": float(item.get("avgCost") or item.get("cost") or 0.0),
+                            "market_price": float(item.get("marketPrice") or item.get("last") or 0.0),
+                            "market_value": float(item.get("marketValue") or 0.0),
+                            "unrealized_pl": float(item.get("unrealizedPl") or item.get("unrealizedPnl") or 0.0),
+                            "account_type": account_type or self.active_account_type,
+                            "volume": int(item.get("actualVol") or item.get("actualVolume") or item.get("volume") or 0),
+                        }
+                        positions.append(pos)
+                    return positions
+            except Exception as e:
+                logger.debug(f"JS-first portfolio scrape failed, falling back to DOM: {e}")
+
+            # 2. Playwright selector fallback
             await self.switch_tab("portfolio")
             await page.wait_for_timeout(1500)
 
@@ -710,6 +822,68 @@ class StreamingDriver:
 
             return positions
 
+    async def scrape_balance(self, account_type: Optional[str] = None) -> Dict[str, Any]:
+        """Scrape account balance (line available, cash balance, credit limit, equity) via JS-first + DOM fallback."""
+        async with self.lock:
+            page = await self._ensure_streaming_page()
+            if not page or page.is_closed():
+                return {}
+
+            # 1. JS-first via Settrade DGW account endpoint
+            try:
+                res = await page.evaluate(
+                    """async () => {
+                        let acct = '3024959';
+                        const acctMatch = document.body.innerText.match(/3024\d{3}/);
+                        if (acctMatch) acct = acctMatch[0];
+                        const r = await fetch(`https://apigw.settrade.com/api/dgw/v3/029/accounts/${acct}`, {credentials: 'include'});
+                        if (!r.ok) return null;
+                        const d = await r.json();
+                        return {
+                            account: acct,
+                            account_type: d.accountType,
+                            line_available: d.lineAvailable,
+                            cash_balance: d.cashBalance,
+                            credit_limit: d.creditLimit,
+                            equity_balance: d.equityBalance,
+                            credit_balance: d.creditBalance,
+                            source: 'streaming_js'
+                        };
+                    }"""
+                )
+                if res and res.get("line_available") is not None:
+                    return res
+            except Exception as e:
+                logger.debug(f"JS-first balance scrape failed, falling back to DOM: {e}")
+
+            # 2. Playwright DOM selector fallback
+            try:
+                dom_balance = await page.evaluate(
+                    """() => {
+                        const res = {};
+                        const texts = Array.from(document.querySelectorAll('div, p, span, td')).map(el => el.innerText.trim());
+                        for (const t of texts) {
+                            let m;
+                            if (t.includes('Line Available')) {
+                                m = t.match(/Line Available[:\s]*([\d,]+\.\d*)/i);
+                                if (m) res.line_available = parseFloat(m[1].replace(/,/g, ''));
+                            }
+                            if (t.includes('Cash Balance')) {
+                                m = t.match(/Cash Balance[:\s]*([\d,]+\.\d*)/i);
+                                if (m) res.cash_balance = parseFloat(m[1].replace(/,/g, ''));
+                            }
+                        }
+                        return res;
+                    }"""
+                )
+                if dom_balance:
+                    dom_balance["source"] = "streaming_dom"
+                    return dom_balance
+            except Exception as e:
+                logger.debug(f"DOM balance scrape failed: {e}")
+
+            return {}
+
     async def get_market_bid_offer(self, symbol: str) -> Dict[str, Any]:
         """
         Fetch the live top bid/offer from the Streaming bid/offer panel.
@@ -726,6 +900,34 @@ class StreamingDriver:
         }
         page = self.page
         if page and not page.is_closed():
+            clean_sym = (symbol or "").strip().upper()
+            # 1. JS-first: fetch marketdata static-data
+            try:
+                js_quote = await page.evaluate(
+                    f"""async () => {{
+                        try {{
+                            const r = await fetch('https://apigwcld.settrade.com/api/marketdata/v4/029/static-data/{clean_sym}?market=E', {{credentials: 'include'}});
+                            if (!r.ok) return null;
+                            const d = await r.json();
+                            return {{
+                                bid_1: d.firstBid || null,
+                                offer_1: d.firstAsk || null,
+                                last: d.last || null,
+                                prior_close: d.close || null,
+                            }};
+                        }} catch (e) {{
+                            return null;
+                        }}
+                    }}"""
+                )
+                if js_quote and (js_quote.get("bid_1") or js_quote.get("offer_1")):
+                    data.update(js_quote)
+                    data["source"] = "streaming_js"
+                    return data
+            except Exception as e:
+                logger.debug(f"JS-first quote failed for {clean_sym}, falling back to DOM: {e}")
+
+            # 2. Playwright DOM selector fallback
             try:
                 scraped = await page.evaluate(
                     """() => {

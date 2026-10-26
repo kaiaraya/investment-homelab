@@ -21,6 +21,8 @@ from app.browser.streaming_driver import (
     SELL_RADIO_SELECTORS,
     SHORT_RADIO_SELECTORS,
     COVER_RADIO_SELECTORS,
+    PRICE_STEPPER_PLUS_SELECTOR,
+    PRICE_STEPPER_MINUS_SELECTOR,
     CANCEL_ACTION_SELECTOR,
     CANCEL_CONFIRM_SELECTOR,
 )
@@ -323,3 +325,26 @@ async def test_modify_order_price_only_cancels_when_no_new_price(monkeypatch):
 
     assert res["status"] == "CANCELLED"
     execute_mock.assert_not_awaited()
+
+
+async def test_execute_order_stepper_offset_clicks():
+    page = _ticket_page("BUY", input_values={"input[name='price-input'], input[placeholder='Price']": "34.50"})
+    d = _driver_with(page)
+
+    res = await d.execute_order(symbol="PTT", side="BUY", volume=100, price=34.00, tick_offset=2)
+    assert res["success"] is True
+    plus_clicks = [c for c in page.clicks if c == PRICE_STEPPER_PLUS_SELECTOR]
+    assert len(plus_clicks) == 2
+    assert res["price"] == 34.50
+
+
+async def test_execute_order_stepper_offset_minus():
+    page = _ticket_page("SELL", input_values={"input[name='price-input'], input[placeholder='Price']": "33.75"})
+    d = _driver_with(page)
+
+    res = await d.execute_order(symbol="PTT", side="SELL", volume=100, price=34.00, tick_offset=-1)
+    assert res["success"] is True
+    minus_clicks = [c for c in page.clicks if c == PRICE_STEPPER_MINUS_SELECTOR]
+    assert len(minus_clicks) == 1
+    assert res["price"] == 33.75
+

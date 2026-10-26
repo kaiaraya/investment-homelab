@@ -687,7 +687,73 @@ class LiberatorDriver:
 
     @staticmethod
     async def _extract_portfolio_from_page(page: Page) -> Dict[str, Any]:
-        """Evaluates JS to extract Line Available, Cash Balance, Holdings, and Orders tables."""
+        """Evaluates JS to extract Line Available, Cash Balance, Holdings, and Orders tables (JS-first + DOM fallback)."""
+        # 1. JS-first: try /va/portfolio and /va/order (P.2)
+        try:
+            js_res = await page.evaluate("""async () => {
+                let acct = '70559382';
+                const m = document.body.innerText.match(/7055\d{3,4}/);
+                if (m) acct = m[0];
+                const rPort = await fetch('https://webtrade.liberator.co.th/va/portfolio', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {'content-type': 'application/json'},
+                    body: JSON.stringify({accountNo: acct})
+                });
+                if (!rPort.ok) return null;
+                const dPort = await rPort.json();
+                if (dPort.errorCode !== 0 || !dPort.result || dPort.errMsg) return null;
+
+                const rOrd = await fetch('https://webtrade.liberator.co.th/va/order', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {'content-type': 'application/json'},
+                    body: JSON.stringify({accountNo: acct})
+                });
+                const dOrd = rOrd.ok ? await rOrd.json() : null;
+                const ordList = (dOrd && dOrd.result && dOrd.result.list) || [];
+
+                return {
+                    line_available: parseFloat(dPort.result.lineAvailable) || 0.0,
+                    cash_balance: parseFloat(dPort.result.cashBalance) || 0.0,
+                    credit_limit: parseFloat(dPort.result.creditLimit) || 0.0,
+                    total_equity: (parseFloat(dPort.result.cashBalance) || 0.0) + (parseFloat(dPort.result.totalMarketValue) || 0.0),
+                    total_market_value: parseFloat(dPort.result.totalMarketValue) || 0.0,
+                    total_cost: parseFloat(dPort.result.totalCost) || 0.0,
+                    total_unrealized_pnl: parseFloat(dPort.result.totalUnrealizedPnl) || 0.0,
+                    positions: (dPort.result.stock || []).map(s => ({
+                        symbol: s.stockSymbol || s.symbol,
+                        volume: Math.round(parseFloat(s.volume) || 0),
+                        available_volume: Math.round(parseFloat(s.availableVolume || s.volume) || 0),
+                        avg_cost: parseFloat(s.avgCost) || 0.0,
+                        market_price: parseFloat(s.marketPrice || s.last) || 0.0,
+                        amount_cost: parseFloat(s.amountCost) || 0.0,
+                        market_value: parseFloat(s.marketValue) || 0.0,
+                        unrealized_pnl: parseFloat(s.unrealizedPnl) || 0.0,
+                        pct_unrealized_pnl: parseFloat(s.pctUnrealizedPnl) || 0.0,
+                        realized_pnl: parseFloat(s.realizedPnl) || 0.0,
+                    })),
+                    orders: ordList.map(o => ({
+                        order_no: o.orderNo || o.orderId,
+                        time: o.orderTime || o.time,
+                        symbol: o.stockSymbol || o.symbol,
+                        side: o.side,
+                        price: parseFloat(o.price) || 0.0,
+                        volume: Math.round(parseFloat(o.volume) || 0),
+                        matched: Math.round(parseFloat(o.matchedVolume || o.matched) || 0),
+                        balance: Math.round(parseFloat(o.balance) || 0),
+                        cancelled: Math.round(parseFloat(o.cancelledVolume || o.cancelled) || 0),
+                        status: o.status || "Unknown",
+                    })),
+                    source: "liberator_js"
+                };
+            }""")
+            if js_res and (js_res.get("positions") or js_res.get("cash_balance") or js_res.get("line_available")):
+                return js_res
+        except Exception:
+            pass
+
+        # 2. Playwright selector fallback
         return await page.evaluate("""() => {
             function cleanNum(val) {
                 if (!val) return 0.0;
@@ -932,6 +998,76 @@ class LiberatorDriver:
             return self._quote_unavailable(clean_sym, "No active Liberator page - fail-closed.")
 
         page = self.page
+        # 0. JS-first: try running bookmarklet quote snippet in the page context (P.2)
+        try:
+            js_res = await page.evaluate(
+                f"""async () => {{
+                    try {{
+                        const cfgRes = await fetch('https://webtrade.liberator.co.th/vb/config', {{credentials: 'include'}});
+                        if (!cfgRes.ok) return null;
+                        const cfg = await cfgRes.json();
+                        const config = cfg?.result?.data?.config || {{}};
+                        let orderBookId = null;
+                        const ordered = ['set', 'set50if', 'tfex', ...Object.keys(config)];
+                        for (const grp of ordered) {{
+                            const node = config[grp];
+                            if (!node) continue;
+                            for (const key of ['securities', 'indexes']) {{
+                                for (const row of node[key] || []) {{
+                                    if (Array.isArray(row) && row[0]?.toUpperCase() === '{clean_sym}') {{
+                                        orderBookId = parseInt(row[1]);
+                                        break;
+                                    }}
+                                }}
+                                if (orderBookId) break;
+                            }}
+                            if (orderBookId) break;
+                        }}
+                        if (!orderBookId) return null;
+                        const r = await fetch('https://webtrade.liberator.co.th/vb/stock/info', {{
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {{'content-type': 'application/json'}},
+                            body: JSON.stringify({{orderBookIds: [orderBookId]}})
+                        }});
+                        if (!r.ok) return null;
+                        const data = await r.json();
+                        const item = (data?.result?.list || [])[0];
+                        if (!item) return null;
+                        return {{
+                            symbol: '{clean_sym}',
+                            bid_1: parseFloat(item.bp) || null,
+                            offer_1: parseFloat(item.op) || null,
+                            last: parseFloat(item.l) || null,
+                            prior_close: parseFloat(item.prior) || null,
+                            ceiling: parseFloat(item.cl) || null,
+                            floor: parseFloat(item.fl) || null,
+                            source: 'liberator_js'
+                        }};
+                    }} catch (e) {{
+                        return null;
+                    }}
+                }}"""
+            )
+            if js_res and (js_res.get("bid_1") is not None or js_res.get("offer_1") is not None or js_res.get("last") is not None):
+                return {
+                    "success": True,
+                    "status": "OK",
+                    "symbol": clean_sym,
+                    "bid_1": js_res.get("bid_1"),
+                    "offer_1": js_res.get("offer_1"),
+                    "last": js_res.get("last"),
+                    "prior_close": js_res.get("prior_close"),
+                    "spread": round(js_res.get("offer_1") - js_res.get("bid_1"), 4) if (js_res.get("offer_1") is not None and js_res.get("bid_1") is not None) else None,
+                    "ceiling": js_res.get("ceiling"),
+                    "floor": js_res.get("floor"),
+                    "board_lot": None,
+                    "flag": None,
+                    "source": "liberator_js",
+                }
+        except Exception as e:
+            logger.debug(f"JS-first quote failed for {clean_sym}, falling back to Playwright: {e}")
+
         try:
             # 1. Resolve the requested symbol to its authoritative ``orderBookId`` from the
             #    master list — the board is keyed by orderBookId, not by symbol text.
@@ -1085,6 +1221,8 @@ class LiberatorDriver:
         pin: Optional[str] = None,
         account_no: Optional[str] = None,
         bypass_dry_run: bool = False,
+        tick_offset: int = 0,
+        use_stepper: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes an equity order on Liberator WebTrade.
@@ -1138,6 +1276,8 @@ class LiberatorDriver:
                 return {"success": False, "error": "Liberator CDP daemon (9334) not available — run 'python scripts/broker_probe.py --broker liberator start-session' first."}
 
         page = self.page
+        if page is None:
+            return {"success": False, "error": "Page is None"}
         if "portfolio" not in page.url.lower():
             await page.goto("https://webtrade.liberator.co.th/Portfolio", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_timeout(2000)
@@ -1170,9 +1310,30 @@ class LiberatorDriver:
             vol_input = page.locator("#volume").first
             await vol_input.fill(str(volume))
 
-            # 4. Enter Price
+            # 4. Enter Price & Stepper trigger
             price_input = page.locator("#price").first
             await price_input.fill(f"{price:.2f}")
+
+            # Stepper adjustment if tick_offset or use_stepper requested
+            if tick_offset != 0 or use_stepper:
+                steps = tick_offset
+                if steps != 0:
+                    popup = page.locator(self.LIB_PRICE_POPUP).first
+                    if not (await popup.is_visible()):
+                        await price_input.click()
+                        await page.wait_for_timeout(200)
+                    btn_sel = self.LIB_PRICE_STEPPER_PLUS if steps > 0 else self.LIB_PRICE_STEPPER_MINUS
+                    btn = page.locator(btn_sel).first
+                    for _ in range(abs(steps)):
+                        if await btn.is_visible():
+                            await btn.click()
+                            await page.wait_for_timeout(100)
+                    val = await price_input.input_value()
+                    if val:
+                        try:
+                            price = float(str(val).replace(",", "").strip())
+                        except (ValueError, TypeError):
+                            pass
 
             # 5. Enter PIN — the footer ticket's input (not the div#pin wrapper)
             pin_input = page.locator("input#pin").first
@@ -1293,6 +1454,9 @@ class LiberatorDriver:
     LIB_AMEND_OVERLAY = "div.overlay"
     LIB_CONFIRM_BUTTON = "#confirmDialogActiveButton"
     LIB_AMENDABLE_STATUSES = ("open",)
+    LIB_PRICE_POPUP = "#popup_price"
+    LIB_PRICE_STEPPER_MINUS = "#popup_price .bg-less-than, #popup_price button:has-text('-')"
+    LIB_PRICE_STEPPER_PLUS = "#popup_price .bg-more-than, #popup_price button:has-text('+')"
 
     @staticmethod
     def _parse_order_row_cells(cells) -> Dict[str, Any]:

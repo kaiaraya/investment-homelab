@@ -1,7 +1,7 @@
 # Cumulative Root Cause Analysis (RCA) & Edge Case Knowledge Base: Liberator Securities (WebTrade)
 **Broker Platform:** `LIBERATOR` (Liberator WebTrade Portal)  
 **Main URL:** `https://webtrade.liberator.co.th`  
-**Target Accounts:** Cash Balance (`<liberator-acct>` / `70559382 C`)  
+**Target Accounts:** Cash Balance (`<liberator-acct>` / `7055938 C`)  
 **Last Updated:** 2026-10-15  
 **Lifecycle Methodology:** PDCA (Plan - Do - Check - Act) Continuous Annealing  
 

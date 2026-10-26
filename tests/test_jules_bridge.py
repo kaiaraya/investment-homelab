@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.jules_bridge import (
+from scripts.legacy.jules_bridge import (
     build_jules_prompt,
     find_forbidden_files,
     normalize_local_task_branch,

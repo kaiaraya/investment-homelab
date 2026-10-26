@@ -1,14 +1,14 @@
 # Operational Runbook: Liberator Securities (WebTrade) Portfolio & Order Execution
 **Broker Platform:** `LIBERATOR` (Liberator WebTrade Portal)  
 **Main URL:** `https://webtrade.liberator.co.th`  
-**Target Account:** Cash Balance (`<liberator-acct>` / `70559382 C`)  
+**Target Account:** Cash Balance (`<liberator-acct>` / `7055938 C`)  
 **Verified On:** 2026-10-03 (SET Market Closed / Weekend Staged Mode)  
 **Status:** `VERIFIED & PRODUCTION-READY`  
 
 ---
 
 ## 1. Overview & Capabilities Across 6 Pillars
-Liberator WebTrade runs in a modern Single Page Application (SPA). Because account `70559382 C` is a **Cash Balance** account, capabilities map as follows:
+Liberator WebTrade runs in a modern Single Page Application (SPA). Because account `7055938 C` is a **Cash Balance** account, capabilities map as follows:
 
 | Pillar | Capability | Implementation / Status | Verified Selectors / Artifacts |
 | :---: | :--- | :---: | :--- |
@@ -25,7 +25,7 @@ Liberator WebTrade runs in a modern Single Page Application (SPA). Because accou
 
 ### A. Account Balances Header Cards
 Extracted from header card elements (`div`, `p`, `span`):
-- **Account Number & Type:** `70559382 (C)` (Cash Balance)
+- **Account Number & Type:** `7055938 (C)` (Cash Balance)
 - **Credit Limit:** Regex `Credit Limit:\s*([\d,]+\.?\d*)` -> `฿500,000.00`
 - **Line Available:** Regex `Line Available:\s*([\d,]+\.?\d*)` -> `฿134,814.63`
 - **Cash Balance:** Regex `Cash Balance:\s*([\d,]+\.?\d*)` -> `฿2,120.45`

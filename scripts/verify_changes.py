@@ -184,7 +184,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     ],
     "scripts/dev_resume_session.py": ["tests/test_dev_resume_session.py"],
     "scripts/hooks/token_guard.py": ["tests/test_token_guard.py"],
-    "scripts/jules_bridge.py": ["tests/test_jules_bridge.py"],
+    "scripts/legacy/jules_bridge.py": ["tests/test_jules_bridge.py", "tests/test_jules_api.py"],
     "scripts/krungsri/probe_account_info.py": ["tests/test_probe_account_info.py"],
     "scripts/krungsri/probe_krungsri_products.py": ["tests/test_probe_krungsri_products.py"],
     "scripts/broker_probe.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],

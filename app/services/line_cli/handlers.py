@@ -186,12 +186,33 @@ async def _broker_health(broker: str) -> Dict[str, Any]:
 
 
 async def _broker_quote(broker: str, symbol: str) -> Dict[str, Any]:
-    """Live Bid1/Offer1/last for ``symbol`` from *this* broker only."""
-    if broker == "kss":
+    """Live Bid1/Offer1/last for ``symbol`` from *this* broker only.
+
+    Calls getQuote JS snippet via persistent CDP daemon session first (P.1/P.4b),
+    falling back to trademan_driver.get_market_bid_offer / liberator_plugin.get_market_bid_offer.
+    """
+    clean_sym = (symbol or "").strip().upper()
+    broker_norm = "lib" if broker in ("lib", "liberator") else "kss"
+
+    # 1. Primary path: getQuote JS snippet via CDP
+    try:
+        from scripts.broker_cdp.js_runner import get_quote_js
+        q_js = await get_quote_js(broker=broker_norm, symbol=clean_sym, timeout_s=5.0)
+        if q_js.get("success") and (
+            q_js.get("bid_1") is not None
+            or q_js.get("offer_1") is not None
+            or q_js.get("last") is not None
+        ):
+            return q_js
+    except Exception as e:
+        logger.debug(f"_broker_quote JS snippet failed for {broker_norm}:{clean_sym}: {e}")
+
+    # 2. Fallback to broker driver APIs
+    if broker_norm == "kss":
         from app.browser.trademan_driver import trademan_driver
-        return await trademan_driver.get_market_bid_offer(symbol)
+        return await trademan_driver.get_market_bid_offer(clean_sym)
     from app.brokers import liberator_plugin
-    return await liberator_plugin.get_market_bid_offer(symbol)
+    return await liberator_plugin.get_market_bid_offer(clean_sym)
 
 
 async def _broker_open_orders(broker: str) -> List[Dict[str, Any]]:
@@ -1544,22 +1565,28 @@ async def handle_postback(
             return {"status": "SBL_BORROW_FAILED", "error": msg, "code": "E_SBL_XD_BLOCKED"}
         res = await krungsri_sbl_driver.execute_sbl_borrow(sym, vol)
         if res.get("success") or res.get("status") in ("SUBMITTED", "SBL_BORROW_DRY_RUN"):
-            lot = SBLBorrowLot(
-                lot_id=f"SBL-{sym}-{int(time.time())}",
-                broker_tx_id=str(res.get("transaction_id") or ""),
-                symbol=sym,
-                borrow_qty=vol,
-                remaining_qty=vol,
-                borrow_fee_rate=3.50,
-                borrow_date=datetime.now().date(),
-                status="ACTIVE",
-            )
-            db.add(lot)
-            await db.commit()
-            mode_tag = "🧪 [DRY-RUN]" if settings.DRY_RUN_MODE else "✅"
+            # Anti-Mock: a DRY-RUN borrow must never persist an ACTIVE lot. A phantom lot
+            # makes /sbl show inventory that does not exist and lets /short pass its
+            # E_NO_SBL pre-trade check on stock that was never actually borrowed.
+            is_dry = bool(settings.DRY_RUN_MODE) or res.get("status") == "SBL_BORROW_DRY_RUN"
+            if not is_dry:
+                lot = SBLBorrowLot(
+                    lot_id=f"SBL-{sym}-{int(time.time())}",
+                    broker_tx_id=str(res.get("transaction_id") or ""),
+                    symbol=sym,
+                    borrow_qty=vol,
+                    remaining_qty=vol,
+                    borrow_fee_rate=3.50,
+                    borrow_date=datetime.now().date(),
+                    status="ACTIVE",
+                )
+                db.add(lot)
+                await db.commit()
+            mode_tag = "🧪 [DRY-RUN]" if is_dry else "✅"
             msg = f"{mode_tag} ยื่นขอยืมหุ้นสำเร็จ: {sym} {vol:,} หุ้น (ดอกเบี้ย 3.50% ต่อปี) · บัญชี MARGIN 3024959"
             await _send_or_push(service, reply_token, push_target, _text(msg, quick=[f"/short {sym} {vol}"]))
-            return {"status": "SBL_BORROWED", "symbol": sym, "volume": vol}
+            return {"status": "SBL_BORROWED", "symbol": sym, "volume": vol,
+                    "persisted": not is_dry}
         else:
             err = res.get("error") or "เกิดข้อผิดพลาดในการส่งคำขอยืม"
             await _send_or_push(service, reply_token, push_target, _text(f"❌ ขอยืมหุ้นไม่สำเร็จ: {err}"))
@@ -1648,8 +1675,23 @@ async def handle_postback(
 
     # B.6 wiring: execute the confirmed order NOW
     from app.services.broker_cdp.order_executor import execute_confirmed_order
+    exec_kwargs: Dict[str, Any] = {}
+    if str(draft.get("cmd", "")).lower() == "short":
+        # G6 — a SHORT cannot prove the strict uptick rule without a last trade price,
+        # and the executor refuses it (E_NO_QUOTE). Resolve the quote here and fail
+        # closed: never submit a SHORT with an unknown last price.
+        quote = await _broker_quote(draft.get("broker") or "kss", draft.get("symbol") or "")
+        last = quote.get("last") or quote.get("bid_1")
+        if not last:
+            msg_q = _text("❌ อ่านราคาล่าสุด (last) ไม่ได้ — ไม่ส่ง SHORT เพื่อรักษากฎ uptick (G6)")
+            await _send_or_push(service, reply_token, push_target, msg_q)
+            return {"status": "TRADE_DRAFT_CONFIRMED", "draft_id": draft["draft_id"],
+                    "execution": {"success": False, "status": "REJECTED",
+                                  "error_code": "E_NO_QUOTE",
+                                  "error": "no last_trade_price for SHORT"}}
+        exec_kwargs["last_trade_price"] = float(last)
     try:
-        exec_res = await execute_confirmed_order(draft)
+        exec_res = await execute_confirmed_order(draft, **exec_kwargs)
     except Exception as e:
         exec_res = {"success": False, "status": "EXECUTOR_ERROR", "error": str(e)}
 

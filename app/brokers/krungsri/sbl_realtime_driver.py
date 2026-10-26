@@ -432,6 +432,42 @@ class KrungsriSBLRealtimeDriver:
                 "error": risk.get("reason"),
             }
 
+        # 1. Try JS-first via active CDP session
+        try:
+            from scripts.broker_cdp.js_runner import run_snippet
+            cdp_res = await run_snippet(
+                broker="kss",
+                snippet_name="sbl_borrow",
+                target_kind="sbl",
+                arg={
+                    "symbol": sym,
+                    "volume": volume,
+                    "dry_run": bool(settings.DRY_RUN_MODE),
+                },
+                timeout_s=30.0,
+            )
+            if cdp_res.get("success") and cdp_res.get("data"):
+                data = cdp_res["data"]
+                if data.get("success"):
+                    return {
+                        "success": True,
+                        "status": data.get("status", "SBL_BORROW_SUBMITTED"),
+                        "symbol": sym,
+                        "volume": volume,
+                        "dry_run": data.get("dry_run", bool(settings.DRY_RUN_MODE)),
+                        "purchasing_power": data.get("purchasing_power"),
+                        "source": "sbl_borrow_js",
+                    }
+                elif data.get("status") == "BLOCKED_BY_XD_XR":
+                    return {
+                        "success": False,
+                        "status": "BLOCKED_BY_XD_XR",
+                        "error": data.get("error"),
+                        "source": "sbl_borrow_js",
+                    }
+        except Exception as e:
+            logger.warning(f"SBL borrow JS execution failed, falling back: {e}")
+
         if settings.DRY_RUN_MODE:
             logger.info(f"[DRY-RUN] SBL Realtime borrow: {sym} {volume:,} shares")
             return {
@@ -458,6 +494,36 @@ class KrungsriSBLRealtimeDriver:
         Submits SBL share return request via SBL Real Time.
         Respects DRY_RUN_MODE.
         """
+        # 1. Try JS-first via active CDP session
+        try:
+            from scripts.broker_cdp.js_runner import run_snippet
+            cdp_res = await run_snippet(
+                broker="kss",
+                snippet_name="sbl_return",
+                target_kind="sbl",
+                arg={
+                    "ref_no": lot_id,
+                    "symbol": symbol or "",
+                    "volume": return_qty,
+                    "dry_run": bool(settings.DRY_RUN_MODE),
+                },
+                timeout_s=30.0,
+            )
+            if cdp_res.get("success") and cdp_res.get("data"):
+                data = cdp_res["data"]
+                if data.get("success"):
+                    return {
+                        "success": True,
+                        "status": data.get("status", "SBL_RETURN_SUBMITTED"),
+                        "lot_id": lot_id,
+                        "symbol": symbol or data.get("symbol"),
+                        "return_qty": return_qty,
+                        "dry_run": data.get("dry_run", bool(settings.DRY_RUN_MODE)),
+                        "source": "sbl_return_js",
+                    }
+        except Exception as e:
+            logger.warning(f"SBL return JS execution failed, falling back: {e}")
+
         if settings.DRY_RUN_MODE:
             logger.info(f"[DRY-RUN] SBL Realtime return: {symbol or lot_id} {return_qty:,} shares (lot={lot_id})")
             return {

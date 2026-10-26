@@ -6,7 +6,11 @@
 *.key
 
 # --- Runtime data: broker sessions, screenshots, DBs, caches ---
-data/
+# `data/*` (not `data/`) so the hand-authored JS snippet library stays versioned:
+# scripts/broker_cdp/js_runner.py loads these at runtime and they ARE source code.
+data/*
+!data/bookmarklets/
+!data/bookmarklets/**
 recordedVideo/
 *.db
 *.db-journal

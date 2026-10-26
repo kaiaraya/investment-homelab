@@ -701,3 +701,115 @@ async def test_sbl_multi_lot_return_accrued_fee_fifo_calculation(db_session):
     # Lot 2: 200 * 60.0 * 0.0365 / 365 * 2 days = 2.4 THB
     # Total = 20.4 THB
     assert abs(draft["accrued_fee"] - 20.4) < 1e-4
+
+
+# --------------------------------------------------------------------------- #
+# 2.2 — a DRY-RUN borrow must not persist an ACTIVE lot (no phantom inventory)
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_dry_run_borrow_does_not_persist_active_lot(db_session, monkeypatch):
+    from sqlalchemy import select
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True, raising=False)
+
+    parsed = parse("/borrow CPALL 1000")
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    service.push_message = AsyncMock()
+
+    raw_event = {"replyToken": "tok", "source": {"type": "user", "userId": "test_admin"}}
+    with patch("app.services.conversation_state.conversation_state.is_authorized", return_value=True), \
+         patch("app.services.kill_switch_service.kill_switch_service.is_active", return_value=False):
+        drafted = await handle(parsed, db=db_session, raw_event=raw_event, service=service)
+
+    postback_data = f"action=sbl_borrow_confirm&draft_id={drafted['draft_id']}"
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.execute_sbl_borrow",
+               new_callable=AsyncMock) as mock_exec, \
+         patch("app.services.sbl_intelligence_service.sbl_intelligence_service.check_xd_risk",
+               new_callable=AsyncMock, return_value={"xd_risk": False}):
+        mock_exec.return_value = {"success": True, "status": "SBL_BORROW_DRY_RUN",
+                                  "transaction_id": "DRY-1"}
+        res = await handle_postback(postback_data, db=db_session, raw_event=raw_event, service=service)
+
+    assert res["status"] == "SBL_BORROWED"
+    assert res["persisted"] is False
+    rows = (await db_session.execute(select(SBLBorrowLot))).scalars().all()
+    assert rows == [], "dry-run borrow must not create an ACTIVE SBL lot"
+
+
+@pytest.mark.asyncio
+async def test_live_borrow_persists_active_lot(db_session, monkeypatch):
+    from sqlalchemy import select
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False, raising=False)
+
+    parsed = parse("/borrow CPALL 1000")
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    service.push_message = AsyncMock()
+    raw_event = {"replyToken": "tok", "source": {"type": "user", "userId": "test_admin"}}
+
+    with patch("app.services.conversation_state.conversation_state.is_authorized", return_value=True), \
+         patch("app.services.kill_switch_service.kill_switch_service.is_active", return_value=False):
+        drafted = await handle(parsed, db=db_session, raw_event=raw_event, service=service)
+
+    postback_data = f"action=sbl_borrow_confirm&draft_id={drafted['draft_id']}"
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.execute_sbl_borrow",
+               new_callable=AsyncMock) as mock_exec, \
+         patch("app.services.sbl_intelligence_service.sbl_intelligence_service.check_xd_risk",
+               new_callable=AsyncMock, return_value={"xd_risk": False}):
+        mock_exec.return_value = {"success": True, "status": "SUBMITTED", "transaction_id": "B123"}
+        res = await handle_postback(postback_data, db=db_session, raw_event=raw_event, service=service)
+
+    assert res["persisted"] is True
+    rows = (await db_session.execute(select(SBLBorrowLot))).scalars().all()
+    assert len(rows) == 1 and rows[0].status == "ACTIVE"
+
+
+# --------------------------------------------------------------------------- #
+# 2.4 — postback routing: cancel paths reach the CLI handlers
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_sbl_borrow_cancel_postback(db_session):
+    parsed = parse("/borrow CPALL 1000")
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    service.push_message = AsyncMock()
+    raw_event = {"replyToken": "tok", "source": {"type": "user", "userId": "test_admin"}}
+
+    with patch("app.services.conversation_state.conversation_state.is_authorized", return_value=True), \
+         patch("app.services.kill_switch_service.kill_switch_service.is_active", return_value=False):
+        drafted = await handle(parsed, db=db_session, raw_event=raw_event, service=service)
+
+    res = await handle_postback(f"action=sbl_borrow_cancel&draft_id={drafted['draft_id']}",
+                                db=db_session, raw_event=raw_event, service=service)
+    assert res["status"] == "SBL_BORROW_CANCELLED"
+    service.push_message.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_quick_trade_menu_postback_uses_reply(db_session):
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    service.push_message = AsyncMock()
+    raw_event = {"replyToken": "tok", "source": {"type": "user", "userId": "test_admin"}}
+
+    res = await handle_postback("action=quick_trade_menu", db=db_session,
+                                raw_event=raw_event, service=service)
+    assert res["status"] == "QUICK_TRADE_MENU_DISPLAYED"
+    service._send_reply.assert_called_once()
+    service.push_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unknown_postback_returns_none(db_session):
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    service.push_message = AsyncMock()
+    raw_event = {"replyToken": "tok", "source": {"type": "user", "userId": "test_admin"}}
+
+    res = await handle_postback("action=approve_all_actions", db=db_session,
+                                raw_event=raw_event, service=service)
+    assert res is None          # falls through to line_service's own handlers

@@ -262,3 +262,103 @@ def test_value_order_detached_currency_units():
     assert o3.amount_mode == "value"
     assert o3.target_value == 50000.0
     assert o3.price == 34.00
+
+
+@pytest.mark.asyncio
+async def test_broker_quote_js_snippet_first_priority():
+    from unittest.mock import patch, AsyncMock
+    from app.services.line_cli.handlers import _broker_quote
+
+    js_quote = {
+        "symbol": "BCPG",
+        "success": True,
+        "status": "OK",
+        "source": "streaming_js",
+        "bid_1": 6.75,
+        "offer_1": 6.80,
+        "last": 6.80,
+        "prior_close": 6.75,
+        "ceiling": 8.75,
+        "floor": 4.74,
+        "board_lot": 100,
+        "flag": None,
+    }
+
+    with patch("scripts.broker_cdp.js_runner.get_quote_js", new_callable=AsyncMock) as mock_js, \
+         patch("app.browser.trademan_driver.trademan_driver.get_market_bid_offer", new_callable=AsyncMock) as mock_tm:
+        mock_js.return_value = js_quote
+        res = await _broker_quote("kss", "BCPG")
+        assert res["success"] is True
+        assert res["source"] == "streaming_js"
+        assert res["bid_1"] == 6.75
+        assert res["offer_1"] == 6.80
+        mock_js.assert_awaited_once_with(broker="kss", symbol="BCPG", timeout_s=5.0)
+        mock_tm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_broker_quote_fallback_on_js_unavailable():
+    from unittest.mock import patch, AsyncMock
+    from app.services.line_cli.handlers import _broker_quote
+
+    with patch("scripts.broker_cdp.js_runner.get_quote_js", new_callable=AsyncMock) as mock_js, \
+         patch("app.browser.trademan_driver.trademan_driver.get_market_bid_offer", new_callable=AsyncMock) as mock_tm:
+        mock_js.return_value = {"success": False, "source": "unavailable"}
+        mock_tm.return_value = {
+            "symbol": "BCPG",
+            "success": True,
+            "source": "trademan_api",
+            "bid_1": None,
+            "offer_1": None,
+            "last": 6.80,
+        }
+        res = await _broker_quote("kss", "BCPG")
+        assert res["success"] is True
+        assert res["source"] == "trademan_api"
+        assert res["last"] == 6.80
+        mock_tm.assert_awaited_once_with("BCPG")
+
+
+@pytest.mark.asyncio
+async def test_value_order_bcpg_50k_sizing_via_js_quote(db_session):
+    from unittest.mock import patch, AsyncMock
+    from app.services.line_cli.handlers import _pre_trade_check
+    from app.db.models import BrokerAccount
+
+    acc = BrokerAccount(
+        account_no="3024959",
+        broker="KRUNGSRI",
+        account_type="MARGIN",
+        line_available=500000.0,
+        cash_balance=500000.0,
+    )
+    db_session.add(acc)
+    await db_session.commit()
+
+    order = p.parse("/buy kss:margin BCPG 50k")
+    assert isinstance(order, p.TradeOrder)
+
+    js_quote = {
+        "symbol": "BCPG",
+        "success": True,
+        "status": "OK",
+        "source": "streaming_js",
+        "bid_1": 6.75,
+        "offer_1": 6.80,
+        "last": 6.75,
+        "prior_close": 6.75,
+        "ceiling": 8.75,
+        "floor": 4.74,
+        "board_lot": 100,
+        "flag": None,
+    }
+
+    with patch("scripts.broker_cdp.js_runner.get_quote_js", new_callable=AsyncMock) as mock_js, \
+         patch("app.services.line_cli.handlers._resolve_account_no", return_value="3024959"):
+        mock_js.return_value = js_quote
+
+        chk = await _pre_trade_check(order, db_session)
+        assert chk["ok"] is True
+        # 50,000 / 6.80 = 7,352.94 -> 7,300 shares @ 6.80 (floor to board lot 100)
+        assert chk["resolved_volume"] == 7300
+        assert chk["resolved_price"] == 6.80

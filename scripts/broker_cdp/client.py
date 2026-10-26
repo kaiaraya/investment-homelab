@@ -15,7 +15,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 logger = logging.getLogger("broker_cdp_client")
 
 # Broker slug -> default CDP port.
-BROKER_CDP_PORTS = {"kss": 9333, "liberator": 9334}
+BROKER_CDP_PORTS = {"kss": 9333, "liberator": 9334, "lib": 9334}
 
 # Per-broker target-tab keyword maps (url substring / title substring).
 # "url_any" matches the URL; "title_any" matches the page title; "url_not" excludes.
@@ -250,7 +250,8 @@ async def inspect_sbl_application(page: Page) -> Dict[str, Any]:
         if (transTable) {
             transTable.querySelectorAll('tr').forEach(row => {
                 const cells = Array.from(row.querySelectorAll('td')).map(td => clean(td.innerText));
-                const returnBtn = row.querySelector("a[id*='RadReturn'], button:has-text('คืน'), a:has-text('คืน')");
+                const returnBtn = row.querySelector("a[id*='RadReturn']") ||
+                    [...row.querySelectorAll('a,button')].find(b => /คืน|return/i.test(b.textContent || '')) || null;
                 if (cells.length >= 6 && cells[0].startsWith('B')) {
                     activeContracts.push({
                         ref_no: cells[0],

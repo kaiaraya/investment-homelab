@@ -147,7 +147,7 @@ class PreTradeValidator:
                 current_p += tick
             else:
                 # When stepping down, tick depends on the bracket below
-                tick = self.get_set_tick_size(float(current_p))
+                tick = self.get_set_tick_size(float(current_p) - 0.0001)
                 test_p = current_p - tick
                 if test_p > 0:
                     current_p = test_p

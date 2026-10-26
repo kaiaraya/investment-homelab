@@ -676,7 +676,7 @@ async def _lib_execute(
         "submitted": True,
         "broker_order_no": bno,
         "confirm_modal": bool(confirmed),
-        "account_no": (str(getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "").strip() or None),
+        "account_no": getattr(settings, "LIBERATOR_ACCOUNT_NO", None),
         "error_code": None if bno else E_ORDER_NO_UNREADABLE,
         "error": None if bno else (
             "ส่งคำสั่งแล้วแต่ยังอ่าน Order # จากตาราง orders ไม่ได้ใน 4 ครั้ง — "
@@ -914,7 +914,7 @@ async def execute_order_via_cdp(
         result.update({
             "broker": db_broker, "side": side_c, "symbol": sym,
             "volume": vol, "price": px,
-            "account_no": result.get("account_no") or expected_account,
+            "account_no": result.get("account_no") if result.get("account_no") is not None else expected_account,
             "last_trade_price": last_trade_price,
             "warnings": warnings,
         })

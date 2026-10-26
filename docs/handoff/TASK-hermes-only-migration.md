@@ -182,6 +182,8 @@ hermes profile create homelab-colab  --clone --description "InvestmentHomelab Co
 2. **Scope deviation ที่ถูกต้อง**: worker เพิ่ม 1 บรรทัดใน `scripts/verify_changes.py` (`MODULE_TEST_MAP`) นอก scope การ์ด — แต่ถ้าไม่เพิ่ม การ์ดตัวเองจะ UNMAPPED exit 2 · การ์ดลักษณะนี้ควรเขียน Verify เป็น `verify_changes.py <file> --tests <testfile>` หรืออนุญาต mapping ชัด ๆ
 3. **`AGENTS.md` เขียนไม่ได้** (protected file, write ถูกปฏิเสธ) — `.hermes.md` ชนะการโหลดอยู่แล้ว (first-match-wins) จึงไม่กระทบ runtime; ถ้าจะให้ AGENTS.md สะอาด ต้องแก้ด้วยมือ
 4. **review lane มีค่าจริง**: mutation test จับว่ามี 2 branch ที่ยังไม่มีเทสต์ → เปิดการ์ด `t_cb7d4bda` (triage) แทนการขยาย scope การ์ดเดิม
+5. **M.7 ย้ายไฟล์แต่ไม่ได้ย้ายผู้เรียก**: `scripts/jules_bridge.py` → `scripts/legacy/` แต่ `MODULE_TEST_MAP` ใน `scripts/verify_changes.py:187` และ import ใน `tests/test_jules_bridge.py` / `tests/test_jules_api.py` ยังชี้ path เก่า ⇒ **full suite ตายตั้งแต่ collection** (`ModuleNotFoundError`) และ `tests/test_verify_changes.py::test_every_mapped_target_exists_on_disk` แดง. แก้แล้วใน branch `task/jsfirst-p1-p5`. บทเรียน: การ `git mv` ต้อง grep หา path เดิมทั้ง tree (`grep -rn "<old path>"`) ไม่ใช่แค่ docs.
+6. **`data/` ถูก ignore ทั้งก้อน แต่มี source code อยู่ข้างใน**: `data/bookmarklets/*.js` คือ snippet ที่ `js_runner.py` โหลดจริง ⇒ JS-first ทั้งชั้น (P.1, P.5) ไม่เคยเข้า git เลย. แก้เป็น `data/*` + `!data/bookmarklets/**` และ `.git/info/exclude` ต้องแก้ด้วย เพราะ `/data` ที่ exclude **directory** ทำให้ negation ใน `.gitignore` ใช้ไม่ได้ (git ไม่ re-include ไฟล์ใต้ directory ที่ถูก exclude ไปแล้ว).
 
 ---
 

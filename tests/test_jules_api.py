@@ -1,4 +1,4 @@
-from scripts.jules_bridge import (
+from scripts.legacy.jules_bridge import (
     match_task_branch,
     source_name_from_remote_url,
 )
