@@ -34,6 +34,76 @@ logger = logging.getLogger("Krungsri.SBLRealtime")
 CACHE_FILE = os.path.join(settings.PROJECT_ROOT if hasattr(settings, "PROJECT_ROOT") else os.getcwd(), "data", "krungsri_sbl_realtime.json")
 SBL_START_URL = "https://www.krungsrisecurities.com/th/SBL/start.aspx"
 
+# ─── SBL cache staleness (fail-closed policy) ─────────────────────────────────
+# Default freshness window = 24 hours ("1 trading day" in the conservative sense:
+# anything older than yesterday's snapshot must not be trusted to permit a borrow).
+# A long weekend therefore makes a Friday snapshot stale on Monday — that is
+# intentional; the operator runs `/sbl sync` before borrowing.
+# Override, in priority order: settings.SBL_CACHE_STALENESS_HOURS (attribute, for
+# tests/integration), then env SBL_CACHE_STALENESS_HOURS, then 24h.
+DEFAULT_STALENESS_HOURS = 24.0
+
+# Cache keys that may carry the snapshot timestamp (legacy files first).
+_CACHE_TIMESTAMP_KEYS = ("timestamp", "scraped_at", "cached_at")
+
+
+def _staleness_seconds() -> float:
+    """Freshness window in seconds (see DEFAULT_STALENESS_HOURS for the policy)."""
+    raw = getattr(settings, "SBL_CACHE_STALENESS_HOURS", None)
+    if raw is None:
+        raw = os.getenv("SBL_CACHE_STALENESS_HOURS")
+    try:
+        hours = float(raw) if raw is not None else DEFAULT_STALENESS_HOURS
+    except (TypeError, ValueError):
+        hours = DEFAULT_STALENESS_HOURS
+    if hours <= 0:
+        hours = DEFAULT_STALENESS_HOURS
+    return hours * 3600.0
+
+
+def _cache_timestamp_of(data: Dict[str, Any]) -> Optional[Any]:
+    for key in _CACHE_TIMESTAMP_KEYS:
+        if data.get(key):
+            return data.get(key)
+    return None
+
+
+def _parse_cache_timestamp(raw: Any) -> Optional[datetime]:
+    """Best-effort parse of a cache timestamp; None when absent/unparseable."""
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        value = float(raw)
+        if value <= 0:
+            return None
+        if value > 1e11:  # milliseconds since epoch
+            value /= 1000.0
+        try:
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        parsed = None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
+            try:
+                parsed = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            return None
+    if parsed.tzinfo is None:
+        # Legacy writers stamped naive UTC (datetime.utcnow()); assume UTC.
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
 
 class KrungsriSBLRealtimeDriver:
     """Production driver for Krungsri Member SSO SBL Real Time application."""
@@ -41,18 +111,36 @@ class KrungsriSBLRealtimeDriver:
     def __init__(self):
         self._lock = asyncio.Lock()
         self._cached_data: Optional[Dict[str, Any]] = None
+        # True when the snapshot came from disk without any usable timestamp —
+        # such a cache is treated as stale (fail-closed) rather than trusted.
+        self._cache_stamp_missing = False
         self._load_cache_from_disk()
 
     def _load_cache_from_disk(self):
         if os.path.exists(CACHE_FILE):
             try:
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                    self._cached_data = json.load(f)
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._cached_data = data
+                    self._cache_stamp_missing = _parse_cache_timestamp(_cache_timestamp_of(data)) is None
+                    if self._cache_stamp_missing:
+                        logger.warning(
+                            f"SBL cache {CACHE_FILE} has no usable timestamp — treating it as stale (fail-closed)"
+                        )
+                else:
+                    self._cached_data = None
+                    self._cache_stamp_missing = False
             except Exception as e:
                 logger.warning(f"Failed to read SBL cache from {CACHE_FILE}: {e}")
 
     def _save_cache_to_disk(self, data: Dict[str, Any]):
         try:
+            # Every persisted snapshot must carry a timestamp, otherwise the next
+            # process cannot tell fresh data from a stale file (and must block).
+            if isinstance(data, dict) and _parse_cache_timestamp(_cache_timestamp_of(data)) is None:
+                data["timestamp"] = datetime.now(timezone.utc).isoformat()
+            self._cache_stamp_missing = False
             os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
             with open(CACHE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -64,6 +152,63 @@ class KrungsriSBLRealtimeDriver:
         if not self._cached_data:
             self._load_cache_from_disk()
         return self._cached_data
+
+    def cache_status(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        """
+        Classifies the SBL snapshot: ``CACHE_MISS`` | ``CACHE_STALE`` | ``CACHE_FRESH``.
+
+        Also returns ``age_seconds``, the raw ``timestamp``, the active
+        ``staleness_seconds`` window and a Thai operator ``message`` — the read
+        path (`/sbl`, `/sbl pool <sym>`) renders that message instead of raising
+        when there is nothing trustworthy to show.
+
+        A snapshot written by this process (`_save_cache_to_disk`, which always
+        stamps it) is trusted; a snapshot loaded from disk without a timestamp is
+        stale; a disk snapshot older than the window is stale.
+        """
+        window = _staleness_seconds()
+        status: Dict[str, Any] = {
+            "state": "CACHE_MISS",
+            "timestamp": None,
+            "age_seconds": None,
+            "staleness_seconds": window,
+            "message": "ยังไม่มีข้อมูลคลังหุ้นยืม SBL — พิมพ์ /sbl sync ก่อน",
+        }
+        data = self.get_cached_data()
+        if not isinstance(data, dict) or not data:
+            return status
+
+        raw_ts = _cache_timestamp_of(data)
+        ts = _parse_cache_timestamp(raw_ts)
+        if raw_ts is not None:
+            status["timestamp"] = raw_ts
+
+        if ts is None:
+            if self._cache_stamp_missing:
+                status.update(
+                    state="CACHE_STALE",
+                    message="ข้อมูลคลัง SBL ไม่มี timestamp จึงตรวจความสดไม่ได้ — พิมพ์ /sbl sync ก่อน",
+                )
+                return status
+            status.update(state="CACHE_FRESH", message="ข้อมูลคลัง SBL สด (เขียนในโปรเซสนี้)")
+            return status
+
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        age = max(0.0, (current - ts).total_seconds())
+        status["age_seconds"] = round(age, 1)
+        if age > window:
+            status.update(
+                state="CACHE_STALE",
+                message=(
+                    f"ข้อมูลคลัง SBL เก่าเกิน {window / 3600:.0f} ชม. "
+                    f"(อายุ {age / 3600:.1f} ชม.) — พิมพ์ /sbl sync ก่อน"
+                ),
+            )
+            return status
+        status.update(state="CACHE_FRESH", message="ข้อมูลคลัง SBL สด")
+        return status
 
     def invalidate_cache(self):
         """Invalidates in-memory cache to force reload on next query."""
@@ -311,92 +456,166 @@ class KrungsriSBLRealtimeDriver:
 
     def check_symbol_risk(self, symbol: str) -> Dict[str, Any]:
         """
-        Validates whether a symbol is safe to short/borrow.
-        Enforces HARD BLOCK on any symbol in the XD/XR list.
+        Validates whether a symbol is safe to short/borrow. **Fail-closed.**
+
+        Decision order
+        --------------
+        1. ``HARD_BLOCKED_XD_XR`` — symbol is on the XD/XR corporate-action
+           calendar. Checked first (and on any age of snapshot) because a
+           registered ex-dividend/ex-rights marker does not stop being true when
+           the pool list ages; it is the 100% dividend-compensation trap.
+        2. ``CACHE_MISS`` — there is no SBL snapshot at all (no cache file /
+           empty cache). ``is_blocked: True``.
+        3. ``CACHE_STALE`` — the snapshot is older than the freshness window
+           (``DEFAULT_STALENESS_HOURS`` = **24h / one trading day**; see
+           ``_staleness_seconds`` for overrides) or was loaded from disk without
+           any usable timestamp. ``is_blocked: True``. Consequence: a Friday
+           snapshot is stale on Monday — run ``/sbl sync`` before borrowing.
+        4. Fresh snapshot, symbol in a pool with ``available_qty > 0`` (and no
+           XD/XR marker, checked in step 1) → ``BORROW_ALLOWED``. This is the
+           **only** path to ``is_blocked: False`` for a borrow.
+        5. Fresh snapshot, symbol in a pool with ``available_qty == 0`` →
+           ``OUT_OF_STOCK`` (blocked).
+        6. Fresh snapshot, symbol absent from every pool → ``NOT_IN_POOL``
+           (blocked). *Deliberate change* from the old ``UNVERIFIED_INVENTORY``
+           ``is_blocked: False``: a fresh, complete snapshot that does not list
+           the symbol is evidence there is no borrowable inventory to lend, so
+           waving the borrow through was a fail-open hole. The operator can
+           still borrow after a manual check on the broker portal; this function
+           simply refuses to *vouch* for it. The old verdict name is preserved
+           in ``legacy_verdict`` for log/UI continuity.
+
+        The read path is unaffected: ``cache_status()`` carries a Thai operator
+        message ("ยังไม่มีข้อมูล … /sbl sync") so `/sbl` and `/sbl pool <sym>`
+        render a hint instead of raising.
         """
         sym = symbol.strip().upper()
         cache = self.get_cached_data() or {}
-        xd_list = cache.get("xd_xr_inventory", [])
-        set50 = cache.get("set50_inventory", [])
-        set100 = cache.get("set100_inventory", [])
-        newsec = cache.get("newsec_inventory", [])
+        status = self.cache_status()
+        xd_list = cache.get("xd_xr_inventory", []) or []
+        set50 = cache.get("set50_inventory", []) or []
+        set100 = cache.get("set100_inventory", []) or []
+        newsec = cache.get("newsec_inventory", []) or []
 
-        # Check XD/XR match
-        xd_match = next((x for x in xd_list if (x.get("symbol") or "").strip().upper() == sym), None)
+        def _result(blocked: bool, verdict: str, badge: str, reason: str, **extra) -> Dict[str, Any]:
+            out = {
+                "symbol": sym,
+                "is_blocked": blocked,
+                "verdict": verdict,
+                "badge": badge,
+                "reason": reason,
+                "available_qty": 0,
+                "borrow_fee_pct": 3.5,
+                "cache_state": status.get("state"),
+                "cache_age_seconds": status.get("age_seconds"),
+            }
+            out.update(extra)
+            return out
+
+        # 1. XD/XR hard block — independent of snapshot age.
+        xd_match = next((x for x in xd_list if isinstance(x, dict) and (x.get("symbol") or "").strip().upper() == sym), None)
         if xd_match:
             b_date = xd_match.get("book_date", "")
             x_type = xd_match.get("type", "XD")
-            return {
-                "symbol": sym,
-                "is_blocked": True,
-                "verdict": "HARD_BLOCKED_XD_XR",
-                "badge": f"⛔ บล็อกคำสั่ง (ติด {x_type} วันที่ {b_date})",
-                "reason": (
+            return _result(
+                True,
+                "HARD_BLOCKED_XD_XR",
+                f"⛔ บล็อกคำสั่ง (ติด {x_type} วันที่ {b_date})",
+                (
                     f"⛔ ห้ามเปิดสถานะขายชอร์ต (Short Sell) เด็ดขาด เนื่องจากหุ้น {sym} มีกำหนดขึ้นเครื่องหมาย {x_type} "
                     f"ในวันที่ {b_date} ซึ่งตามกฎเกณฑ์ SBL ผู้ยืมจะต้องจ่ายเงินชดเชยปันผลหรือสิทธิ์ 100% ให้แก่ผู้ให้ยืม"
                 ),
-                "corporate_action": xd_match,
-                "available_qty": 0,
-                "borrow_fee_pct": 3.5
-            }
+                corporate_action=xd_match,
+            )
 
-        # Check available quantity across inventory pools
+        # 2./3. No trustworthy snapshot → fail closed.
+        if status.get("state") != "CACHE_FRESH":
+            verdict = "CACHE_MISS" if status.get("state") == "CACHE_MISS" else "CACHE_STALE"
+            return _result(
+                True,
+                verdict,
+                "⚪ ไม่มีข้อมูลคลัง SBL ที่เชื่อถือได้",
+                (
+                    f"⚠️ ยังไม่มีข้อมูลคลังหุ้นยืม SBL ที่สดพอจะยืนยันได้ว่าหุ้น {sym} ให้ยืมได้ "
+                    f"({status.get('message')}) — ระบบบล็อกไว้ก่อนเพื่อความปลอดภัย (fail-closed)"
+                ),
+                cache_message=status.get("message"),
+                operator_hint="พิมพ์ /sbl sync เพื่อรีเฟรชคลัง SBL แล้วลองใหม่",
+            )
+
+        # 4./5./6. Fresh snapshot: look the symbol up across every pool.
         all_inv = set50 + set100 + newsec
-        inv_item = next((i for i in all_inv if (i.get("symbol") or "").strip().upper() == sym), None)
+        inv_item = next(
+            (i for i in all_inv if isinstance(i, dict) and (i.get("symbol") or "").strip().upper() == sym),
+            None,
+        )
         if inv_item:
-            avail = inv_item.get("available_qty", 0)
+            avail = inv_item.get("available_qty", 0) or 0
             fee = inv_item.get("borrow_fee_pct", 3.5)
             im = inv_item.get("initial_margin_pct", 50.0)
             if avail > 0:
-                return {
-                    "symbol": sym,
-                    "is_blocked": False,
-                    "verdict": "BORROW_ALLOWED",
-                    "badge": f"🟢 พร้อมยืม Short ({avail:,} หุ้น)",
-                    "reason": f"มีคลังหุ้นพร้อมให้ยืม {avail:,} หุ้น ดอกเบี้ย {fee}% ปลอดภัยไม่มีเครื่องหมาย XD/XR",
-                    "available_qty": avail,
-                    "borrow_fee_pct": fee,
-                    "initial_margin_pct": im
-                }
-            else:
-                return {
-                    "symbol": sym,
-                    "is_blocked": True,
-                    "verdict": "OUT_OF_STOCK",
-                    "badge": "🔴 คลังหมด (Available = 0)",
-                    "reason": f"ไม่มีสต็อกหุ้น {sym} ให้ยืมในคลัง Krungsri SBL ณ ขณะนี้",
-                    "available_qty": 0,
-                    "borrow_fee_pct": fee,
-                    "initial_margin_pct": im
-                }
+                return _result(
+                    False,
+                    "BORROW_ALLOWED",
+                    f"🟢 พร้อมยืม Short ({avail:,} หุ้น)",
+                    f"มีคลังหุ้นพร้อมให้ยืม {avail:,} หุ้น ดอกเบี้ย {fee}% ปลอดภัยไม่มีเครื่องหมาย XD/XR",
+                    available_qty=avail,
+                    borrow_fee_pct=fee,
+                    initial_margin_pct=im,
+                )
+            return _result(
+                True,
+                "OUT_OF_STOCK",
+                "🔴 คลังหมด (Available = 0)",
+                f"ไม่มีสต็อกหุ้น {sym} ให้ยืมในคลัง Krungsri SBL ณ ขณะนี้",
+                borrow_fee_pct=fee,
+                initial_margin_pct=im,
+            )
 
-        return {
-            "symbol": sym,
-            "is_blocked": False,
-            "verdict": "UNVERIFIED_INVENTORY",
-            "badge": "⚪ ไม่อยู่ในรายชื่อหลัก",
-            "reason": f"หุ้น {sym} ไม่ได้อยู่ในหมวด SET50/SET100/NEWSEC แนะนำตรวจสอบผ่านหน้าต่างยืมหุ้นเดี่ยว",
-            "available_qty": 0,
-            "borrow_fee_pct": 3.5
-        }
+        return _result(
+            True,
+            "NOT_IN_POOL",
+            "⚪ ไม่อยู่ในคลังยืม (บล็อกไว้ก่อน)",
+            (
+                f"หุ้น {sym} ไม่ได้อยู่ในหมวด SET50/SET100/NEWSEC ของคลัง SBL ที่ดึงมาล่าสุด "
+                f"จึงยังยืนยันไม่ได้ว่ามีหุ้นให้ยืม — ระบบบล็อกไว้ก่อน (fail-closed) "
+                f"หากต้องการยืมจริงให้ตรวจหน้าต่างยืมหุ้นเดี่ยวของ Krungsri ก่อน"
+            ),
+            legacy_verdict="UNVERIFIED_INVENTORY",
+            operator_hint="พิมพ์ /sbl sync เพื่อรีเฟรชคลัง SBL หรือตรวจสอบที่หน้าต่างยืมหุ้นเดี่ยว",
+        )
 
     async def scrape_sbl_available_inventory(self, symbol: str) -> int:
-        """Returns borrowable volume for a symbol from SBL Real Time cache or scrape."""
+        """
+        Returns borrowable volume for a symbol from SBL Real Time cache or scrape.
+
+        Read-safe: never raises, returns 0 when the snapshot is missing/stale and
+        a refresh cannot be performed (the caller renders "ยังไม่มีข้อมูล").
+        """
         sym = symbol.strip().upper()
         risk = self.check_symbol_risk(sym)
-        if risk.get("is_blocked"):
-            return 0
-        avail = risk.get("available_qty", 0)
-        # If cache was empty or unverified and session exists, attempt scrape
-        if avail == 0 and not self._cached_data:
+
+        # No snapshot at all → one best-effort refresh (only when a saved session
+        # exists), then re-evaluate. Deliberately NOT triggered for a merely stale
+        # snapshot: repeatedly poking the SBL portal from a read-only command
+        # (`/sbl pool`) decays the SSO session — the operator refreshes explicitly
+        # with `/sbl sync` instead. Never raises.
+        if risk.get("verdict") == "CACHE_MISS":
             try:
-                res = await self.scrape_full_pool(headless=True)
-                if res.get("success"):
-                    risk = self.check_symbol_risk(sym)
-                    return risk.get("available_qty", 0)
+                if os.path.exists(settings.SESSION_STATE_PATH):
+                    res = await self.scrape_full_pool(headless=True)
+                    if res.get("success"):
+                        risk = self.check_symbol_risk(sym)
             except Exception as e:
                 logger.warning(f"Live SBL inventory refresh failed: {e}")
-        return avail
+
+        if risk.get("is_blocked"):
+            if risk.get("verdict") == "CACHE_STALE":
+                logger.warning(
+                    f"SBL pool query for {sym} answered 0 — snapshot stale, operator must run /sbl sync"
+                )
+            return 0
+        return risk.get("available_qty", 0) or 0
 
     async def scrape_sbl_lots(self) -> List[Dict[str, Any]]:
         """Returns active borrow transactions from SBL Real Time."""
@@ -430,6 +649,14 @@ class KrungsriSBLRealtimeDriver:
                 "success": False,
                 "status": "BLOCKED_BY_XD_XR",
                 "error": risk.get("reason"),
+            }
+        # Fail-closed (2.11b): never start a borrow flow on a snapshot we cannot
+        # trust — an empty/stale pool cache used to wave the borrow through.
+        if risk.get("verdict") in ("CACHE_MISS", "CACHE_STALE"):
+            return {
+                "success": False,
+                "status": "BLOCKED_BY_STALE_CACHE",
+                "error": risk.get("reason") or "ข้อมูลคลัง SBL ยังไม่สด — พิมพ์ /sbl sync ก่อนยืมหุ้น",
             }
 
         # 1. Try JS-first via active CDP session

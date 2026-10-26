@@ -88,6 +88,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "app/brokers/krungsri/sbl_realtime_driver.py": [
         "tests/test_sbl_account_driver.py",
         "tests/test_line_cli_handlers_sbl.py",
+        "tests/test_sbl_realtime_snippets.py",
     ],
     "app/services/sbl_intelligence_service.py": [
         "tests/test_sbl_intelligence.py",
