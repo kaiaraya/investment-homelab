@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # G5: a /nego amend may move an order at most this many SET ticks from its
     # current price (design spec Q6 / approved 2026-10-13).
     LINE_NEGO_MAX_TICKS: int = 3
+    #: CDP-5 — let the /nego G3 money guard accept a CDP-AUTHENTICATED tab (the daemon's
+    #: Chrome) as "session alive". Enabled after CDP-5 rollout; fails closed on UNKNOWN/DAEMON_DOWN.
+    LINE_NEGO_CDP_GATE: bool = True
     # G2: allowed negotiation windows (Bangkok time), comma-separated "HH:MM-HH:MM".
     LINE_NEGO_WINDOWS: str = "09:55-12:30,14:25-16:30"
     

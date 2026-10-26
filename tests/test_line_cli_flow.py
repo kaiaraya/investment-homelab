@@ -524,14 +524,74 @@ async def test_session_alive_allow_cdp_false_never_touches_the_probe(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_nego_g3_guard_calls_session_alive_without_cdp(service, db_session, monkeypatch):
-    """Done-when #1: G3 must NOT use CDP (witnessed rollout is CDP-5)."""
+async def test_nego_g3_guard_calls_session_alive_with_cdp_by_default(service, db_session, monkeypatch):
+    """CDP-5: G3 defaults to allow_cdp=True via LINE_NEGO_CDP_GATE."""
     res = await _run(service, "/nego kss", db=db_session)
 
     assert res["status"] == "CLI_NEGO_EMPTY"          # passed G3, no orders to amend
     alive = handlers._broker_session_alive
     assert alive.await_args_list, "G3 never checked the session"
+    assert alive.await_args.kwargs.get("allow_cdp") is True
+    assert alive.await_args.kwargs.get("fail_closed") is True
+
+
+@pytest.mark.asyncio
+async def test_nego_g3_guard_calls_session_alive_without_cdp_when_flag_disabled(service, db_session, monkeypatch):
+    """Emergency rollback: LINE_NEGO_CDP_GATE=False keeps legacy flag-only check."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "LINE_NEGO_CDP_GATE", False)
+    res = await _run(service, "/nego kss", db=db_session)
+
+    assert res["status"] == "CLI_NEGO_EMPTY"
+    alive = handlers._broker_session_alive
     assert alive.await_args.kwargs.get("allow_cdp") is False
+
+
+@pytest.mark.asyncio
+async def test_nego_g3_accepts_cdp_authenticated_when_flag_false(service, db_session, monkeypatch):
+    """CDP-5: probe=AUTHENTICATED + flag=False -> G3 passes."""
+    _patch_probe(monkeypatch, "AUTHENTICATED")
+    _patch_flags(monkeypatch, kss=False)
+
+    res = await _run(service, "/nego kss", db=db_session)
+
+    assert res["status"] == "CLI_NEGO_EMPTY"          # passed G3, no orders to amend
+
+
+@pytest.mark.asyncio
+async def test_nego_g3_blocks_unknown_even_when_flag_true(service, db_session, monkeypatch):
+    """CDP-5: probe=UNKNOWN -> G3 blocks (fail-closed, even if in-process flag is True)."""
+    _patch_probe(monkeypatch, "UNKNOWN")
+    _patch_flags(monkeypatch, kss=True)
+
+    res = await _run(service, "/nego kss", db=db_session)
+
+    assert res["status"] == "CLI_SESSION_DOWN"
+    assert "🔴 KSS session หลุด (CDP: UNKNOWN) — /login kss force" in service.last_text()
+
+
+@pytest.mark.asyncio
+async def test_nego_g3_blocks_daemon_down(service, db_session, monkeypatch):
+    """CDP-5: probe=DAEMON_DOWN -> G3 blocks and shows honest reason."""
+    _patch_probe(monkeypatch, "DAEMON_DOWN", daemon_up=False)
+    _patch_flags(monkeypatch, kss=False)
+
+    res = await _run(service, "/nego kss", db=db_session)
+
+    assert res["status"] == "CLI_SESSION_DOWN"
+    assert "🔴 KSS session หลุด (CDP: DAEMON_DOWN) — /login kss force" in service.last_text()
+
+
+@pytest.mark.asyncio
+async def test_nego_g3_still_blocks_login_page_and_shows_honest_error(service, db_session, monkeypatch):
+    """The gate must stay fail-closed: LOGIN_PAGE is not a session, whatever the flag."""
+    _patch_probe(monkeypatch, "LOGIN_PAGE")
+    _patch_flags(monkeypatch, kss=False)
+
+    res = await _run(service, "/nego kss", db=db_session)
+
+    assert res["status"] == "CLI_SESSION_DOWN"
+    assert "🔴 KSS session หลุด (CDP: LOGIN_PAGE) — /login kss force" in service.last_text()
 
 
 @pytest.mark.asyncio

@@ -131,36 +131,55 @@ def _broker_platform(broker: str) -> str:
     return "TRADEMAN" if broker == "kss" else "LIBERATOR"
 
 
-async def _broker_session_alive(broker: str, allow_cdp: bool = True) -> bool:
+async def _broker_session_alive(
+    broker: str,
+    allow_cdp: bool = True,
+    *,
+    fail_closed: bool = False,
+    return_reason: bool = False,
+) -> Any:
     """Is there a live, already-authenticated session? (never auto-logins)
 
     ``allow_cdp=True`` (default) makes the read-only CDP probe the primary truth, so a
     session that lives in the daemon's Chrome still counts after a gateway restart. The
     probe never launches a browser, never navigates and never logs in; only
-    ``AUTHENTICATED`` is accepted — ``DAEMON_DOWN``/``LOGIN_PAGE``/``NO_TARGET_TAB``/
-    ``UNKNOWN`` (or a probe error) fall back to the legacy in-process flag.
+    ``AUTHENTICATED`` is accepted.
 
-    ``allow_cdp=False`` keeps the flag-only behaviour on purpose: the money guard
-    (``/nego`` G3) calls it this way until the witness-gated rollout is signed off
-    (CDP-5), so a probe can never loosen a trade-time gate.
+    When ``fail_closed=True`` (used by the G3 money guard in ``/nego``), non-authenticated
+    CDP states (``DAEMON_DOWN``/``LOGIN_PAGE``/``NO_TARGET_TAB``/``UNKNOWN``) block
+    immediately without falling back to legacy in-process flags.
+
+    When ``fail_closed=False`` (legacy non-money callers), non-authenticated probe states
+    fall back to the legacy in-process flag.
     """
+    clean_broker = (broker or "").strip().lower()
+    last_reason = ""
     if allow_cdp:
-        purpose = _ATTACH_PURPOSE.get((broker or "").strip().lower(), "streaming")
+        purpose = _ATTACH_PURPOSE.get(clean_broker, "streaming")
         try:
             from app.services.broker_cdp.session_probe import cdp_session_status
-            probe = await cdp_session_status(broker, purpose=purpose)
-            if probe.get("state") == "AUTHENTICATED":
-                return True
+            probe = await cdp_session_status(clean_broker, purpose=purpose)
+            state = probe.get("state")
+            last_reason = str(state or "UNKNOWN")
+            if state == "AUTHENTICATED":
+                return (True, "AUTHENTICATED") if return_reason else True
         except Exception as e:  # noqa: BLE001
             logger.debug("session probe failed for %s: %s", broker, e)
+            last_reason = "UNKNOWN"
+
+        if fail_closed:
+            return (False, last_reason or "UNKNOWN") if return_reason else False
 
     # Fallback (also the only path with allow_cdp=False): in-process flag.
-    if broker == "kss":
+    if clean_broker == "kss":
         from app.browser.auth_driver import auth_driver
-        return bool(auth_driver.is_authenticated)
-    from app.brokers import liberator_plugin
-    health = await liberator_plugin.get_health()
-    return bool(health.get("is_authenticated"))
+        is_auth = bool(auth_driver.is_authenticated)
+    else:
+        from app.brokers import liberator_plugin
+        health = await liberator_plugin.get_health()
+        is_auth = bool(health.get("is_authenticated"))
+
+    return (is_auth, last_reason) if return_reason else is_auth
 
 
 #: CDP purpose per broker used by /login attach (matches the probe's purpose map).
@@ -1434,12 +1453,29 @@ async def _handle_nego(
     if not _in_nego_window():                                 # G2
         await service._send_reply(reply_token, _text(f"🌙 นอกเวลาที่อนุญาต ({settings.LINE_NEGO_WINDOWS})"))
         return {"status": "CLI_OUT_OF_HOURS"}
-    # G3 — money guard: deliberately flag-only (``allow_cdp=False``). The CDP probe is
-    # allowed to *report* a session for /status//login//logout//sync, but a probe must
-    # never widen a trade-time gate; it only becomes CDP-aware after the CDP-5 witness.
-    if not await _broker_session_alive(broker, allow_cdp=False):   # G3
-        await service._send_reply(reply_token, _text(f"🔴 {BROKER_LABEL[broker]} session หลุด — /login {broker} ก่อน"))
-        return {"status": "CLI_SESSION_DOWN", "broker": broker}
+    # G3 — money guard: CDP probe is the primary truth (CDP-5).
+    # When allow_cdp is enabled, probe=AUTHENTICATED passes, while
+    # UNKNOWN/DAEMON_DOWN/LOGIN_PAGE fail closed.
+    alive_check = await _broker_session_alive(
+        broker,
+        allow_cdp=settings.LINE_NEGO_CDP_GATE,
+        fail_closed=True,
+        return_reason=True,
+    )
+    if isinstance(alive_check, tuple):
+        alive, reason = alive_check
+    else:
+        alive = bool(alive_check)
+        reason = "" if alive else "UNKNOWN"
+
+    if not alive:
+        cdp_detail = f" (CDP: {reason})" if reason else ""
+        cmd_hint = f"/login {broker} force" if reason else f"/login {broker} ก่อน"
+        await service._send_reply(
+            reply_token,
+            _text(f"🔴 {BROKER_LABEL.get(broker, broker.upper())} session หลุด{cdp_detail} — {cmd_hint}"),
+        )
+        return {"status": "CLI_SESSION_DOWN", "broker": broker, **({"reason": f"CDP: {reason}"} if reason else {})}
 
     key = ("nego", broker)
     lock = _lock_for(*key)
