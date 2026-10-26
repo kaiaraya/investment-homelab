@@ -80,6 +80,10 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "app/services/line_cli/handlers.py": [
         "tests/test_line_cli_flow.py",
         "tests/test_line_cli_handlers_sbl.py",
+        # Pre-trade / draft / value-order paths all live in handlers.py; without these the
+        # gate passes while /short and /buy tests break (2.11c did exactly that).
+        "tests/test_line_cli_order_draft.py",
+        "tests/test_line_cli_value_orders.py",
     ],
     "app/services/line_cli/queue.py": ["tests/test_line_async_queue.py"],
     "app/services/line_cli/rich_menu.py": ["tests/test_line_cli_handlers_sbl.py"],
