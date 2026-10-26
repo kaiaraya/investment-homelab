@@ -177,20 +177,83 @@ async def _broker_sync_cdp(broker: str) -> Optional[Dict[str, Any]]:
 
 
 async def _broker_health(broker: str) -> Dict[str, Any]:
-    """Normalised health for /status — reads only, never logs in."""
-    if broker == "kss":
+    """Normalised health for /status — reads only, never logs in.
+
+    Uses read-only CDP session probe as primary truth.
+    Maintains backward compatibility by returning 'authenticated', 'heartbeat', 'account'
+    and adds 'cdp' sub-dict and 'source'.
+    """
+    clean_broker = (broker or "").strip().lower()
+    if clean_broker == "kss":
         from app.browser.auth_driver import auth_driver
-        return {
-            "authenticated": bool(auth_driver.is_authenticated),
-            "heartbeat": _fmt_hhmm(auth_driver.last_heartbeat.isoformat() if auth_driver.last_heartbeat else None),
-            "account": "MARGIN",
+        flag_auth = bool(auth_driver.is_authenticated)
+        flag_hb = _fmt_hhmm(auth_driver.last_heartbeat.isoformat() if auth_driver.last_heartbeat else None)
+        account = "MARGIN"
+        purpose = "streaming"
+    else:
+        from app.brokers import liberator_plugin
+        h = await liberator_plugin.get_health()
+        flag_auth = bool(h.get("is_authenticated"))
+        flag_hb = _fmt_hhmm(h.get("last_heartbeat"))
+        account = "CASH"
+        purpose = "portfolio"
+
+    # 1. Primary path: CDP probe
+    from app.services.broker_cdp.session_probe import cdp_session_status
+
+    cdp_info: Dict[str, Any] = {}
+    is_auth = False
+    source = "flag"
+    try:
+        probe = await cdp_session_status(clean_broker, purpose=purpose)
+        cdp_info = dict(probe)
+        if clean_broker == "kss":
+            if probe.get("daemon_up"):
+                sbl_probe = await cdp_session_status(clean_broker, purpose="sbl")
+                cdp_info["sbl"] = sbl_probe
+            else:
+                cdp_info["sbl"] = {
+                    "broker": "kss",
+                    "purpose": "sbl",
+                    "state": probe.get("state", "DAEMON_DOWN"),
+                    "daemon_up": False,
+                }
+
+        if probe.get("state") == "AUTHENTICATED":
+            is_auth = True
+            source = "CDP"
+    except Exception as e:
+        logger.debug("_broker_health cdp probe failed for %s: %s", clean_broker, e)
+        cdp_info = {
+            "broker": clean_broker,
+            "purpose": purpose,
+            "state": "UNKNOWN",
+            "daemon_up": False,
+            "reason": str(e),
         }
-    from app.brokers import liberator_plugin
-    h = await liberator_plugin.get_health()
+
+    # 2. Fallback to flag if not authenticated via CDP
+    if not is_auth and flag_auth:
+        is_auth = True
+        source = "flag"
+
+    # Heartbeat determination
+    heartbeat = flag_hb
+    if is_auth and not heartbeat and cdp_info.get("checked_at"):
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            dt = datetime.fromisoformat(cdp_info["checked_at"].replace("Z", "+00:00"))
+            heartbeat = dt.astimezone(ZoneInfo("Asia/Bangkok")).strftime("%H:%M")
+        except Exception:
+            pass
+
     return {
-        "authenticated": bool(h.get("is_authenticated")),
-        "heartbeat": _fmt_hhmm(h.get("last_heartbeat")),
-        "account": "CASH",
+        "authenticated": is_auth,
+        "heartbeat": heartbeat,
+        "account": account,
+        "source": source,
+        "cdp": cdp_info,
     }
 
 
@@ -380,14 +443,100 @@ async def _handle_status(service: Any, reply_token: Optional[str]) -> Dict[str, 
     relay = await otp_relay_readiness.check()
     mode_badge = trade_dispatcher.get_mode_badge()
 
-    brokers: List[Dict[str, str]] = []
+    brokers: List[Dict[str, Any]] = []
     for key in ("kss", "lib"):
         h = await _broker_health(key)
-        emoji = "🟢" if h["authenticated"] else "🔴"
+        cdp = h.get("cdp") or {}
+        acct = h.get("account", "MARGIN" if key == "kss" else "CASH")
+        name_with_acct = f"{BROKER_LABEL[key]} ({acct})"
+
+        # Timestamp
+        checked_iso = cdp.get("checked_at")
+        time_str = _now_bkk().strftime("%H:%M:%S")
+        if checked_iso:
+            try:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                dt = datetime.fromisoformat(checked_iso.replace("Z", "+00:00"))
+                time_str = dt.astimezone(ZoneInfo("Asia/Bangkok")).strftime("%H:%M:%S")
+            except Exception:
+                pass
+
+        # PID
+        pid_val = cdp.get("pid")
+        pid_str = f"pid {pid_val}" if pid_val else "pid -"
+
+        # Source
+        source_val = h.get("source") or ("CDP" if cdp.get("daemon_up") else "flag")
+        port_val = cdp.get("port")
+        if source_val == "CDP" and port_val:
+            source_label = f"CDP {port_val}"
+        elif source_val == "CDP":
+            source_label = "CDP"
+        else:
+            source_label = "flag"
+
+        # State & badge mapping
+        cdp_state = cdp.get("state")
+        if not cdp_state:
+            emoji = "🟢" if h.get("authenticated") else "🔴"
+            tab_status = f"heartbeat {h.get('heartbeat')}" if h.get("authenticated") else "ไม่ได้เข้าระบบ"
+            line1 = f"{source_label} · {tab_status}"
+            line2 = f"บัญชี {acct}"
+            line3 = time_str
+        else:
+            def _badge(st: str) -> tuple[str, str]:
+                if st == "AUTHENTICATED":
+                    return "🟢", "AUTH"
+                if st == "LOGIN_PAGE":
+                    return "🟡", "LOGIN"
+                if st == "NO_TARGET_TAB":
+                    return "🟡", "NO_TAB"
+                if st == "DAEMON_DOWN":
+                    return "🔴", "DAEMON_DOWN"
+                return "🟡", "UNKNOWN"
+
+            if key == "kss":
+                str_emoji, str_txt = _badge(cdp_state)
+                sbl_info = cdp.get("sbl") or {}
+                sbl_state = sbl_info.get("state", "UNKNOWN")
+                _sbl_emoji, sbl_txt = _badge(sbl_state)
+                tab_status = f"streaming {str_txt} · sbl {sbl_txt}"
+
+                if str_txt == "AUTH":
+                    emoji = "🟢"
+                elif str_txt == "DAEMON_DOWN":
+                    emoji = "🔴"
+                elif str_txt in ("LOGIN", "NO_TAB") or sbl_txt == "LOGIN":
+                    emoji = "🟡"
+                else:
+                    emoji = "🟡"
+            else:
+                lib_emoji, lib_txt = _badge(cdp_state)
+                tab_status = f"portfolio {lib_txt}"
+                if lib_txt == "AUTH":
+                    emoji = "🟢"
+                elif lib_txt == "DAEMON_DOWN":
+                    emoji = "🔴"
+                elif lib_txt in ("LOGIN", "NO_TAB"):
+                    emoji = "🟡"
+                else:
+                    emoji = "🟡"
+
+            line1 = f"{source_label} · {tab_status}"
+            line2 = f"{pid_str} · {time_str}"
+            line3 = f"บัญชี {acct}"
+
+        summary_line = f"{emoji} {name_with_acct} · {source_label} · {tab_status} · {pid_str} · {time_str}"
+
         brokers.append({
-            "key": key, "name": BROKER_LABEL[key], "emoji": emoji,
-            "line1": f"heartbeat {h['heartbeat']}" if h["authenticated"] else "ไม่ได้เข้าระบบ",
-            "line2": f"บัญชี {h['account']}",
+            "key": key,
+            "name": name_with_acct,
+            "emoji": emoji,
+            "line1": line1,
+            "line2": line2,
+            "line3": line3,
+            "summary": summary_line,
         })
 
     if relay.ready:
@@ -402,7 +551,8 @@ async def _handle_status(service: Any, reply_token: Optional[str]) -> Dict[str, 
     )
     await service._send_reply(reply_token, card)
     return {"status": "CLI_STATUS", "kill_active": kill_active, "relay_ready": relay.ready,
-            "kss_alive": brokers[0]["emoji"] == "🟢", "lib_alive": brokers[1]["emoji"] == "🟢"}
+            "kss_alive": brokers[0]["emoji"] == "🟢", "lib_alive": brokers[1]["emoji"] == "🟢",
+            "brokers": brokers}
 
 
 # --------------------------------------------------------------------------- #

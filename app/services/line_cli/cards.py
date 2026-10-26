@@ -152,18 +152,20 @@ def status_card(
     for b in brokers:
         body.append({"type": "separator", "margin": "md", "color": "#334155"})
         body.append(_row([
-            _cell(f"{b.get('emoji', '⚪')} {b.get('name', '')}", FG, flex=2, weight="bold"),
-            _cell(b.get("line1", ""), MUTED, flex=4, align="end"),
+            _cell(f"{b.get('emoji', '⚪')} {b.get('name', '')}", FG, flex=3, weight="bold"),
+            _cell(b.get("line1", ""), MUTED, flex=3, align="end"),
         ]))
         if b.get("line2"):
             body.append(_cell(b["line2"], MUTED))
+        if b.get("line3"):
+            body.append(_cell(b["line3"], MUTED))
     body.append({"type": "separator", "margin": "md", "color": "#334155"})
     body.append(_cell(f"อัปเดต {updated}", MUTED, align="end"))
 
     # footer: offer /login for any broker that is down
     buttons: List[Dict[str, Any]] = []
     for b in brokers:
-        if b.get("emoji") in ("🔴", "⚪"):
+        if b.get("emoji") in ("🔴", "⚪", "🟡"):
             buttons.append(_msg_button(f"🔑 /login {b.get('key', '')}", f"/login {b.get('key', '')}", color="#b45309"))
     buttons.append(_msg_button("📊 /port", "/port", color="#0ea5e9"))
 

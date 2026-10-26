@@ -7,6 +7,7 @@ without launching browsers, navigating, or triggering logins/OTPs.
 from datetime import datetime, timezone
 import asyncio
 import logging
+import os
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -27,6 +28,35 @@ DEFAULT_PURPOSES = {
     "lib": "portfolio",
     "liberator": "portfolio",
 }
+
+
+def get_cdp_daemon_pid(port: int) -> Optional[int]:
+    """Find the main Chrome process PID listening on the remote debugging port.
+
+    Scans /proc on Linux without spawning subprocesses.
+    Filters out renderers, zygotes, and crashpad handlers.
+    """
+    if not port:
+        return None
+    try:
+        proc_dir = "/proc"
+        if not os.path.exists(proc_dir):
+            return None
+        port_arg = f"--remote-debugging-port={port}"
+        for entry in os.listdir(proc_dir):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                    raw = fh.read().decode(errors="replace")
+                if port_arg in raw and "--type=" not in raw and ("chrome" in raw or "chromium" in raw):
+                    return pid
+            except (OSError, IOError):
+                continue
+    except Exception:
+        pass
+    return None
 
 
 def _resolve_purpose(broker: str, purpose: Optional[str]) -> str:
@@ -62,6 +92,7 @@ async def cdp_session_status(broker: str, purpose: Optional[str] = None) -> Dict
     resolved_purpose = _resolve_purpose(b_raw, purpose)
     port = BROKER_CDP_PORTS.get(b_raw, 0)
     checked_at = datetime.now(timezone.utc).isoformat()
+    pid = get_cdp_daemon_pid(port)
 
     result: Dict[str, Any] = {
         "broker": broker,
@@ -69,6 +100,7 @@ async def cdp_session_status(broker: str, purpose: Optional[str] = None) -> Dict
         "state": "UNKNOWN",
         "daemon_up": False,
         "port": port,
+        "pid": pid,
         "target_found": False,
         "url": None,
         "url_path": None,
