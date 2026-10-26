@@ -49,8 +49,17 @@ _STATE_EMOJI = {"alive": "🟢", "pending": "🟡", "down": "🔴", "never": "�
 # --------------------------------------------------------------------------- #
 # Phase-B order-draft store (B.5) — in-memory, TTL-evicted
 # --------------------------------------------------------------------------- #
-#: draft lifetime in seconds (3 minutes — matches ``settings.CARD_TTL_SECONDS``).
-DRAFT_TTL_SECONDS = 180
+def _draft_ttl_seconds() -> int:
+    """Resolve draft TTL in seconds at call time from ``settings.CARD_TTL_SECONDS`` (fallback 180s)."""
+    val = getattr(settings, "CARD_TTL_SECONDS", None)
+    if val is not None:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            pass
+    return 180
+
+
 #: live drafts keyed by ``draft_id``. Single-process gateway: a restart drops them
 #: by design (same convention as ``conversation_state`` / ``_pending_batches``).
 _DRAFTS: Dict[str, Dict[str, Any]] = {}
@@ -1298,7 +1307,7 @@ def _take_draft(draft_id: Optional[str]) -> Optional[Dict[str, Any]]:
     draft = _DRAFTS.pop(draft_id, None)
     if draft is None:
         return None
-    if time.time() - draft.get("created_at", 0.0) > DRAFT_TTL_SECONDS:
+    if time.time() - draft.get("created_at", 0.0) > _draft_ttl_seconds():
         return None
     return draft
 
@@ -1306,7 +1315,8 @@ def _take_draft(draft_id: Optional[str]) -> Optional[Dict[str, Any]]:
 def _purge_drafts() -> int:
     """Drop expired drafts (diagnostics/tests). Returns how many were removed."""
     now = time.time()
-    expired = [k for k, d in _DRAFTS.items() if now - d.get("created_at", 0.0) > DRAFT_TTL_SECONDS]
+    ttl = _draft_ttl_seconds()
+    expired = [k for k, d in _DRAFTS.items() if now - d.get("created_at", 0.0) > ttl]
     for k in expired:
         _DRAFTS.pop(k, None)
     return len(expired)
@@ -1504,7 +1514,7 @@ async def _handle_trade_order(
         draft_id=draft["draft_id"], cmd=draft["cmd"], symbol=draft["symbol"],
         volume=draft["volume"], price=draft["price"], broker=draft["broker"],
         account=draft["account"], account_no=draft["account_no"],
-        total_thb=draft["total_thb"], ttl_seconds=DRAFT_TTL_SECONDS,
+        total_thb=draft["total_thb"], ttl_seconds=_draft_ttl_seconds(),
         budget_thb=draft.get("budget_thb"),
         ref_market_price=draft.get("ref_market_price"),
     )
@@ -1992,5 +2002,12 @@ async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: An
     return {"status": "CLI_UNKNOWN", "cmd": cmd}
 
 
+def __getattr__(name: str) -> Any:
+    """Module-level attribute lookup for dynamic exports."""
+    if name == "DRAFT_TTL_SECONDS":
+        return _draft_ttl_seconds()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
 __all__ = ["handle", "handle_postback", "_LOCKS", "_STARTED", "_DRAFTS",
-           "_in_nego_window", "_plan_nego", "_purge_drafts", "DRAFT_TTL_SECONDS"]
+           "_in_nego_window", "_plan_nego", "_purge_drafts", "DRAFT_TTL_SECONDS", "_draft_ttl_seconds"]

@@ -319,6 +319,27 @@ async def test_purge_drafts_removes_only_expired(service, db_session, monkeypatc
     assert ids[0] not in handlers._DRAFTS and ids[1] in handlers._DRAFTS
 
 
+def test_purge_drafts_honours_settings_card_ttl(monkeypatch):
+    """2.2b — draft TTL must come from settings.CARD_TTL_SECONDS (call-time), not hardcoded 180."""
+    from app.core.config import settings
+    import time as _time
+
+    monkeypatch.setattr(settings, "CARD_TTL_SECONDS", 5)
+    assert handlers.DRAFT_TTL_SECONDS == 5
+
+    handlers._DRAFTS.clear()
+    now = _time.time()
+    # 6-second-old draft: expired under TTL=5 (would still be alive under hardcoded 180)
+    handlers._DRAFTS["DRF-exp"] = {"draft_id": "DRF-exp", "created_at": now - 6}
+    # 3-second-old draft: active under TTL=5
+    handlers._DRAFTS["DRF-act"] = {"draft_id": "DRF-act", "created_at": now - 3}
+
+    removed = handlers._purge_drafts()
+    assert removed == 1
+    assert "DRF-exp" not in handlers._DRAFTS
+    assert "DRF-act" in handlers._DRAFTS
+
+
 @pytest.mark.asyncio
 async def test_handle_postback_ignores_foreign_actions(service, db_session):
     res = await handlers.handle_postback(
