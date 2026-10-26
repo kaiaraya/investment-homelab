@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 13:35.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 13:53.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-26 13:35
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 40 · archived 17
+- **Generated:** 2026-10-26 13:53
+- **Counts:** running 1 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 42 · archived 17
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,6 +27,7 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
+| `t_5f2d4b60` | **running** | `homelab-build` | 🟡 T1 · 2.11c /short + /borrow pre-trade ต้องบล็อก verdict CACHE_MISS/CACHE_STALE ด้วย (handlers.py ยังเช็คแค่ XD) |
 | `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 | `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
 | `t_25ba3820` | **blocked** | `default` | ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback |
@@ -40,6 +41,8 @@
 
 | id | completed | title |
 |---|---|---|
+| `t_a31b5c2b` | 2026-10-26 13:51 | 🟡 T1 · 2.11b SBL check_symbol_risk fail-closed เมื่อ cache ว่าง/เก่า |
+| `t_c2b11416` | 2026-10-26 13:46 | 🟢 T0 · 2.2b Draft TTL อ่านจาก settings.CARD_TTL_SECONDS (แทน hardcode 180) |
 | `t_17d8aeea` | 2026-10-26 13:15 | 🟢 T0 · 0.1-0.2 Version the JS-first layer + commit P.1-P.5 by topic |
 | `t_96f02cf9` | 2026-10-26 12:26 | 🔴 T2 · [SBL Realtime] · P.5 SBL borrow/return ผ่าน JS |
 | `t_a1d5c9c4` | 2026-10-26 11:54 | 🔍 0a · [Liberator+Streaming] · P.4a HAR capture — Liberator order + Streaming Ch |
@@ -48,8 +51,6 @@
 | `t_14f992b6` | 2026-10-26 10:51 | 🟢 T0 · [SBL Realtime] · P.5a SBL read JS (PP / inventory / XD-XR) |
 | `t_888884c1` | 2026-10-26 10:36 | 🟡 T1 · [Streaming+Liberator] · P.2 Convert read-only scrape → JS-first + Playwri |
 | `t_e007f8bb` | 2026-10-26 10:34 | 🟢 T0 · [Streaming+Liberator] · P.4b Value sizing ผ่าน getQuote JS (_broker_quote |
-| `t_03a7b02a` | 2026-10-26 10:25 | 🟢 T0 · P.3 Probe SOP → bookmarklet DOM dump (0a probe speedup) |
-| `t_42251025` | 2026-10-26 10:20 | 🟢 T0 · P.1 JS snippet runner + bookmarklet library (quote/portfolio/orders/balan |
 
 ---
 
