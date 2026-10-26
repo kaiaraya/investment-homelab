@@ -1,20 +1,25 @@
-# Loop Board — Loop 1
+# Loop Board — Loop 1 (SNAPSHOT)
 
-> **แทน Kanban** (ปลดระวาง cline-kanban แล้ว) · เจ้าของบอร์ด: **Argon** (Antigravity)
-> **4-Agent Hybrid Loop**: **Argon** (Plan/Eval) · **Flash 3.8** (STEP 0a DOM Probe + STEP 3 T2 Witness) · **Jules** (STEP 2a Cloud T0/T1) · **Cline** (STEP 2b Local Triage + Side-Quests)
-> รายละเอียดงานต่อใบ → `docs/handoff/TASK-<slug>.md` (ตัวกลางเดียวของ loop)
+> ⚠️ **SNAPSHOT ONLY — 2026-10-26.** The source of truth is the Hermes Kanban board:
+> `hermes kanban --board investment-homelab list`. This file is kept as a readable history and is no
+> longer updated by the loop; if the two disagree, the Kanban board wins.
+> **Platform:** Hermes-only. Jules, Cline and the Antigravity IDE loop are **retired**
+> (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
+> Card content lives in `docs/handoff/TASK-<slug>.md`.
 
 - **Loop:** 1
 - **Opened:** 2026-10-15
 - **Closed:** —
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 
-## วิธีใช้
-- **Argon** = เจ้าของบอร์ด: ย้ายการ์ดระหว่างคอลัมน์ + เพิ่ม/ลบการ์ด + กำหนดโมเดล Jules (`3.6 Flash` / `3.1 Pro`) และสถานะ `PROBE_NEEDED`
-- **Flash 3.8 + Human** = รัน **STEP 0a (Pre-Coding Read-Only Probe)** เติม `## DOM / API Contract` ก่อนส่งให้ Jules และรัน **STEP 3 (T2 Live Witness)**
-- **Jules (Cloud VM)** = เขียนโค้ด + Unit Test งานหลัก `🟢T0` (`Gemini 3.6 Flash`) / `🟡T1` (`Gemini 3.1 Pro`) ผ่าน `scripts/jules_bridge.py`
-- **Cline (Local)** = **(1) STEP 2b Local Triage**: ดึง branch จาก Jules มาตรวจ Diff + รัน `verify_changes.py` กรองก่อนส่ง Argon · **(2) เลนที่ 6 (`🔧 Side-Quests`)**: เคลียร์งาน Low-Priority จาก `Open questions` โดยไม่บล็อก Loop หลัก
-- **Human** = gate: อ่านแผน + ยืนยัน Probe → flip `Status` (gate #1) · squash `task/<slug>` → `main` (gate #2)
+## วิธีใช้ (อัปเดต 2026-10-26)
+- **Kanban board** = ความจริง: การ์ดมี status/assignee/evidence และถูก dispatch โดย gateway
+- **`default` (planner)** = เขียน/แก้การ์ด, สั่ง `set-model`, verdict, squash `main`
+- **`homelab-build`** = T0 (`gemini-3.8-flash`) / T1 (`gemini-3.1-pro`) เขียนโค้ด + unit test
+- **`homelab-review`** (`gemini-3.1-pro`) = diff audit + `verify_changes.py` + §Review Report
+- **`homelab-colab`** = งาน GPU/CPU ผ่าน `colab` CLI (การ์ด `☁️ Colab`)
+- **Human** = gate #1 (อนุมัติแผน/0a probe) · gate #2 (squash `main`) · witness 🔴T2 ที่หน้าจอ
+- ตารางคอลัมน์ 1–6 ด้านล่าง = ประวัติของ loop ที่ปิดไปแล้ว (อ่านได้ ไม่ต้องอัปเดต)
 
 ---
 
@@ -63,11 +68,12 @@
 
 ## Legend
 
-**Tier & Model Routing:**
-- 🔍 **STEP 0a (Pre-Coding Probe)** — งานที่แตะ DOM/XHR โบรกเกอร์ ต้องให้ **Flash 3.8 + Human** อ่านค่าจริงใส่ `## DOM / API Contract` ก่อนส่งให้ Jules (`PROBE_NEEDED → PROBE_DONE`)
-- 🟢 **T0** — code / docs / unit test / selector ที่มี Contract แล้ว → **Jules (`Gemini 3.6 Flash`)** → **Cline Triage**
-- 🟡 **T1** — logic / guardrails / multi-file refactor ที่ไม่แตะ live order/OTP → **Jules (`Gemini 3.1 Pro`)** → **Cline Triage**
-- 🔧 **Side-Quest (T0/T1 Low-Priority)** — ประเด็นจาก `Open questions` นอกเส้นทางหลัก → **Cline (`DeepSeek Pro/Flash`)** บน branch `chore/<slug>`
-- 🔴 **T2** — order · OTP · account switch · SBL · live login · live browser · merge `main` → **Antigravity IDE (Flash 3.8)** + human witness
+**Tier & Model Routing (อัปเดต 2026-10-26):**
+- 🔍 **STEP 0a (Probe)** — งานที่แตะ DOM/XHR โบรกเกอร์ ต้อง probe แบบ read-only + headed มีคนยืนยันหน้าจอ แล้วเติม `## DOM / API Contract` ก่อนปล่อยการ์ดจาก `blocked` (`PROBE_NEEDED → PROBE_DONE`)
+- 🟢 **T0** — code / docs / unit test / selector ที่มี Contract แล้ว → lane `homelab-build` (`gemini-3.8-flash`) → lane `homelab-review`
+- 🟡 **T1** — logic / guardrails / multi-file refactor ที่ไม่แตะ live order/OTP → lane `homelab-build` (`gemini-3.1-pro` via `set-model`) → lane `homelab-review`
+- 🔧 **Side-Quest / idea ใหม่** — ประเด็นจาก `Open questions` นอกเส้นทางหลัก → การ์ด `--triage` (specifier เติม body) ไม่บล็อก loop หลัก
+- ☁️ **Colab** — งาน GPU/CPU (model 19, Monte Carlo, EOD ingest) → lane `homelab-colab` (`colab` CLI, artifact ผ่าน Drive)
+- 🔴 **T2** — order · OTP · account switch · SBL · live login · live browser · merge `main` → `default` + human witness (headed, `DRY_RUN_MODE=false` เฉพาะ run)
 
 **Status (ใน handoff md):** `DRAFT → (PROBE_NEEDED) → READY → IN_PROGRESS → TRIAGE → REVIEW → DONE` (↩ `CHANGES_REQUESTED`)

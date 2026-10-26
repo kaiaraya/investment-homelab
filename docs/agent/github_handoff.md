@@ -9,4 +9,4 @@
 2. `cline-kanban` ไม่เสถียร (hub-daemon / packaging bug) → แทนด้วย `docs/board/loop_board.md`
 3. แยกบทบาทชัดเป็น 3 actor: Argon (plan) · Flash 3.8 (T2/HITL) · Cline plugin (T0/T1)
 
-→ ดู SOP ปัจจุบัน: `docs/agent/local_handoff.md` · `docs/agent/workflow_playbook.md`
+→ ดู SOP ปัจจุบัน: `docs/agent/kanban_operating_model.md` (Hermes-only, ตั้งแต่ 2026-10-26) · `.hermes.md`

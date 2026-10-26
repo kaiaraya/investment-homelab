@@ -47,7 +47,7 @@
 
 # 4. การแตกย่อยราย Loop (การ์ด 2.1, 2.2, …)
 
-> **ลำดับภายใน loop**: ไล่จากบนลงล่าง (เลขย่อย = ลำดับแนะนำ) · การ์ดที่ขึ้นต้น `0a` = STEP 0a Probe (Flash 3.8 + Human) ต้องเสร็จก่อนการ์ด coding ที่อ้างอิง · สัญลักษณ์ tier: 🟢T0 (Jules 3.6 Flash) · 🟡T1 (Jules 3.1 Pro) · 🔴T2 (Antigravity Flash 3.8 + Human Witness) · 🔧SQ (Cline Local Side-Quest)
+> **ลำดับภายใน loop**: ไล่จากบนลงล่าง (เลขย่อย = ลำดับแนะนำ) · การ์ดที่ขึ้นต้น `0a` = STEP 0a Probe (read-only + human) ต้องเสร็จก่อนการ์ด coding ที่อ้างอิง · สัญลักษณ์ tier: 🟢T0 (`homelab-build` / gemini-3.8-flash) · 🟡T1 (`homelab-build` / gemini-3.1-pro) · 🔴T2 (`default` + human witness, headed) · ☁️Colab (`homelab-colab`) · 🔧SQ (การ์ด `--triage`)
 
 ---
 

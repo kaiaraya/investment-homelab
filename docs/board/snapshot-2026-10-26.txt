@@ -1,0 +1,44 @@
+Board: investment-homelab (1 other board — `hermes kanban boards list`)
+
+✓ t_d974b48a  done      default               B.0 Directive v3 — ขยาย Loop1: อนุญาต buy/sell/short/cover
+✓ t_3f2c17eb  done      default               B.0a Probe — order-ticket DOM + PIN + balance (headed, read-only)
+⊘ t_2c403ecd  blocked   default               🔔 เปิดตลาด · 🔍 0a · 2.0a Probe — quote source สำหรับ value sizing (TradeMan REST vs Streaming CDP)
+⊘ t_6b70eb7d  blocked   default               🔔 เปิดตลาด · 🔍 0a · 2.0b Probe — SBL Real Time live borrow/return submit flow
+✓ t_c158b3a8  done      default               ⏰ ปิดตลาด · 🔍 0a · 2.0c Probe — LINE Rich Menu API create/upload/alias
+✓ t_f4d9f5dd  done      default               ⏰ ปิดตลาด · 🟢 T0 · 2.1 Fix — SHORT last_trade_price wiring (executor E_NO_QUOTE)
+✓ t_d4077d67  done      default               ⏰ ปิดตลาด · 🟢 T0 · 2.2 Fix — DRY-RUN borrow ต้องไม่สร้าง SBL lot จริง (phantom inventory)
+✓ t_88c4eab8  done      default               ☁️ Colab · ⏰ ปิดตลาด · B.1 Pull Model 19 data pack + prices/XD cache จาก Drive
+✓ t_db80eff0  done      default               ☁️ Colab · ⏰ ปิดตลาด · B.2 Pre-market candidate screening → candidate_pool.json (2.7/2.8)
+✓ t_3c93d4db  done      default               B.1 DB redesign — broker_accounts + positions(account_no,symbol) + orders multi-account
+✓ t_b44dcd4a  done      default               B.2 CDP gateway manager — tab router + asyncio.Lock
+✓ t_5bbdd032  done      default               B.4 LINE parser — /buy /sell /short /cover + broker override
+✓ t_f8d4884e  done      default               ⏰ ปิดตลาด · 🟢 T0 · 2.4 Test hardening — postback 6 actions + async queue bypass/timeout
+✓ t_7c73fb93  done      default               ☁️ Colab · ⏰ ปิดตลาด · B.3 Model 19 parity re-run (GPU) → golden fingerprint vs NUC
+✓ t_9bd0789e  done      default               ⏰ ปิดตลาด · 🟢 T0 · 2.3 Rich Menu upload script (create/upload/alias + --dry-run)
+✓ t_4d27ac79  done      default               ☁️ Colab · ⏰ ปิดตลาด · B.4 Walk-Forward Monte Carlo offload (10 seeds × 7 tracks)
+◻ t_bf81b0c0  todo      default               🔔 เปิดตลาด · 🟡 T1 · 2.5 SBL live borrow/return DOM flow (แทน fail-closed stub)
+✓ t_0c99d89c  done      default               ⏰ ปิดตลาด · 🟡 T1 · 2.6 Value sizing edge cases (tick/board-lot/budget/G6)
+⊘ t_25ba3820  blocked   default               ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback
+⊘ t_15869000  blocked   default               ⏰ ปิดตลาด · 🟠 HITL · 2.10 confirm/cancel TTL (human taps)
+✓ t_d6fc560a  done      default               B.3 Auto-sync service — sync_portfolio_from_cdp (UPSERT accounts+positions)
+⊘ t_ee3c1ac6  blocked   default               ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short
+✓ t_85b60702  done      default               B.5 Order draft + Flex confirm card + postback
+✓ t_ed05947a  done      default               B.7 Manual execution sync (human co-existence)
+✓ t_8bd9cbfb  done      default               B.6 Order executor — execute_order_via_cdp + PIN + DRY_RUN guard
+✓ t_188a1b6a  done      default               B.6b — wire /confirm postback → execute_confirmed_order + Receipt card (LINE → CDP executor)
+⊘ t_b6749a20  blocked   default               🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH)
+⊘ t_1e4a05eb  blocked   default               🔔 เปิดตลาด · 🙋 Human วาง Order ก่อน · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959)
+✓ t_0ddcdbcb  done      default               B.8 Loop witness — morning ritual → sync → order → human co-existence
+⊘ t_6253bc5f  blocked   default               🔍 0a · P.0a HAR capture — Streaming/SBL/Liberator endpoint map (read + order + change/cancel)
+✓ t_04f0c5b1  done      default               Witness Liberator change_order and cancel_order at market open
+✓ t_84aae48d  done      default               1.11 Lean-out: consolidate CDP probe toolkit + delete dead scripts
+✓ t_e571853c  done      default               🟡 T1 · 1.11b Track 3: driver → CDP daemon (connect_cdp 9333/9334) — หลัง Loop 1 witness
+✓ t_ac1400e4  done      default               🔵 T1 · 1.10b Liberator: fix execute_order + cancel_order false-positive (PIN + post-mutation verify)
+✓ t_c4538d94  done      default               1.11c Fix streaming_driver cancel tests (DRY_RUN env dependency) + run full suite + commit by topic
+✓ t_967a8f5b  done      default               🔴 T2 · Loop 2 SBL live borrow/return fail-closed (stop fabricated SUBMITTED)
+◻ t_42251025  todo      default               🟢 T0 · P.1 JS snippet runner + bookmarklet library (quote/portfolio/orders/balance)
+◻ t_888884c1  todo      default               🟡 T1 · P.2 Convert read-only scrape → JS-first + Playwright fallback
+◻ t_03a7b02a  todo      default               🟢 T0 · P.3 Probe SOP → bookmarklet DOM dump (0a probe speedup)
+⊘ t_de2055a5  blocked   default               🔴 T2 · P.4 Order submit ผ่าน JS (place/change/cancel) + Anti-Mock
+⊘ t_96f02cf9  blocked   default               🔴 T2 · P.5 SBL borrow/return ผ่าน JS
+◻ t_e007f8bb  todo      default               🟢 T0 · P.4b Value sizing ผ่าน getQuote JS (_broker_quote)

@@ -1,20 +1,20 @@
 # Loop 1 Acceptance Scorecard & Task Breakdown (KSS Margin + LIB Cash · LINE CLI Pillar 1–3)
 
-**วัตถุประสงค์เอกสาร:** ใช้เป็น **(1) เกณฑ์ตรวจรับงาน (Definition of Done)** สำหรับเปรียบเทียบกับ `## Cline Report` / `## Verification & Stepwise Approval` และ **(2) แผนแตกการ์ดงาน (Task Breakdown)** แยกงานที่เสร็จแล้วกับงานที่ยังค้างอยู่เพื่อส่งต่อให้ Cline (T0/T1) / Flash 3.8 (T2) ทำทีละใบจนจบ Development Loop นี้
+**วัตถุประสงค์เอกสาร:** ใช้เป็น **(1) เกณฑ์ตรวจรับงาน (Definition of Done)** สำหรับเปรียบเทียบกับ `## Worker Report` / `## Review Report` / `## Verification & Stepwise Approval` และ **(2) แผนแตกการ์ดงาน (Task Breakdown)** แยกงานที่เสร็จแล้วกับงานที่ยังค้างอยู่เพื่อส่งต่อให้ lane `homelab-build` (T0/T1) / `default` + human (T2) ทำทีละใบจนจบ Development Loop นี้ (ดู `docs/agent/kanban_operating_model.md`)
 
 ## 1. ตัวชี้วัดความสำเร็จของ Development Loop นี้ (Loop Acceptance Scorecard)
 
 Loop นี้จะถือว่า **สำเร็จบริบูรณ์ (DONE)** เมื่อผ่านตัวชี้วัดทั้ง **4 หมวด (16 ข้อ)** ด้านล่างครบทั้งในระดับ **Unit Test (`verify_changes.py`)** และระดับ **Live Market Verification (Human Witness บน LINE + หน้าจอโบรกเกอร์จริง)**:
 
 ### หมวด A: ความพร้อมของระบบและขอบเขตที่ปิดไว้ (Slim Gateway & Dormant Isolation)
-| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ Handoff ของ Cline | สถานะปัจจุบัน |
+| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ §Worker Report / §Review Report | สถานะปัจจุบัน |
 | :--- | :--- | :--- | :---: |
 | **A1** | **Slim Gateway Boot**: รัน `app.main:app` แล้วไม่มี Background Scheduler (`phase3_scheduler`), Action Exit (`action_exit_dispatcher`), Agentic AI (`master_orchestrator`), หรือ Click2Win Polling ทำงานเบื้องหลัง | ตรวจ `app/core/config.py` ว่า Flag ทั้ง 4 ตัวเป็น `False` และไม่มี Task นอกขอบเขตถูกปลุกใน Log | ✅ ผ่านแล้ว |
 | **A2** | **No Console Dependency**: การใช้งานจริงตั้งแต่ต้นจนจบไม่ต้องเปิดหน้าเว็บ `/console` เลย (สั่งผ่าน LINE 100%) | ตรวจใน `## Verification & Stepwise Approval` ว่าไม่มีขั้นตอนที่บังคับให้กดผ่าน `/console` | ✅ ผ่านแล้ว |
 | **A3** | **Account Scope Lock**: `kss` ทำงานบนบัญชี **`MARGIN (3024959)`** เป็นค่าเริ่มต้นเสมอ และ `lib` ทำงานบนบัญชี **`CASH`** เท่านั้น ไม่มีการหลุดไปดึงข้อมูล `Click2Win` (`else: CLICK2WIN`) | ตรวจโค้ดใน `pillar2_portfolio.py` และ `trademan_driver.py` ว่าไม่มี `else: CLICK2WIN` ค้างอยู่ และล็อกบัญชี `3024959` | ✅ ผ่านระดับ Unit (`7bc4bf2` · `TASK-loop1-1`)<br>⏳ รอ Live Witness (`TASK-loop1-4`) |
 
 ### หมวด B: Pillar 1 — การล็อกอินและการรักษา Session ผ่าน LINE (`/status`, `/login`, `/logout`)
-| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ Handoff ของ Cline | สถานะปัจจุบัน |
+| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ §Worker Report / §Review Report | สถานะปัจจุบัน |
 | :--- | :--- | :--- | :---: |
 | **B1** | **Zero-OTP Gate (Invariant 9)**: ถ้า `otp_relay_readiness.check().ready == False` คำสั่ง `/login` ต้องหยุดทันทีและแจ้งเตือนใน LINE โดยไม่กดขอ SMS OTP จากโบรกเกอร์ | ตรวจผลเทสต์ `tests/test_otp_relay_readiness.py` และ `tests/test_line_cli_flow.py` | ✅ ผ่านแล้ว |
 | **B2** | **Sequential Multi-Broker OTP**: สั่ง `/login kss` และ `/login lib` (หรือ `/login all`) แล้วรับ SMS OTP 6 หลักทาง LINE เข้าถูกโบรกเกอร์ (`otp_relay_registry.py` บน `AsyncSessionLocal`) | ทดสอบสด `/login kss` และ `/login lib` ยืนยันเข้าสู่ระบบสำเร็จ (`🟢 alive`) | ✅ ผ่านแล้ว |
@@ -22,7 +22,7 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 | **B4** | **Zero Secret/OTP Leak (`F-5` / `F-8`)**: ไม่มีรหัส OTP 6 หลัก, PIN, หรือ `?token=eyJ...` ปรากฏในไฟล์ Log ของ Gateway | รัน `grep -E "OTP|token=" data/logs/*.log` หลังทดสอบต้องไม่พบข้อมูลลับเปลือย | ✅ ผ่านแล้ว |
 
 ### หมวด C: Pillar 2 — ความถูกต้องของพอร์ต วงเงิน และออเดอร์ค้าง (`/port`, `/cash`, `/orders`)
-| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ Handoff ของ Cline | สถานะปัจจุบัน |
+| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ §Worker Report / §Review Report | สถานะปัจจุบัน |
 | :--- | :--- | :--- | :---: |
 | **C1** | **Read/Sync Never Triggers Login (Invariant 7)**: สั่ง `/port sync`, `/cash sync`, `/orders sync` ตอน Session หลุด ต้องตอบกลับให้ไป `/login` ก่อน ห้ามสั่ง Login/ขอ OTP เอง | ตรวจผลเทสต์ใน `tests/test_line_cli_flow.py` | ✅ ผ่านแล้ว |
 | **C2** | **Honest `/port kss sync` & `/port lib sync` (`CLI-RCA-002/006/010/012/013`)**: แสดง `Amount` + `Unrealized P/L` ตรงกับหน้าเว็บจริง, คำนวณ `%P/L` ฝั่ง `(S)` ถูกทิศทาง, แยกแถว `หุ้นยืมคงเหลือ (B)` เฉพาะ `kss`, และแบ่งหน้า Carousel ครบทุกตัว | ยืนยันผล Live Test P1.6 เมื่อ `2026-10-14 06:43` (KSS) + ทดสอบคู่กับ `/port lib sync` | ✅ ผ่านแล้ว (KSS + Unit LIB `7bc4bf2`)<br>⏳ รอตรวจเลขบัญชีบนหัวการ์ด LIB สด (`TASK-loop1-4`) |
@@ -30,7 +30,7 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 | **C4** | **Honest `/orders kss sync` & `/orders lib sync`**: แสดงรายการออเดอร์วันนี้ครบถ้วน แยกสถานะ `ค้าง (balance > 0)` vs `ครบ (Matched)` vs `ยกเลิก (Cancelled)` ชัดเจน อ่านชื่อหุ้นบนมือถือไม่ตกขอบ (`CLI-RCA-004`) และถ้า Session หลุดต้องขึ้น `⚠️ อ่านไม่ได้` (ห้ามขึ้น `🟢 live` ปลอม) | ตรวจว่า `current_orders` ส่ง flag `authenticated` มาให้ `handlers.py` และปรับ Layout แถวออเดอร์บนการ์ด | ✅ ผ่านระดับ Unit (`7bc4bf2` · `TASK-loop1-1`)<br>⏳ รอ Live Witness (`TASK-loop1-4`) |
 
 ### หมวด D: Pillar 3 — การต่อราคาออเดอร์ค้างในที่ (`/nego` — เป้าหมายสูงสุดของ Loop นี้)
-| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ Handoff ของ Cline | สถานะปัจจุบัน |
+| รหัส | ตัวชี้วัด (Metric / Criterion) | วิธีตรวจสอบเทียบกับ §Worker Report / §Review Report | สถานะปัจจุบัน |
 | :--- | :--- | :--- | :---: |
 | **D1** | **In-Place Amendment Only (ห้าม Cancel + Replace เด็ดขาด)**: ทั้ง `/nego kss` และ `/nego lib` ต้องแก้ราคาบน **Order Number เดิม** เท่านั้น ห้ามยกเลิกแล้วส่งคำสั่งใหม่ | `handlers.py` (`_broker_modify` ของ `/nego kss`) วิ่งเข้า `quicktrade_negotiation_service` (`QUICKTRADE_INPLACE`) แล้ว | ✅ ผ่านระดับ Unit (`d7bde41` · `TASK-loop1-2`)<br>⏳ รอ Live Witness (`TASK-loop1-4`) |
 | **D2** | **Unified `/nego` Command & Guardrails G1–G6**: คำสั่ง `/nego kss [SYM\|order_no]` และ `/nego lib [SYM\|order_no]` บังคับใช้ครบทั้ง 6 Guardrails: G1 (Kill-switch), G2 (`LINE_NEGO_WINDOWS`), G3 (Session alive), G4 (SET tick size), **G5 (ห่างไม่เกิน `LINE_NEGO_MAX_TICKS = 3` ช่อง)**, และ **G6 (Short Uptick Rule: `Best Offer 1 > LastPrice` strict)** | เส้นทาง QuickTrade ของ `kss` และ WebTrade ของ `lib` ตรวจ G1–G6 ครบทุกข้อก่อนกด Submit | ✅ ผ่านระดับ Unit (`d7bde41` & `9ed1f5a`)<br>⏳ รอ Live Witness (`TASK-loop1-4`) |
@@ -40,7 +40,7 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 
 ## 2. สรุปงานที่ทำเสร็จแล้ว (Completed Tasks Baseline)
 
-รายการด้านล่างคือการ์ดที่พัฒนาและตรวจทานผ่านแล้วในรอบก่อนหน้า (**ห้าม Cline รื้อหรือเขียนทับตรรกะที่ผ่านแล้ว**):
+รายการด้านล่างคือการ์ดที่พัฒนาและตรวจทานผ่านแล้วในรอบก่อนหน้า (**ห้ามรื้อหรือเขียนทับตรรกะที่ผ่านแล้ว**):
 
 1. **`TASK-line-otp-group-relay.md` & `TASK-otp-channel-authoritative.md` (DONE ✅)**:
    * ย้ายระบบรับ OTP มาใช้ LINE (`otp_relay_readiness.py` + `otp_relay_registry.py` บน `AsyncSessionLocal`) และปิด KDE Connect เป็น Dormant
@@ -57,13 +57,13 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 7. **`TASK-krungsri-quicktrade-passive-negotiate.md` (DONE — Unit Level ✅)**:
    * สร้าง `app/brokers/krungsri/quicktrade_driver.py` และ `app/services/quicktrade_negotiation_service.py` สำหรับเข้าหน้า Quick Trade SSO เพื่อกด `Change Price& Volume` แก้ราคาในที่โดยไม่เสียคิว
 
-## 3. แผนแตก Task งานที่ยังไม่เสร็จ (Remaining Tasks สำหรับส่งให้ Cline)
+## 3. แผนแตก Task งานที่ยังไม่เสร็จ (Remaining Tasks สำหรับการ์ด `homelab-build`)
 
-เพื่อให้บรรลุเป้าหมายสูงสุดของ Loop นี้ครบทุกข้อโดยไม่ให้ Context ของ Cline บวม แนะนำให้แบ่งงานที่เหลือออกเป็น **4 การ์ดย่อยเรียงตามลำดับความสำคัญ** ดังนี้ครับ:
+เพื่อให้บรรลุเป้าหมายสูงสุดของ Loop นี้ครบทุกข้อโดยไม่ให้ Context ของ worker บวม แนะนำให้แบ่งงานที่เหลือออกเป็น **4 การ์ดย่อยเรียงตามลำดับความสำคัญ** ดังนี้ครับ:
 
 ### การ์ดใบที่ 1: `TASK-loop1-1-pillar2-orders-and-margin-lock`
 * **เป้าหมาย**: เก็บตกช่องโหว่ที่ค้างอยู่ใน Pillar 2 เพื่อให้ `/orders` และ `/port` ของ `kss` (MARGIN `3024959`) และ `lib` (CASH) สมบูรณ์ 100% ก่อนเริ่มต่อราคา
-* **สิ่งที่ Cline ต้องทำ (Scope & Context Map)**:
+* **สิ่งที่ lane `homelab-build` ต้องทำ (Scope & Context Map)**:
   1. **`app/mcp/pillars/pillar2_portfolio.py` (`portfolio_holdings` L210–340 และ `current_orders` / `current_open_orders` L450–620)**:
      * ลบ `else: CLICK2WIN` ที่ยังตกค้างอยู่ออกทั้งหมด (ตาม Open Question ข้อ 2 ของ `TASK-cli-p0`) หากส่งชื่อ Platform ที่ไม่รู้จักต้อง `raise ValueError`
      * ส่งค่า `"authenticated": bool(...)` ออกมาจาก `current_orders()` เหมือนที่ทำใน `portfolio_get_balances()` และล็อกให้ `KRUNGSRI` ใช้บัญชี `MARGIN (3024959)` เป็นค่าเริ่มต้นใน Loop นี้
@@ -78,7 +78,7 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 
 ### การ์ดใบที่ 2: `TASK-loop1-2-unify-kss-nego-to-quicktrade-inplace`
 * **เป้าหมาย**: รวมศูนย์คำสั่ง `/nego kss [SYMBOL|order_no]` ให้ใช้กลไก **In-Place Change ผ่าน Quick Trade (`quicktrade_driver`)** แทน `trademan_driver.modify_order_price` (ซึ่งเป็น Cancel+Replace ที่ผิดกฎเหล็ก) และบังคับใช้ Guardrails G1–G6 ให้ครบทุกข้อ
-* **สิ่งที่ Cline ต้องทำ (Scope & Context Map)**:
+* **สิ่งที่ lane `homelab-build` ต้องทำ (Scope & Context Map)**:
   1. **`app/services/quicktrade_negotiation_service.py` (`plan_negotiation` & `negotiate_order_price` L128–239)**:
      * เพิ่มการตรวจ **G4 (`validator.validate_tick_size`)** และ **G5 (`_tick_distance_exceeds` ไม่เกิน `settings.LINE_NEGO_MAX_TICKS = 3` ช่อง)** เข้าไปใน `plan_negotiation()` (หากเกิน 3 ช่องให้คืน `NegotiationOutcome.MAX_TICKS_EXCEEDED` พร้อมเหตุผลว่าห่างกี่ช่อง)
      * ล็อกให้ค้นหาและทำงานเฉพาะบัญชี **`MARGIN (3024959)`** (`settings.TRADEMAN_ACCOUNT_NO_MARGIN`) เป็นหลักตามขอบเขต Loop นี้
@@ -92,7 +92,7 @@ Loop นี้จะถือว่า **สำเร็จบริบูรณ
 
 ### การ์ดใบที่ 3: `TASK-loop1-3-liberator-quote-and-nego-hardening`
 * **เป้าหมาย**: ทำความสะอาดและรับประกันว่า `/nego lib [SYMBOL|order_no]` ดึงราคา `Bid 1 / Offer 1` ของหุ้นเป้าหมายได้ตรงตัวจริง 100% และต่อราคาในที่ (`change_order`) ผ่าน LINE CLI ได้อย่างปลอดภัย
-* **สิ่งที่ Cline ต้องทำ (Scope & Context Map)**:
+* **สิ่งที่ lane `homelab-build` ต้องทำ (Scope & Context Map)**:
   1. **`app/brokers/liberator/driver.py` (`get_market_bid_offer` L766–860)**:
      * แก้ปัญหาที่ตาราง Bid/Offer บนหน้า `/Portfolio` อาจแสดงราคาของหุ้นตัวอื่นค้างอยู่ (`TASK-liberator-change-order-inplace.md` L85): หลังกรอก `clean_sym` ใน `#SearchSymbolList-setBuySellFooter` และกด `Enter` ต้องตรวจสอบจาก DOM (หรือดึงจาก Response ของ `POST /vb/stock/info` และ `POST /vb/stock/bid-offer`) ว่า Quote ที่อ่านได้เป็นของ `clean_sym` จริง หากชื่อหุ้นบนหัวกระดานไม่ตรงกับ `clean_sym` ต้องคืน `_unknown_quote` (Fail-Closed ตามกฎ Anti-Mock)
   2. **`app/services/line_cli/handlers.py` (`_handle_nego` สำหรับ `broker == "lib"`)**:

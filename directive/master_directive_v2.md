@@ -2,9 +2,9 @@
 
 **Status:** Canonical Single Source of Truth (Active Development Loop) — Phase B (Order Entry) เปิดแล้ว  
 **Last Synchronized Commit:** `2bf22f8` (2026-10-16) · Phase B scope edit 2026-10-21 (เพิ่ม `/buy /sell /short /cover`)  
-**Target Readers:** Argon (Planner/Reviewer) & Cline (Implementer/Verifier)
+**Target Readers:** Hermes planner (`default`) + lane `homelab-build` (implementer) + lane `homelab-review` (verifier) + lane `homelab-colab` (GPU/CPU)
 
-> **กฎสูงสุดสำหรับ Agent (Cline & Argon):** เอกสารฉบับนี้คือแม่บทเดียวของ Development Loop ปัจจุบัน (ความยาว < 200 บรรทัด ผ่านเกณฑ์ `token_guard`) หากเนื้อหาใน `directive/idea.md`, `directive/phase3_detail.md`, `directive/kdeconnect.md`, หรือ `directives/sops/*.md` ขัดแย้งกับไฟล์นี้ **ให้ยึดไฟล์นี้เป็นหลักทั้งหมด และห้ามแตะโมดูลที่ถูกระบุว่าเป็น Dormant/Disabled**
+> **กฎสูงสุดสำหรับ Agent (Hermes ทุก lane):** เอกสารฉบับนี้คือแม่บทเดียวของ Development Loop ปัจจุบัน (ความยาว < 200 บรรทัด) หากเนื้อหาใน `directive/idea.md`, `directive/phase3_detail.md`, `directive/kdeconnect.md`, หรือ `directives/sops/*.md` ขัดแย้งกับไฟล์นี้ **ให้ยึดไฟล์นี้เป็นหลักทั้งหมด และห้ามแตะโมดูลที่ถูกระบุว่าเป็น Dormant/Disabled** — วิธีทำงานของแต่ละ lane อยู่ใน `docs/agent/kanban_operating_model.md` และ `.hermes.md`
 
 ## 1. เป้าหมายสูงสุดและขอบเขตของ Development Loop นี้ (Current Loop Scope)
 
@@ -69,7 +69,7 @@ Entrypoint เดียวของระบบคือ **`app.main:app`** (ร
 
 ## 3. โมดูลที่ปิดการทำงานใน Loop นี้ (Dormant / Disabled by Design)
 
-ไฟล์ต่อไปนี้ยังมีอยู่ใน Repository แต่ **ถูกปิดการใช้งานใน Loop นี้** — **ห้าม Cline เปิดใช้งาน, ห้ามนำมาคิดใน Flow ปัจจุบัน, และห้ามแก้ไขเว้นแต่ได้รับคำสั่งโดยตรง**:
+ไฟล์ต่อไปนี้ยังมีอยู่ใน Repository แต่ **ถูกปิดการใช้งานใน Loop นี้** — **ห้าม lane ใดเปิดใช้งาน, ห้ามนำมาคิดใน Flow ปัจจุบัน, และห้ามแก้ไขเว้นแต่ได้รับคำสั่งโดยตรง**:
 
 | หมวดหมู่ที่ปิดไว้ก่อน | การตั้งค่าบังคับใน `config.py` / `.env` | โมดูล / ไฟล์ที่อยู่ในสถานะ Dormant (ห้ามแตะ) |
 | :--- | :--- | :--- |
@@ -80,7 +80,7 @@ Entrypoint เดียวของระบบคือ **`app.main:app`** (ร
 | **5. โบรกเกอร์อื่น & KDE Connect Bridge** | `ENABLE_CLICK2WIN_POLLING = False`<br>`LINE_OTP_RELAY_ENABLED = True` | `app/brokers/click2win/*`, `app/browser/click2win_*.py`, `app/brokers/settrade_openapi/*`, `app/services/kdeconnect_service.py` |
 | **6. ฟีเจอร์ที่ถอดออกถาวรแล้ว (Removed)** | ลบออกจากระบบแล้ว (ห้ามอ้างอิง) | `app/monitoring/*` (`monitor_*`, `alert_*`), `pillar5_portfolio.py` (ยุบรวมเข้า `pillar2_portfolio.py` แล้ว), `app.mcp.mcp_server` (stdio MCP) |
 
-## 4. กฎเหล็กด้านความปลอดภัยและการพัฒนาสำหรับ Cline (Non-Negotiable Invariants)
+## 4. กฎเหล็กด้านความปลอดภัยและการพัฒนา (Non-Negotiable Invariants — ทุก lane)
 
 1. **Anti-Mock**: ห้ามคืนค่าบัญชีปลอม, ยอดเงิน `0.00` แทนค่าที่อ่านไม่ได้ (`None`), หรือแกล้งรายงานว่าต่อราคาสำเร็จทั้งที่ DOM ไม่เปลี่ยน ต้องรายงานผลจริงจากหน้าเว็บโบรกเกอร์เท่านั้น
 2. **Strict Broker Isolation**: โค้ดและ Selector ของ `kss` (TradeMan/QuickTrade) กับ `lib` (Liberator WebTrade) แยกกันโดยสมบูรณ์ ห้ามใช้ปนกัน
@@ -88,3 +88,23 @@ Entrypoint เดียวของระบบคือ **`app.main:app`** (ร
 4. **Never Overwrite Saved Sessions in Tests/Probes (Invariant 8)**: สคริปต์ Probe และชุดเทสต์ทั้งหมดห้ามเขียนทับหรือลบไฟล์ `data/session_state.json` และ `data/liberator_session.json`
 5. **No Secret or Balance Leakage**: ห้ามนำรหัสผ่าน, PIN, Token หรือตัวเลขยอดเงินจริง (ตั้งแต่ 4 หลักขึ้นไป) ออกมาเขียนลง Log, ไฟล์ Dump, หรือ Handoff Report (ใช้ `app/services/redaction.py`)
 6. **Zero-Contradiction Runbooks**: ทุกครั้งที่ปรับแก้ Selector หรือลำดับการคลิกหน้าเว็บของ `kss` หรือ `lib` ต้องอัปเดตไฟล์ `learned_workflows/<broker>/*.md` และ `rca/<broker>/` ให้ตรงกันทันที
+
+## 5. แพลตฟอร์มการทำงาน (Hermes-only, ตั้งแต่ 2026-10-26)
+
+Jules / Cline / Antigravity IDE (4-agent hybrid loop) **ปลดระวางแล้ว** — งานทั้งหมดวิ่งบน Hermes Kanban board `investment-homelab` โดย lane = profile:
+
+| Lane (assignee) | งาน | Model | Gate |
+| :--- | :--- | :--- | :--- |
+| `default` (planner) | แตกการ์ด · spec · verdict · board · merge | `gemini-4-argon` | gate #1/#2 (human) |
+| `homelab-build` | T0/T1: code + unit test + `## Worker Report` | T0 `gemini-3.8-flash` · T1 `gemini-3.1-pro` | — |
+| `homelab-review` | diff audit + `verify_changes.py` + `## Review Report` | `gemini-3.1-pro` | — |
+| `default` (desktop, headed) | 0a read-only probe · 🔴T2 live witness | `gemini-3.8-flash` | **คนอยู่หน้าจอ** |
+| `homelab-colab` | ☁️ GPU/CPU ผ่าน `colab` CLI (artifact → Drive) | `gemini-3.8-flash` | ห้าม commit เข้า repo |
+
+**Triage rule (บังคับ):** idea / bug / tech-debt ที่พบระหว่างทำงานและอยู่นอก scope ของการ์ดที่กำลังรัน → สร้างการ์ดใหม่ `hermes kanban --board investment-homelab create "<title>" --triage --assignee default` ให้ specifier เติม body แล้ว promote — **ห้ามขยาย scope การ์ดเดิม และห้ามแก้โค้ดในการ์ด witness**
+
+**Probe gate:** การ์ดที่แตะ DOM/XHR ต้องมี `Probe: PROBE_DONE` + `## DOM / API Contract` (จาก probe read-only + headed ที่คนยืนยันหน้าจอ) ก่อนถูกปล่อยจาก `blocked` — `scripts/preflight_card.py` ตรวจให้
+
+**T2 gate:** worker รัน live ได้เฉพาะเมื่อ `DRY_RUN_MODE=false` เฉพาะ run นั้น · browser headed · คนนั่งดูจอและสั่ง "go" · การ์ดต้องมี `## Witness Session` ครบก่อน dispatch
+
+รายละเอียด STEP 0–5, card body contract, และคำสั่งทั้งหมด → `docs/agent/kanban_operating_model.md`

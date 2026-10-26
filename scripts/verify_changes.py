@@ -176,6 +176,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/daily_readiness.py": ["tests/test_daily_readiness.py"],
     "scripts/services_status.py": ["tests/test_services_status.py"],
     "scripts/preflight_check.py": ["tests/test_preflight_check.py"],
+    "scripts/preflight_card.py": ["tests/test_preflight_card.py"],
     "scripts/start_homelab.py": [
         "tests/test_start_homelab_stages.py",
         "tests/test_start_homelab_transport.py",
