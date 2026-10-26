@@ -1013,34 +1013,56 @@ def _flex_text(card) -> str:
     return json.dumps(card, ensure_ascii=False)
 
 
+def _cdp_portfolio_snap(**over):
+    """Shape ``scrape_portfolio_from_cdp`` returns (N0 rewrite of ``_live_card``)."""
+    snap = {"account_no": "3024959", "account_type": "MARGIN",
+            "line_available": 250_000.0, "cash_balance": None,
+            "credit_limit": None, "excess_equity": None, "total_equity": None,
+            "holdings": []}
+    snap.update(over)
+    return snap
+
+
+def _patch_cdp_portfolio(monkeypatch, snap=None, *, exc=None):
+    from app.services.broker_cdp import sync_service
+    if exc is not None:
+        monkeypatch.setattr(sync_service, "scrape_portfolio_from_cdp",
+                            AsyncMock(side_effect=exc))
+    else:
+        monkeypatch.setattr(sync_service, "scrape_portfolio_from_cdp",
+                            AsyncMock(return_value=snap or _cdp_portfolio_snap()))
+
+
+def _patch_cdp_orders(monkeypatch, orders=None, *, exc=None):
+    from app.services.broker_cdp import sync_service
+    if exc is not None:
+        monkeypatch.setattr(sync_service, "scrape_orders_from_cdp",
+                            AsyncMock(side_effect=exc))
+    else:
+        monkeypatch.setattr(sync_service, "scrape_orders_from_cdp",
+                            AsyncMock(return_value={"broker": "KRUNGSRI",
+                                                    "account_no": "3024959",
+                                                    "orders": orders or []}))
+
+
 @pytest.mark.asyncio
 async def test_live_port_card_shows_dom_account_when_authenticated(monkeypatch):
-    from app.browser.trademan_driver import trademan_driver
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    holdings = AsyncMock(return_value={"holdings": [
-        {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0}]})
-    monkeypatch.setattr(pillar2, "portfolio_holdings", holdings)
-    monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", True, raising=False)
-    monkeypatch.setattr(trademan_driver, "portfolio_totals", None, raising=False)
-    monkeypatch.setattr(trademan_driver, "active_account_no", "3024959", raising=False)
+    snap = _cdp_portfolio_snap(account_no="3024959", holdings=[
+        {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0,
+         "position_type": "LONG"}])
+    _patch_cdp_portfolio(monkeypatch, snap)
 
     card = await REAL_LIVE_CARD("port", "kss")
 
-    holdings.assert_awaited_with(platform="TRADEMAN")
     text = _flex_text(card)
-    assert "3024959" in text        # account number read from the DOM
+    assert "3024959" in text        # account number read from the CDP scrape
     assert "🟢 live" in text
     assert "อ่านไม่ได้" not in text
 
 
 @pytest.mark.asyncio
 async def test_live_port_card_is_unavailable_when_scrape_not_authenticated(monkeypatch):
-    from app.browser.trademan_driver import trademan_driver
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_holdings", AsyncMock(return_value={"holdings": []}))
-    monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", False, raising=False)
+    _patch_cdp_portfolio(monkeypatch, exc=RuntimeError("no authenticated tab"))
 
     card = await REAL_LIVE_CARD("port", "kss")
 
@@ -1054,17 +1076,11 @@ async def test_live_port_card_is_unavailable_when_scrape_not_authenticated(monke
 
 @pytest.mark.asyncio
 async def test_live_cash_card_is_unavailable_when_balances_unauthenticated(monkeypatch):
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    balances = AsyncMock(return_value={
-        "platform": "KRUNGSRI", "authenticated": False,
-        "accounts": [{"account_type": "MARGIN", "cash_balance": None, "line_available": None,
-                      "excess_equity": None, "is_active": True}]})
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", balances)
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="MARGIN", line_available=None, cash_balance=None, excess_equity=None))
 
     card = await REAL_LIVE_CARD("cash", "kss")
 
-    balances.assert_awaited_with(platform="TRADEMAN")
     text = _flex_text(card)
     assert "อ่านไม่ได้" in text and "/login kss" in text
     assert "🟢 live" not in text
@@ -1073,12 +1089,8 @@ async def test_live_cash_card_is_unavailable_when_balances_unauthenticated(monke
 
 @pytest.mark.asyncio
 async def test_live_cash_card_is_unavailable_when_every_field_unreadable(monkeypatch):
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value={
-        "platform": "KRUNGSRI", "authenticated": True,
-        "accounts": [{"account_type": "CASH", "cash_balance": None, "line_available": None,
-                      "excess_equity": None, "is_active": True}]}))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="CASH", line_available=None, cash_balance=None, excess_equity=None))
 
     card = await REAL_LIVE_CARD("cash", "kss")
 
@@ -1177,24 +1189,19 @@ def test_port_card_tags_short_side_and_shows_dash_for_unreadable_pnl():
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_live_port_card_prefers_dom_totals_row(monkeypatch):
-    """RCA-013: KSS shows the on-page Amount; Market Value is not rendered (D1)."""
-    from app.browser.trademan_driver import trademan_driver
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_holdings", AsyncMock(return_value={"holdings": [
-        {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0}]}))
-    monkeypatch.setattr(trademan_driver, "portfolio_scrape_authenticated", True, raising=False)
-    monkeypatch.setattr(trademan_driver, "active_account_no", "3024959", raising=False)
-    monkeypatch.setattr(trademan_driver, "portfolio_totals",
-                        {"amount": 33_750.0, "market_value": 35_100.0,
-                         "unrealized_pnl": 1_350.0, "account_no": "3024959"}, raising=False)
+async def test_live_port_card_amount_is_computed_cost_basis(monkeypatch):
+    """RCA-013 (adapted for N0/CDP): KSS Amount = Σ(volume × avg_cost) from the holdings
+    the Streaming scrape returns; the separate on-page totals row no longer exists in the
+    CDP path. Market Value is not rendered (D1)."""
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(holdings=[
+        {"symbol": "PTT", "volume": 1000, "avg_cost": 34.0, "current_price": 35.0,
+         "position_type": "LONG", "market_value": 35_100.0, "unrealized_pnl": 1_350.0}]))
 
     card = await REAL_LIVE_CARD("port", "kss")
 
     text = _flex_text(card)
-    assert "33,750.00" in text                              # the DOM row, not the computed 34,000
-    assert "34,000.00" not in text and "35,100.00" not in text
+    assert "34,000.00" in text                              # cost basis, not a DOM totals row
+    assert "35,100.00" not in text
     assert "Market Value" not in text
     assert "🟢 live" in text
 
@@ -1375,17 +1382,12 @@ async def test_live_cash_card_lib_uses_liberator_balances(monkeypatch):
     Also covers the raw-enum leak: LIBERATOR reports ``account_type="CASH_BALANCE"``,
     which must render as a human label — never the raw code.
     """
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    balances = AsyncMock(return_value={
-        "platform": "LIBERATOR", "authenticated": True,
-        "accounts": [{"account_type": "CASH_BALANCE", "cash_balance": 123456.78,
-                      "line_available": 200000.0, "excess_equity": 100000.0, "is_active": True}]})
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", balances)
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_no="7055938", account_type="CASH_BALANCE", cash_balance=123456.78,
+        line_available=200000.0, excess_equity=100000.0))
 
     card = await REAL_LIVE_CARD("cash", "lib")
 
-    balances.assert_awaited_with(platform="LIBERATOR")
     text = _flex_text(card)
     assert "LIB" in text
     assert "123,456.78" in text
@@ -1423,10 +1425,8 @@ def _kss_balances(account_type, *, values_bound=True, line_available=None,
 async def test_live_cash_card_kss_margin_shows_ee_or_dash(monkeypatch):
     """(a) MARGIN bound + EE unreadable -> ``Excess Equity`` with ``—``; header is Margin and
     the old ``Cash balance`` / ``Buying power`` rows are gone (CLI-RCA-011 D3)."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
-        "MARGIN", line_available=250_000.0, excess_equity=None)))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="MARGIN", line_available=250_000.0, excess_equity=None))
 
     text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
 
@@ -1440,10 +1440,8 @@ async def test_live_cash_card_kss_margin_shows_ee_or_dash(monkeypatch):
 @pytest.mark.asyncio
 async def test_live_cash_card_kss_margin_shows_ee_value_when_readable(monkeypatch):
     """(a cont.) a readable EE renders as a figure, not the ``—`` placeholder."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
-        "MARGIN", line_available=250_000.0, excess_equity=900_000.0)))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="MARGIN", line_available=250_000.0, excess_equity=900_000.0))
 
     text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
 
@@ -1454,10 +1452,8 @@ async def test_live_cash_card_kss_margin_shows_ee_value_when_readable(monkeypatc
 @pytest.mark.asyncio
 async def test_live_cash_card_kss_cash_has_no_ee_row(monkeypatch):
     """(c) CASH bound -> a single Line Available row, never an Excess Equity row."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
-        "CASH", line_available=42_000.0)))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="CASH", line_available=42_000.0))
 
     text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
 
@@ -1474,10 +1470,9 @@ async def test_live_cash_card_kss_margin_shows_cash_balance_when_readable(monkey
     It must be a distinct figure from Line Available (PP) — conflating the two was the
     original CLI-RCA-011 bug.
     """
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
-        "MARGIN", line_available=250_000.0, cash_balance=88_000.0, excess_equity=900_000.0)))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="MARGIN", line_available=250_000.0, cash_balance=88_000.0,
+        excess_equity=900_000.0))
 
     text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
 
@@ -1489,10 +1484,8 @@ async def test_live_cash_card_kss_margin_shows_cash_balance_when_readable(monkey
 @pytest.mark.asyncio
 async def test_live_cash_card_kss_omits_cash_balance_when_unreadable(monkeypatch):
     """CLI-RCA-011 (P2b): no "Cash balance" row unless the driver read a value (Anti-Mock)."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
-        "CASH", line_available=42_000.0, cash_balance=None)))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_type="CASH", line_available=42_000.0, cash_balance=None))
 
     text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
 
@@ -1502,11 +1495,13 @@ async def test_live_cash_card_kss_omits_cash_balance_when_unreadable(monkeypatch
 
 @pytest.mark.asyncio
 async def test_live_cash_card_kss_unbound_account_is_unavailable(monkeypatch):
-    """(b) no account bound to the dropdown number -> honest ``อ่านไม่ได้``, never 🟢 live."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
+    """(b) a scrape that cannot read the account fails closed -> ``อ่านไม่ได้``, never 🟢 live.
 
-    monkeypatch.setattr(pillar2, "portfolio_get_balances", AsyncMock(return_value=_kss_balances(
-        "MARGIN", values_bound=False, line_available=None)))
+    In the CDP path there is no "unbound" flag: ``_scrape_kss`` raises when the account_no
+    header is unreadable, which ``_live_card`` turns into the honest unavailable card.
+    """
+    _patch_cdp_portfolio(monkeypatch, exc=RuntimeError(
+        "KSS Streaming: could not read active account_no from the header"))
 
     text = _flex_text(await REAL_LIVE_CARD("cash", "kss"))
 
@@ -1640,18 +1635,12 @@ def _find_inner_row(node, needle):
 
 @pytest.mark.asyncio
 async def test_live_orders_card_is_unavailable_when_not_authenticated(monkeypatch):
-    """TASK-loop1-1 (Anti-Mock): when the broker reports ``authenticated is False`` the orders
-    card must say อ่านไม่ได้ — never an empty ledger under a 🟢 live badge."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    orders = AsyncMock(return_value={
-        "platform": "KRUNGSRI", "authenticated": False, "total": 0,
-        "unmatched_count": 0, "orders": []})
-    monkeypatch.setattr(pillar2, "current_orders", orders)
+    """TASK-loop1-1 (Anti-Mock): when the CDP ledger scrape fails, the orders card must say
+    อ่านไม่ได้ — never an empty ledger under a 🟢 live badge."""
+    _patch_cdp_orders(monkeypatch, exc=RuntimeError("no authenticated tab"))
 
     card = await REAL_LIVE_CARD("orders", "kss")
 
-    orders.assert_awaited_with(platform="TRADEMAN")
     text = _flex_text(card)
     assert "อ่านไม่ได้" in text and "/login kss" in text
     assert "🟢 live" not in text
@@ -1661,13 +1650,10 @@ async def test_live_orders_card_is_unavailable_when_not_authenticated(monkeypatc
 async def test_live_orders_card_row_is_two_lines_with_md_symbol(monkeypatch):
     """CLI-RCA-004: each order is its own 2-line block — symbol on line 1 in bold ``md`` (no
     clipping on a phone screen), volume/price + status on line 2."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "current_orders", AsyncMock(return_value={
-        "platform": "KRUNGSRI", "authenticated": True, "total": 1, "unmatched_count": 1,
-        "orders": [{"broker_order_no": "1", "symbol": "SAWAD", "side": "BUY", "volume": 100,
-                    "balance": 100, "price": 22.5, "status_raw": "O",
-                    "status_category": "UNMATCHED"}]}))
+    _patch_cdp_orders(monkeypatch, orders=[{
+        "broker_order_no": "1", "symbol": "SAWAD", "side": "Buy", "volume": 100,
+        "matched_volume": 0, "balance": 100, "price": 22.5, "status": "Queuing(O)",
+    }])
 
     card = await REAL_LIVE_CARD("orders", "kss")
 
@@ -1684,16 +1670,11 @@ async def test_live_orders_card_row_is_two_lines_with_md_symbol(monkeypatch):
 async def test_live_port_card_lib_shows_real_account_no(monkeypatch):
     """C2 (TASK-loop1-1): `/port lib sync` shows the account number read off the screen instead
     of the generic "LIVE" placeholder."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    holdings = AsyncMock(return_value={
-        "platform": "LIBERATOR", "account_type": "CASH", "account_no": "1234567",
-        "authenticated": True, "count": 0, "holdings": []})
-    monkeypatch.setattr(pillar2, "portfolio_holdings", holdings)
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_no="1234567", account_type="CASH_BALANCE", holdings=[]))
 
     card = await REAL_LIVE_CARD("port", "lib")
 
-    holdings.assert_awaited_with(platform="LIBERATOR")
     assert "1234567" in _flex_text(card)
 
 

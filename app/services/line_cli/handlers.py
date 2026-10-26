@@ -1027,116 +1027,122 @@ def _broker_label(broker: Optional[str]) -> str:
 
 
 async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
-    """Build a live card for one broker from its own Pillar-2 read function."""
+    """Build a live card for one broker from its CDP scrape (zero-OTP, N0).
+
+    Reads via the read-only CDP scrape layer (``scrape_portfolio_from_cdp`` /
+    ``scrape_orders_from_cdp``) instead of the in-process Pillar-2 drivers, whose
+    auth flags go stale after a gateway restart even while the daemon tabs
+    (9333/9334) are still authenticated — the bug where ``/status`` showed 🟢 but
+    ``/port|orders|cash … sync`` answered "session หมดอายุ".
+
+    Fail-closed: a down daemon / missing tab / scrape exception renders the honest
+    ``unavailable_card``, never a 🟢 live card with fabricated numbers.
+    """
+    from app.services.broker_cdp.sync_service import (
+        map_ledger_side,
+        scrape_orders_from_cdp,
+        scrape_portfolio_from_cdp,
+    )
+    from app.mcp.pillars.pillar2_portfolio import _classify_order_category
+
     is_test = False
     try:
         from app.services.trade_dispatcher import trade_dispatcher
         is_test = not trade_dispatcher.is_live
     except Exception:
         pass
-    plat = _broker_platform(broker)
     now_label = _now_bkk().strftime("%H:%M")
+    label = BROKER_LABEL[broker]
+    login_cmd = f"/login {broker}"
+    is_kss = _broker_platform(broker) == "TRADEMAN"
+
+    if kind == "orders":
+        try:
+            snap = await scrape_orders_from_cdp(broker)
+        except Exception as e:
+            logger.warning("CDP order scrape failed for %s: %s", broker, e)
+            return cards.unavailable_card(broker=label, login_cmd=login_cmd)
+        rows: List[Dict[str, Any]] = []
+        for o in (snap.get("orders") or []):
+            side = map_ledger_side(o.get("side"))
+            if side is None:
+                continue  # Anti-Mock: unreadable side -> skip, never fabricate a BUY
+            vol = int(o.get("volume", 0) or 0)
+            mv = int(o.get("matched_volume", 0) or 0)
+            bal = int(o.get("balance", 0) or 0)
+            status_raw = str(o.get("status", ""))
+            category = _classify_order_category(vol, mv, bal, status_raw)
+            rows.append({
+                "kind": _CAT_KIND.get(category, "unknown"),
+                "side": side,
+                "symbol": str(o.get("symbol", "")).upper(),
+                "volume": vol,
+                "price": float(o.get("price", 0.0) or 0.0),
+                "balance": bal,
+                "status": status_raw,
+            })
+        open_count = sum(1 for r in rows if r["kind"] in ("open", "partial"))
+        return cards.orders_card(broker=label, total=len(rows), open_count=open_count,
+                                 rows=rows[:10], snapshot_label=now_label, live=True,
+                                 show_nego=True)
+
+    # port and cash share one portfolio scrape.
+    try:
+        snap = await scrape_portfolio_from_cdp(broker)
+    except Exception as e:
+        logger.warning("CDP portfolio scrape failed for %s: %s", broker, e)
+        return cards.unavailable_card(broker=label, login_cmd=login_cmd)
+
+    account_no = str(snap.get("account_no") or "LIVE")
+    acct_type = str(snap.get("account_type") or "CASH_BALANCE").upper()
 
     if kind == "port":
-        from app.mcp.pillars.pillar2_portfolio import portfolio_holdings
-        res = await portfolio_holdings(platform=plat)
-        # RCA-006b: a TradeMan scrape only counts as live when it ran on an authenticated
-        # page AND a verified account — otherwise the card must say "อ่านไม่ได้".
-        account_label = "LIVE"
-        # RCA-013: the on-page summary row is TradeMan-only — never reuse another
-        # broker's DOM for it (broker isolation). Empty for LIB / unknown platforms.
-        summary: Dict[str, Any] = {}
-        if plat in ("KRUNGSRI", "TRADEMAN"):
-            from app.browser.trademan_driver import trademan_driver
-            if not getattr(trademan_driver, "portfolio_scrape_authenticated", False):
-                return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
-            account_label = getattr(trademan_driver, "active_account_no", None) or "LIVE"
-            summary = getattr(trademan_driver, "portfolio_totals", None) or {}
-        elif plat == "LIBERATOR":
-            # C2 (TASK-loop1-1): the Liberator account number read off the screen replaces the
-            # generic "LIVE" placeholder in the `/port lib sync` card header.
-            account_label = str(res.get("account_no") or "LIVE")
-        rows = _normalise_holdings(res.get("holdings", []))
-        # D2/D3: (B) rows leave the main table and render as their own
-        # "หุ้นยืมคงเหลือ (B)" section. Market Value is no longer shown (D1) — the page's
-        # totals row still feeds Amount, and Unrealized/%P/L keep the P1 formula
-        # (BORROWED rows never contributed to it).
+        rows = _normalise_holdings(snap.get("holdings", []))
         main_rows, borrowed = _split_borrowed(rows)
         total, pnl = _portfolio_totals(rows)
         amount = _portfolio_amount(rows)
-        if summary.get("amount") is not None:
-            amount = summary["amount"]
         cost_base = total - pnl
         pnl_pct = (pnl / cost_base * 100.0) if cost_base else 0.0
-        return cards.port_card(broker=BROKER_LABEL[broker], account=account_label,
-                               amount=amount, pnl_value=pnl, pnl_pct=pnl_pct,
-                               rows=main_rows,
-                               # Broker isolation: only KSS/TradeMan has (B) loans.
-                               borrowed=borrowed if plat in ("KRUNGSRI", "TRADEMAN") else [],
+        # Broker isolation: only KSS/TradeMan has (B) loans.
+        return cards.port_card(broker=label, account=account_no, amount=amount,
+                               pnl_value=pnl, pnl_pct=pnl_pct, rows=main_rows,
+                               borrowed=borrowed if is_kss else [],
                                snapshot_label=now_label, stale=False, live=True,
                                is_test=is_test)
 
-    if kind == "orders":
-        from app.mcp.pillars.pillar2_portfolio import current_orders
-        res = await current_orders(platform=plat)
-        # TASK-loop1-1 (Anti-Mock): a broker that reports `authenticated is False` did not
-        # really read its ledger — say "อ่านไม่ได้" instead of rendering an empty order list
-        # under a 🟢 live badge.
-        if res.get("authenticated") is False:
-            return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
-        ledger = res.get("orders", []) or []
-        rows = [{"kind": _CAT_KIND.get(str(o.get("status_category", "")).upper(), "unknown"),
-                 "side": o.get("side", ""), "symbol": o.get("symbol", ""), "volume": o.get("volume", 0),
-                 "price": o.get("price", 0.0), "balance": o.get("balance", 0),
-                 "status": str(o.get("status_raw", ""))} for o in ledger]
-        return cards.orders_card(broker=BROKER_LABEL[broker], total=res.get("total", len(rows)),
-                                 open_count=res.get("unmatched_count", 0), rows=rows[:10],
-                                 snapshot_label=now_label, live=True, show_nego=True)
-
-    # cash
-    from app.mcp.pillars.pillar2_portfolio import portfolio_get_balances
-    res = await portfolio_get_balances(platform=plat)
-    accounts = res.get("accounts", []) or []
-
-    if plat in ("KRUNGSRI", "TRADEMAN"):
-        # CLI-RCA-011 (P2a): render ONLY the account whose values were bound to the account
-        # number read off the dropdown — a figure must never sit under another account's
-        # header (money-movement safety). "—" alone never counts as readable (RCA-009).
-        acc = next((a for a in accounts if a.get("values_bound") is True), None)
-        if res.get("authenticated") is False or acc is None or acc.get("line_available") is None:
-            return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
-        rows: List[Dict[str, str]] = [
-            {"label": "Line Available", "value": f"{float(acc['line_available']):,.2f}"},
-        ]
-        if str(acc.get("account_type") or "").upper() == "MARGIN":
-            ee = acc.get("excess_equity")
+    # cash — preserve the CLI-RCA-011 per-broker labels (KSS vs LIB).
+    if is_kss:
+        # KSS figures come from the header the account_no was read from (inherently
+        # bound: `_scrape_kss` fails closed when the account_no is unreadable).
+        la = snap.get("line_available")
+        if la is None:
+            return cards.unavailable_card(broker=label, login_cmd=login_cmd)
+        rows = [{"label": "Line Available", "value": f"{float(la):,.2f}"}]
+        if acct_type == "MARGIN":
+            ee = snap.get("excess_equity")
             rows.append({"label": "Excess Equity",
                          "value": f"{float(ee):,.2f}" if ee is not None else "—"})
-        # CLI-RCA-011 (P2b): the honest Account Info "Cash Balance" row — rendered only when
-        # the driver actually read it (Anti-Mock: never a fabricated 0.00). The CASH account
-        # exposes no such row, so it legitimately stays hidden there.
-        cash_balance = acc.get("cash_balance")
-        if cash_balance is not None:
-            rows.append({"label": "Cash balance", "value": f"{float(cash_balance):,.2f}"})
-        return cards.cash_card(broker=BROKER_LABEL[broker],
-                               account=_account_type_label(acc.get("account_type")),
+        cb = snap.get("cash_balance")
+        if cb is not None:
+            rows.append({"label": "Cash balance", "value": f"{float(cb):,.2f}"})
+        return cards.cash_card(broker=label, account=_account_type_label(acct_type),
                                rows=rows, snapshot_label=now_label, live=True)
 
-    # LIB / other platforms: legacy behaviour kept verbatim (broker isolation, RCA-007).
-    acc = next((a for a in accounts if a.get("is_active")), accounts[0] if accounts else {})
+    # LIB: broker-agnostic labels (RCA-007).
     rows = []
-    if acc.get("cash_balance") is not None:
-        rows.append({"label": "เงินสด / Cash balance", "value": f"{float(acc['cash_balance']):,.2f}"})
-    if acc.get("line_available") is not None:
-        rows.append({"label": "กำลังซื้อ / Buying power", "value": f"{float(acc['line_available']):,.2f}"})
-    if acc.get("excess_equity") is not None:
-        rows.append({"label": "Excess equity", "value": f"{float(acc['excess_equity']):,.2f}"})
-    if res.get("authenticated") is False or not rows:
-        # RCA-009: unauthenticated or every field unreadable -> never render 🟢 live
-        # and never show a fabricated 0.00.
-        return cards.unavailable_card(broker=BROKER_LABEL[broker], login_cmd=f"/login {broker}")
-    return cards.cash_card(broker=BROKER_LABEL[broker],
-                           account=_account_type_label(acc.get("account_type")),
+    cb = snap.get("cash_balance")
+    la = snap.get("line_available")
+    ee = snap.get("excess_equity")
+    if cb is not None:
+        rows.append({"label": "เงินสด / Cash balance", "value": f"{float(cb):,.2f}"})
+    if la is not None:
+        rows.append({"label": "กำลังซื้อ / Buying power", "value": f"{float(la):,.2f}"})
+    if ee is not None:
+        rows.append({"label": "Excess equity", "value": f"{float(ee):,.2f}"})
+    if not rows:
+        # RCA-009: every field unreadable -> never render a fabricated 0.00.
+        return cards.unavailable_card(broker=label, login_cmd=login_cmd)
+    return cards.cash_card(broker=label, account=_account_type_label(acct_type),
                            rows=rows, snapshot_label=now_label, live=True)
 
 
