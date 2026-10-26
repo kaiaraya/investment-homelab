@@ -67,6 +67,23 @@ def service():
     return FakeService()
 
 
+@pytest.fixture
+def fresh_sbl_cache(monkeypatch):
+    """Pin the Krungsri SBL snapshot as fresh so /short passes pre-trade check."""
+    from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+    monkeypatch.setattr(
+        krungsri_sbl_driver,
+        "cache_status",
+        lambda *a, **k: {
+            "state": "CACHE_FRESH",
+            "timestamp": "2026-10-26T14:00:00",
+            "age_seconds": 5,
+            "staleness_seconds": 86400,
+            "message": "ข้อมูลคลัง SBL สด (fixture)",
+        },
+    )
+
+
 @pytest.fixture(autouse=True)
 def _edges(monkeypatch):
     """Mock the broker edge + kill-switch so a draft never touches a browser."""
@@ -207,19 +224,40 @@ async def test_sell_drafts_when_position_holds_enough(service, db_session):
 
 
 @pytest.mark.asyncio
-async def test_short_requires_sbl_borrow(service, db_session):
+async def test_short_requires_sbl_borrow(service, db_session, fresh_sbl_cache):
     await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE", line_available=634_864.16)
     res = await _run(service, "/short TISCO 100 124.50", db=db_session)
     assert res["status"] == "CLI_TRADE_REJECTED" and res["code"] == "E_NO_SBL"
 
 
 @pytest.mark.asyncio
-async def test_short_drafts_with_sbl_and_line(service, db_session):
+async def test_short_drafts_with_sbl_and_line(service, db_session, fresh_sbl_cache):
     await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE", line_available=634_864.16)
     await _seed_sbl(db_session, "TISCO", remaining_qty=1000)
     res = await _run(service, "/short TISCO 100 124.50", db=db_session)
     assert res["status"] == "CLI_TRADE_DRAFTED"
     assert res["draft_id"] in handlers._DRAFTS
+
+
+@pytest.mark.asyncio
+async def test_short_rejects_when_sbl_cache_stale(service, db_session, monkeypatch):
+    from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+    monkeypatch.setattr(
+        krungsri_sbl_driver,
+        "cache_status",
+        lambda *a, **k: {
+            "state": "CACHE_STALE",
+            "timestamp": "2026-10-01T00:00:00",
+            "age_seconds": 2_000_000,
+            "staleness_seconds": 86400,
+            "message": "ข้อมูลคลัง SBL เก่าเกิน 24 ชม.",
+        },
+    )
+    await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE", line_available=634_864.16)
+    await _seed_sbl(db_session, "TISCO", remaining_qty=1000)
+    res = await _run(service, "/short TISCO 100 124.50", db=db_session)
+    assert res["status"] == "CLI_TRADE_REJECTED"
+    assert res["code"] == "E_SBL_STALE_CACHE"
 
 
 @pytest.mark.asyncio
@@ -390,7 +428,7 @@ async def test_webhook_routes_trade_draft_confirm(client, db_session, monkeypatc
 # 2.1 — SHORT confirm must carry last_trade_price (G6) and fail closed
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
-async def test_short_confirm_passes_last_trade_price(service, db_session, monkeypatch):
+async def test_short_confirm_passes_last_trade_price(service, db_session, monkeypatch, fresh_sbl_cache):
     from app.services.broker_cdp import order_executor as oe
 
     await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE",
@@ -421,7 +459,7 @@ async def test_short_confirm_passes_last_trade_price(service, db_session, monkey
 
 
 @pytest.mark.asyncio
-async def test_short_confirm_without_quote_fails_closed(service, db_session, monkeypatch):
+async def test_short_confirm_without_quote_fails_closed(service, db_session, monkeypatch, fresh_sbl_cache):
     from app.services.broker_cdp import order_executor as oe
 
     await _seed_account(db_session, "3024959", "KRUNGSRI", "CREDIT_BALANCE",
