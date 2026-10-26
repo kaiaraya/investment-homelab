@@ -113,15 +113,140 @@ async def test_quick_trade_menu_postback(db_session):
 
 @pytest.mark.asyncio
 async def test_short_pre_trade_check_missing_sbl(db_session):
-    # Pre-trade check for short without any SBL lots in DB on stock with no XD risk
+    # Pre-trade check for short without any SBL lots in DB on stock with no XD risk (fresh cache)
     order = parse("/short CPALL 1000 65.00")
 
-    chk = await _pre_trade_check(order, db_session)
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk") as mock_risk:
+        mock_risk.return_value = {
+            "symbol": "CPALL",
+            "is_blocked": False,
+            "verdict": "BORROW_ALLOWED",
+        }
+        chk = await _pre_trade_check(order, db_session)
 
-    assert chk["ok"] is False
-    assert chk["code"] == "E_NO_SBL"
-    assert "ไม่มีหุ้นยืม SBL" in chk["message"]
-    assert len(chk["quick_reply"]) > 0
+        assert chk["ok"] is False
+        assert chk["code"] == "E_NO_SBL"
+        assert "ไม่มีหุ้นยืม SBL" in chk["message"]
+        assert len(chk["quick_reply"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_short_stale_cache_blocks_pre_trade_check_even_with_existing_lots(db_session):
+    """
+    2.11c: SBL cache stale must block /short with E_SBL_STALE_CACHE even when user has active DB lots.
+    This prevents shorting into a missed XD/XR corporate action when cache is outdated.
+    """
+    from datetime import date
+    lot = SBLBorrowLot(
+        lot_id="SBL-PTT-STALE",
+        broker_tx_id="TX_PTT",
+        symbol="PTT",
+        borrow_qty=1000,
+        remaining_qty=1000,
+        borrow_price=34.0,
+        borrow_fee_rate=3.5,
+        borrow_date=date.today(),
+        status="ACTIVE"
+    )
+    db_session.add(lot)
+    await db_session.commit()
+
+    order = parse("/short PTT 1000 34.00")
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk") as mock_risk:
+        mock_risk.return_value = {
+            "symbol": "PTT",
+            "is_blocked": True,
+            "verdict": "CACHE_STALE",
+            "reason": "⚠️ ข้อมูลคลัง SBL เก่าเกิน 24 ชม.",
+            "operator_hint": "พิมพ์ /sbl sync ก่อน",
+        }
+        chk = await _pre_trade_check(order, db_session)
+        assert chk["ok"] is False
+        assert chk["code"] == "E_SBL_STALE_CACHE"
+        assert "พิมพ์ /sbl sync ก่อน" in chk["message"]
+        assert "/sbl sync" in chk["quick_reply"]
+
+
+@pytest.mark.asyncio
+async def test_short_cache_miss_blocks_pre_trade_check(db_session):
+    """
+    2.11c: SBL cache miss (empty) must block /short with E_SBL_STALE_CACHE.
+    """
+    order = parse("/short PTT 1000 34.00")
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk") as mock_risk:
+        mock_risk.return_value = {
+            "symbol": "PTT",
+            "is_blocked": True,
+            "verdict": "CACHE_MISS",
+            "reason": "⚠️ ยังไม่มีข้อมูลคลังหุ้นยืม SBL",
+            "operator_hint": "พิมพ์ /sbl sync ก่อน",
+        }
+        chk = await _pre_trade_check(order, db_session)
+        assert chk["ok"] is False
+        assert chk["code"] == "E_SBL_STALE_CACHE"
+        assert "พิมพ์ /sbl sync ก่อน" in chk["message"]
+
+
+@pytest.mark.asyncio
+async def test_short_fresh_cache_not_in_pool_passes_if_user_holds_db_lots(db_session):
+    """
+    2.11c: NOT_IN_POOL verdict (is_blocked: True) means unlisted in pool, but if user
+    already holds confirmed SBL lots in DB on fresh cache (no XD/XR), /short must pass.
+    """
+    from datetime import date
+    from app.db.models import BrokerAccount
+    acc = BrokerAccount(
+        account_no="3024959",
+        broker="KRUNGSRI",
+        account_type="MARGIN",
+        line_available=500000.0,
+        cash_balance=500000.0,
+    )
+    db_session.add(acc)
+
+    lot = SBLBorrowLot(
+        lot_id="SBL-UNLISTED-1",
+        broker_tx_id="TX_UNLISTED",
+        symbol="MOCK",
+        borrow_qty=1000,
+        remaining_qty=1000,
+        borrow_price=20.0,
+        borrow_fee_rate=3.5,
+        borrow_date=date.today(),
+        status="ACTIVE"
+    )
+    db_session.add(lot)
+    await db_session.commit()
+
+    order = parse("/short MOCK 1000 20.00")
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk") as mock_risk:
+        mock_risk.return_value = {
+            "symbol": "MOCK",
+            "is_blocked": True,
+            "verdict": "NOT_IN_POOL",
+            "reason": "หุ้น MOCK ไม่ได้อยู่ในหมวด SET50/SET100/NEWSEC",
+        }
+        chk = await _pre_trade_check(order, db_session)
+        assert chk["ok"] is True
+        assert chk["resolved_volume"] == 1000
+
+
+@pytest.mark.asyncio
+async def test_short_fresh_cache_not_in_pool_blocks_if_no_lots(db_session):
+    """
+    2.11c: NOT_IN_POOL with 0 DB lots returns E_NO_SBL.
+    """
+    order = parse("/short MOCK 1000 20.00")
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk") as mock_risk:
+        mock_risk.return_value = {
+            "symbol": "MOCK",
+            "is_blocked": True,
+            "verdict": "NOT_IN_POOL",
+            "reason": "หุ้น MOCK ไม่ได้อยู่ในหมวด SET50/SET100/NEWSEC",
+        }
+        chk = await _pre_trade_check(order, db_session)
+        assert chk["ok"] is False
+        assert chk["code"] == "E_NO_SBL"
 
 
 @pytest.mark.asyncio
@@ -813,3 +938,74 @@ async def test_unknown_postback_returns_none(db_session):
     res = await handle_postback("action=approve_all_actions", db=db_session,
                                 raw_event=raw_event, service=service)
     assert res is None          # falls through to line_service's own handlers
+
+
+def test_sbl_pool_card_renders_stale_cache_message():
+    """
+    2.11c: sbl_pool_card renders 'ยังไม่มีข้อมูล — /sbl sync ก่อน' when snapshot is missing/stale.
+    """
+    from app.services.line_cli import cards
+    card = cards.sbl_pool_card("DELTA", available_qty=0, status_message="ข้อมูลคลัง SBL เก่าเกิน 24 ชม.")
+    alt_text = card.get("altText", "")
+    assert "ยังไม่มีข้อมูล — /sbl sync ก่อน" in alt_text
+    quick = card.get("quickReply", {}).get("items", [])
+    quick_texts = [item.get("action", {}).get("text", "") for item in quick]
+    assert "/sbl sync" in quick_texts
+
+
+@pytest.mark.asyncio
+async def test_sbl_borrow_confirm_blocked_by_stale_cache(db_session):
+    """
+    2.11c: SBL borrow confirm postback returns E_SBL_STALE_CACHE when driver rejects stale cache.
+    """
+    from app.services.line_cli.handlers import _store_draft
+    import time
+    draft_id = "DRAFT-STALE-BORROW"
+    _store_draft({
+        "draft_id": draft_id,
+        "type": "sbl_borrow",
+        "symbol": "DELTA",
+        "volume": 500,
+        "fee_rate": 3.5,
+        "created_at": time.time(),
+    })
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    service.push_message = AsyncMock()
+    raw_event = {"replyToken": "tok_pb", "source": {"type": "user", "userId": "test_admin"}}
+
+    with patch("app.services.conversation_state.conversation_state.is_authorized", return_value=True), \
+         patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.execute_sbl_borrow", new_callable=AsyncMock) as mock_exec:
+        mock_exec.return_value = {
+            "success": False,
+            "status": "BLOCKED_BY_STALE_CACHE",
+            "error": "ข้อมูลคลัง SBL ยังไม่สด — พิมพ์ /sbl sync ก่อนยืมหุ้น",
+        }
+        res = await handle_postback(f"action=sbl_borrow_confirm&draft_id={draft_id}", db=db_session,
+                                    raw_event=raw_event, service=service)
+        assert res["status"] == "SBL_BORROW_FAILED"
+        assert res["code"] == "E_SBL_STALE_CACHE"
+        assert "ข้อมูลคลัง SBL ยังไม่สด" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_handle_sbl_pool_with_stale_cache_renders_hint(db_session):
+    """
+    2.11c: /sbl pool <sym> on stale cache passes status_message to sbl_pool_card without raising.
+    """
+    parsed = parse("/sbl pool DELTA")
+    service = MagicMock()
+    service._send_reply = AsyncMock()
+    raw_event = {"replyToken": "tok_pool", "source": {"type": "user", "userId": "test_admin"}}
+
+    with patch("app.services.conversation_state.conversation_state.is_authorized", return_value=True), \
+         patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.scrape_sbl_available_inventory", new_callable=AsyncMock, return_value=0), \
+         patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.cache_status", return_value={"state": "CACHE_STALE", "message": "ข้อมูลคลัง SBL เก่าเกิน 24 ชม."}):
+        res = await handle(parsed, db=db_session, raw_event=raw_event, service=service)
+        assert res["status"] == "CLI_SBL_POOL"
+        assert res["symbol"] == "DELTA"
+        assert res["available_qty"] == 0
+        service._send_reply.assert_called_once()
+        reply_card = service._send_reply.call_args[0][1]
+        assert "ยังไม่มีข้อมูล — /sbl sync ก่อน" in reply_card.get("altText", "")
+

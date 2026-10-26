@@ -1439,6 +1439,16 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
                 "code": "E_SBL_XD_BLOCKED",
                 "message": risk.get("reason") or f"⛔ ห้ามเปิดสถานะชอร์ต: หุ้น {symbol} ติดเครื่องหมาย XD/XR",
             }
+        if risk.get("is_blocked") and risk.get("verdict") in ("CACHE_MISS", "CACHE_STALE"):
+            reason = risk.get("reason") or f"⚠️ ข้อมูลคลัง SBL สำหรับ {symbol} ยังไม่สด"
+            hint = "พิมพ์ /sbl sync ก่อน"
+            msg = reason if hint in reason else f"{reason} — {hint}"
+            return {
+                "ok": False,
+                "code": "E_SBL_STALE_CACHE",
+                "message": msg,
+                "quick_reply": ["/sbl sync", f"/sbl pool {symbol}"],
+            }
         res = await db.execute(select(SBLBorrowLot).where(
             SBLBorrowLot.symbol == symbol,
             SBLBorrowLot.status.in_(("ACTIVE", "PARTIAL_RETURNED")),
@@ -1453,6 +1463,18 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
             return {"ok": False, "code": "E_NO_SBL",
                     "message": msg,
                     "quick_reply": [f"/sbl pool {symbol}", f"/borrow {symbol} {needed if total_sbl_avail > 0 else volume}"]}
+
+        # 2.11c Decision on NOT_IN_POOL:
+        # check_symbol_risk marks NOT_IN_POOL with is_blocked=True to prevent new borrow
+        # on unlisted symbols (fail-closed). However, for /short, if the user ALREADY holds
+        # active SBLBorrowLots in the DB (total_sbl_avail >= volume) on a fresh cache with
+        # no XD/XR, the short is backed by real inventory already borrowed.
+        # We do NOT hard-stop the short; we log a warning for auditability.
+        if risk.get("verdict") == "NOT_IN_POOL":
+            logger.warning(
+                f"/short {symbol} {volume}: symbol NOT_IN_POOL in fresh SBL snapshot, "
+                f"but backed by {total_sbl_avail:,} active DB lot shares; allowing short"
+            )
 
     # 4. line-available from DB (buying-power consuming sides only).
     if side in ("buy", "short"):
@@ -1600,7 +1622,12 @@ async def handle_postback(
         else:
             err = res.get("error") or "เกิดข้อผิดพลาดในการส่งคำขอยืม"
             await _send_or_push(service, reply_token, push_target, _text(f"❌ ขอยืมหุ้นไม่สำเร็จ: {err}"))
-            return {"status": "SBL_BORROW_FAILED", "error": err}
+            out = {"status": "SBL_BORROW_FAILED", "error": err}
+            if res.get("status") == "BLOCKED_BY_STALE_CACHE":
+                out["code"] = "E_SBL_STALE_CACHE"
+            elif res.get("status") == "BLOCKED_BY_XD_XR":
+                out["code"] = "E_SBL_XD_BLOCKED"
+            return out
 
     # 3. SBL Return Postbacks
     if action == "sbl_return_cancel":
@@ -1746,7 +1773,9 @@ async def _handle_sbl(
         except Exception as e:
             logger.error(f"SBL pool query failed: {e}")
             avail_qty = 0
-        card = cards.sbl_pool_card(parsed.symbol, avail_qty, fee_rate=3.50)
+        cache_st = krungsri_sbl_driver.cache_status()
+        status_msg = cache_st.get("message") if cache_st.get("state") != "CACHE_FRESH" else None
+        card = cards.sbl_pool_card(parsed.symbol, avail_qty, fee_rate=3.50, status_message=status_msg)
         await service._send_reply(reply_token, card)
         return {"status": "CLI_SBL_POOL", "symbol": parsed.symbol, "available_qty": avail_qty}
 

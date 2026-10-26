@@ -658,10 +658,22 @@ def sbl_status_card(lots: List[Dict[str, Any]], asof_time: str) -> Dict[str, Any
     )
 
 
-def sbl_pool_card(symbol: str, available_qty: int, fee_rate: float = 3.50) -> Dict[str, Any]:
+def sbl_pool_card(
+    symbol: str,
+    available_qty: int,
+    fee_rate: float = 3.50,
+    status_message: Optional[str] = None,
+) -> Dict[str, Any]:
     """Displays available inventory for a symbol in Krungsri TradeMan SBL pool."""
-    avail_text = f"{available_qty:,} หุ้น" if available_qty > 0 else "ไม่มีในคลัง"
-    avail_color = UP if available_qty > 0 else DOWN
+    if available_qty > 0:
+        avail_text = f"{available_qty:,} หุ้น"
+        avail_color = UP
+    elif status_message:
+        avail_text = "ยังไม่มีข้อมูล — /sbl sync ก่อน"
+        avail_color = MUTED
+    else:
+        avail_text = "ไม่มีในคลัง"
+        avail_color = DOWN
     body = [
         _kv("หุ้น", symbol),
         _kv("จำนวนในคลัง", avail_text, avail_color),
@@ -670,7 +682,9 @@ def sbl_pool_card(symbol: str, available_qty: int, fee_rate: float = 3.50) -> Di
         {"type": "separator", "margin": "md", "color": "#334155"},
         _cell("💡 สั่งยืมด้วยคำสั่ง /borrow หรือกดปุ่มด้านล่าง", MUTED, wrap=True),
     ]
-    quick = [f"/borrow {symbol} 100", f"/borrow {symbol} 1000"] if available_qty > 0 else ["/sbl"]
+    quick = [f"/borrow {symbol} 100", f"/borrow {symbol} 1000"] if available_qty > 0 else (
+        ["/sbl sync", f"/sbl pool {symbol}"] if status_message else ["/sbl"]
+    )
     return _flex(
         f"คลังหุ้นยืม SBL: {symbol} มี {avail_text}",
         _bubble(title=f"🔍 คลังหุ้นยืม SBL ({symbol})", badge="POOL", badge_bg="#6366f1", body=body),
