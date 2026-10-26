@@ -439,6 +439,138 @@ async def test_logout_kss_detaches_cdp_and_keeps_daemon_tab(service, db_session,
 
 
 # --------------------------------------------------------------------------- #
+# CDP-4 — `_broker_session_alive` reads the probe (non-money sites only)
+#          G3 money guard must still call it with allow_cdp=False
+# --------------------------------------------------------------------------- #
+REAL_BROKER_SESSION_ALIVE = handlers._broker_session_alive
+
+
+def _patch_probe(monkeypatch, state, *, daemon_up=True, port=9333, raises=None):
+    """Patch the read-only probe (the exact seam `_broker_session_alive` imports)."""
+    if raises is not None:
+        probe = AsyncMock(side_effect=raises)
+    else:
+        probe = AsyncMock(return_value={
+            "broker": "kss", "purpose": "streaming", "state": state,
+            "daemon_up": daemon_up, "port": port, "target_found": daemon_up,
+            "url_path": "/realtime/streaming7/StreamingPage.jsp",
+        })
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status", probe)
+    return probe
+
+
+def _patch_flags(monkeypatch, *, kss=False, lib=False):
+    """Pin the legacy in-process flags — no daemon, no browser, no login."""
+    from app.browser.auth_driver import auth_driver
+    from app.brokers import liberator_plugin
+    monkeypatch.setattr(handlers, "_broker_session_alive", REAL_BROKER_SESSION_ALIVE)
+    monkeypatch.setattr(type(auth_driver), "is_authenticated", property(lambda self: kss))
+    monkeypatch.setattr(liberator_plugin, "get_health",
+                        AsyncMock(return_value={"is_authenticated": lib}))
+
+
+@pytest.mark.asyncio
+async def test_session_alive_true_from_probe_even_when_flag_is_false(monkeypatch):
+    """The whole point: gateway restarted (flag False) but daemon tab is authenticated."""
+    probe = _patch_probe(monkeypatch, "AUTHENTICATED")
+    _patch_flags(monkeypatch, kss=False)
+
+    assert await REAL_BROKER_SESSION_ALIVE("kss") is True
+    probe.assert_awaited_once()
+    assert probe.await_args.kwargs["purpose"] == "streaming"     # same purpose as /status
+
+
+@pytest.mark.asyncio
+async def test_session_alive_lib_probes_the_portfolio_tab(monkeypatch):
+    probe = _patch_probe(monkeypatch, "AUTHENTICATED", port=9334)
+    _patch_flags(monkeypatch, lib=False)
+
+    assert await REAL_BROKER_SESSION_ALIVE("lib") is True
+    assert probe.await_args.kwargs["purpose"] == "portfolio"
+
+
+@pytest.mark.asyncio
+async def test_session_alive_falls_back_to_flag_when_daemon_down(monkeypatch):
+    _patch_probe(monkeypatch, "DAEMON_DOWN", daemon_up=False)
+    _patch_flags(monkeypatch, kss=True)
+
+    assert await REAL_BROKER_SESSION_ALIVE("kss") is True       # legacy behaviour kept
+
+
+@pytest.mark.asyncio
+async def test_session_alive_login_page_does_not_count_as_alive(monkeypatch):
+    _patch_probe(monkeypatch, "LOGIN_PAGE")
+    _patch_flags(monkeypatch, kss=False)
+
+    assert await REAL_BROKER_SESSION_ALIVE("kss") is False
+
+
+@pytest.mark.asyncio
+async def test_session_alive_probe_error_falls_back_to_flag(monkeypatch):
+    _patch_probe(monkeypatch, None, raises=RuntimeError("cdp exploded"))
+    _patch_flags(monkeypatch, kss=True)
+
+    assert await REAL_BROKER_SESSION_ALIVE("kss") is True
+
+
+@pytest.mark.asyncio
+async def test_session_alive_allow_cdp_false_never_touches_the_probe(monkeypatch):
+    """`allow_cdp=False` is the money-guard contract: flags only, probe untouched."""
+    probe = _patch_probe(monkeypatch, "AUTHENTICATED")
+    _patch_flags(monkeypatch, kss=False)
+
+    assert await REAL_BROKER_SESSION_ALIVE("kss", allow_cdp=False) is False
+    probe.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_nego_g3_guard_calls_session_alive_without_cdp(service, db_session, monkeypatch):
+    """Done-when #1: G3 must NOT use CDP (witnessed rollout is CDP-5)."""
+    res = await _run(service, "/nego kss", db=db_session)
+
+    assert res["status"] == "CLI_NEGO_EMPTY"          # passed G3, no orders to amend
+    alive = handlers._broker_session_alive
+    assert alive.await_args_list, "G3 never checked the session"
+    assert alive.await_args.kwargs.get("allow_cdp") is False
+
+
+@pytest.mark.asyncio
+async def test_port_sync_works_without_login_when_daemon_authenticated(service, db_session, monkeypatch):
+    """`/port <b> sync` must read live data after a restart — no `/login` first."""
+    _patch_probe(monkeypatch, "AUTHENTICATED")
+    _patch_flags(monkeypatch, kss=False)
+
+    res = await _run(service, "/port kss sync", db=db_session)
+
+    assert res["status"] == "CLI_SYNC"
+    assert all("session หลุด" not in _text_of(m) for m in service.replies)
+
+
+@pytest.mark.asyncio
+async def test_cash_sync_works_without_login_when_daemon_authenticated(service, db_session, monkeypatch):
+    _patch_probe(monkeypatch, "AUTHENTICATED", port=9334)
+    _patch_flags(monkeypatch, lib=False)
+
+    res = await _run(service, "/cash lib sync", db=db_session)
+
+    assert res["status"] == "CLI_SYNC"
+    assert not any("session หลุด" in _text_of(m) for m in service.replies)
+
+
+@pytest.mark.asyncio
+async def test_logout_reports_a_real_logout_from_probe_truth(service, db_session, monkeypatch):
+    _patch_probe(monkeypatch, "AUTHENTICATED")
+    _patch_flags(monkeypatch, kss=False)
+    monkeypatch.setattr(handlers, "_detach_session_cdp", AsyncMock(return_value=False))
+    monkeypatch.setattr(handlers, "_close_owned_browsers", AsyncMock(return_value=False))
+
+    await _run(service, "/logout kss", db=db_session)
+
+    text = service.last_text()
+    assert "ออกจากระบบ" in text and "ไม่ได้เข้าระบบอยู่แล้ว" not in text
+
+
+# --------------------------------------------------------------------------- #
 # /port /orders /cash
 # --------------------------------------------------------------------------- #
 async def _seed_position(db, symbol="PTT", volume=1000, avg_cost=13.20, current_price=13.50):

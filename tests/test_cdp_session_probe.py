@@ -231,3 +231,89 @@ async def test_read_only_strictly_no_goto():
             await cdp_session_status(broker, purpose)
             page_mock.goto.assert_not_called()
             assert not hasattr(page_mock, "navigate") or page_mock.navigate.call_count == 0
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 4. CDP-4 — MCP `session_get_health` exposes the same CDP truth as LINE /status
+# ────────────────────────────────────────────────────────────────────────────
+
+def _fake_cdp_table():
+    """Deterministic per-(broker, purpose) probe answers — no daemon, no browser."""
+    table = {
+        ("kss", "streaming"): {
+            "broker": "kss", "purpose": "streaming", "state": "AUTHENTICATED",
+            "daemon_up": True, "port": 9333, "target_found": True,
+            "url_path": "/realtime/streaming7/StreamingPage.jsp",
+        },
+        ("kss", "sbl"): {
+            "broker": "kss", "purpose": "sbl", "state": "LOGIN_PAGE",
+            "daemon_up": True, "port": 9333, "target_found": True,
+            "url_path": "/Login.aspx",
+        },
+        ("lib", "portfolio"): {
+            "broker": "lib", "purpose": "portfolio", "state": "AUTHENTICATED",
+            "daemon_up": True, "port": 9334, "target_found": True,
+            "url_path": "/Portfolio",
+        },
+    }
+
+    async def _probe(broker, purpose=None):
+        return dict(table[(broker, purpose)])
+
+    return _probe
+
+
+@pytest.mark.asyncio
+async def test_session_get_health_exposes_cdp_block_per_broker(monkeypatch):
+    from app.mcp.pillars.pillar1_session import session_get_health
+
+    probe = AsyncMock(side_effect=_fake_cdp_table())
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status", probe)
+
+    health = await session_get_health()
+
+    assert set(health["cdp"]) == {"kss", "lib"}
+    assert health["cdp"]["kss"]["state"] == "AUTHENTICATED"
+    assert health["cdp"]["kss"]["port"] == 9333
+    assert health["cdp"]["kss"]["sbl"]["state"] == "LOGIN_PAGE"   # kss SBL sub-probe
+    assert health["cdp"]["lib"]["state"] == "AUTHENTICATED"
+    # Purposes must match the LINE side (streaming / portfolio / sbl).
+    assert {c.kwargs["purpose"] for c in probe.await_args_list} == {"streaming", "portfolio", "sbl"}
+
+
+@pytest.mark.asyncio
+async def test_session_get_health_cdp_block_matches_line_status(monkeypatch):
+    """Done-when #3: MCP and LINE `/status` must report the same CDP state."""
+    from app.mcp.pillars.pillar1_session import session_get_health
+    from app.services.line_cli import handlers
+
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status",
+                        AsyncMock(side_effect=_fake_cdp_table()))
+
+    health = await session_get_health()
+    for broker in ("kss", "lib"):
+        status = await handlers._broker_health(broker)
+        assert status["cdp"]["state"] == health["cdp"][broker]["state"]
+        assert status["source"] == "CDP"
+    assert health["status"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_session_get_health_survives_a_broken_probe(monkeypatch):
+    """A wedged daemon is a *state* — /health must still answer, keys intact."""
+    from app.mcp.pillars.pillar1_session import session_get_health
+
+    monkeypatch.setattr("app.services.broker_cdp.session_probe.cdp_session_status",
+                        AsyncMock(side_effect=RuntimeError("cdp exploded")))
+
+    health = await session_get_health()
+
+    for key in ("status", "timestamp", "brokers", "krungsri_trademan", "settrade",
+                "kdeconnect", "cdp"):
+        assert key in health
+    assert health["cdp"]["kss"]["state"] == "UNKNOWN"
+    assert health["cdp"]["lib"]["state"] == "UNKNOWN"
+    assert "cdp exploded" in health["cdp"]["kss"]["reason"]
+    # Existing (pre-CDP-4) fields keep their schema.
+    assert set(health["krungsri_trademan"]) >= {"status", "authenticated", "session_file_exists",
+                                                "needs_fresh_login", "session_file_reason"}

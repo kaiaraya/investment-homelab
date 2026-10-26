@@ -7,6 +7,7 @@ Handles:
 - Safe logout and session termination
 """
 
+import asyncio
 import logging
 import os
 from typing import Dict, Any, Optional
@@ -19,6 +20,51 @@ from app.brokers.krungsri.session_health import session_file_info
 from app.schemas.auth import OTPPayload, OTPSource
 
 logger = logging.getLogger("Pillar1.Session")
+
+#: CDP purpose per broker — mirrors ``line_cli.handlers._ATTACH_PURPOSE`` so MCP and
+#: LINE ask the probe the exact same question.
+_CDP_PURPOSE = {"kss": "streaming", "lib": "portfolio"}
+
+#: Per-probe ceiling: the probe itself caps each step at 2s, and /health must answer
+#: even when a daemon is wedged.
+_CDP_PROBE_TIMEOUT_S = 3.0
+
+
+async def _cdp_probe(broker: str, purpose: str) -> Dict[str, Any]:
+    """Read-only CDP truth for one broker tab (never launches/navigates/logs in)."""
+    try:
+        from app.services.broker_cdp.session_probe import cdp_session_status
+        return dict(await asyncio.wait_for(
+            cdp_session_status(broker, purpose=purpose), timeout=_CDP_PROBE_TIMEOUT_S))
+    except Exception as e:  # noqa: BLE001
+        return {
+            "broker": broker,
+            "purpose": purpose,
+            "state": "UNKNOWN",
+            "daemon_up": False,
+            "reason": f"{type(e).__name__}: {e}",
+        }
+
+
+async def _cdp_session_health() -> Dict[str, Any]:
+    """``cdp`` block for /health — same probe + purposes ``handlers._broker_health`` uses,
+    so MCP tools and LINE ``/status`` report the same state per broker."""
+    kss, lib = await asyncio.gather(
+        _cdp_probe("kss", _CDP_PURPOSE["kss"]),
+        _cdp_probe("lib", _CDP_PURPOSE["lib"]),
+    )
+    if kss.get("daemon_up"):
+        kss["sbl"] = await _cdp_probe("kss", "sbl")
+    else:
+        kss["sbl"] = {
+            "broker": "kss",
+            "purpose": "sbl",
+            "state": kss.get("state", "DAEMON_DOWN"),
+            "daemon_up": False,
+            "reason": kss.get("reason", ""),
+        }
+    return {"kss": kss, "lib": lib}
+
 
 
 async def session_get_health() -> Dict[str, Any]:
@@ -72,10 +118,23 @@ async def session_get_health() -> Dict[str, Any]:
     except Exception as e:
         logger.debug(f"Broker registry health check: {e}")
 
+    # CDP truth block (CDP-4): the same read-only probe LINE `/status` uses, so both
+    # channels answer the same question. Never raises — a broken daemon is a state,
+    # not an error. Existing keys above are untouched (additive only).
+    cdp_health = await _cdp_session_health()
+    cdp_authenticated = any(
+        probe.get("state") == "AUTHENTICATED"
+        for probe in (cdp_health.get("kss"), cdp_health.get("lib"))
+        if isinstance(probe, dict)
+    )
+
     return {
-        "status": "healthy" if (kss_authenticated or c2w_authenticated or settrade_api_ready or any(b.get("is_authenticated") for b in broker_health.values())) else "degraded",
+        "status": "healthy" if (kss_authenticated or c2w_authenticated or settrade_api_ready
+                                 or cdp_authenticated
+                                 or any(b.get("is_authenticated") for b in broker_health.values())) else "degraded",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "brokers": broker_health,
+        "cdp": cdp_health,
         "krungsri_trademan": {
             "status": kss_status,
             "authenticated": kss_authenticated,
