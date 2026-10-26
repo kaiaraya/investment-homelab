@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:24.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 14:32.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-26 14:24
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 2 · review 0 · done 44 · archived 17
+- **Generated:** 2026-10-26 14:32
+- **Counts:** running 2 · ready 0 · todo 4 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 44 · archived 17
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,6 +27,12 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
+| `t_e3f4fc6f` | **running** | `homelab-build` | Fix Liberator test fixture account number mismatch (7-digit vs 8-digit) |
+| `t_033b4521` | **running** | `homelab-build` | 🟢 T0 · CDP-1 session probe (read-only) + path contract |
+| `t_2b531977` | **todo** | `homelab-build` | 🟢 T0 · CDP-2 /status ใช้ probe + โชว์ port/pid/ที่มา |
+| `t_f4b373d4` | **todo** | `homelab-build` | 🟡 T1 · CDP-3 /login = attach แท็บเดิม (zero-OTP) + logout ไม่ปิดเบราว์เซอร์ |
+| `t_cadae6a7` | **todo** | `homelab-build` | 🟡 T1 · CDP-4 _broker_session_alive ใช้ probe (ยกเว้น G3) + MCP ตรงกัน |
+| `t_73d6e7e6` | **todo** | `default` | 🔴 T2 · CDP-5 G3 money guard รับ CDP (ต้องมี witness) |
 | `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 | `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
 | `t_25ba3820` | **blocked** | `default` | ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback |
@@ -34,7 +40,6 @@
 | `t_ee3c1ac6` | **blocked** | `default` | ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short |
 | `t_75795660` | **blocked** | `homelab-build` | 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
 | `t_e2c587f7` | **blocked** | `homelab-build` | 🔴 T2 · [Liberator] · P.4-lib Order submit ผ่าน JS (buy/sell/change/cancel) + Anti-Mock |
-| `t_e3f4fc6f` | **triage** | `default` | 🔧 T0 · Fix test fixture: Liberator account 7-digit (7055938) vs 8-digit (70559382) |
 | `t_2293ae5f` | **triage** | `default` | 🟢 T0 · /sbl sync ยัง launch Chromium clone — ต่อ sbl_read.js ผ่าน CDP (zero-OTP) |
 
 ## ✅ ปิดล่าสุด 10 ใบ
