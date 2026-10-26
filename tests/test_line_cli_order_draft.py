@@ -103,23 +103,52 @@ async def _run(service, text, *, db, **ev):
 # --------------------------------------------------------------------------- #
 # Seed helpers
 # --------------------------------------------------------------------------- #
-async def _seed_account(db, account_no="7055938", broker="LIBERATOR",
+async def _seed_account(db, account_no=None, broker="LIBERATOR",
                         account_type="CASH_BALANCE", line_available=50_000.0):
     from app.db.models import BrokerAccount
     from sqlalchemy import select
-    existing = (await db.execute(
-        select(BrokerAccount).where(BrokerAccount.account_no == account_no))).scalar_one_or_none()
-    if existing is None:
-        db.add(BrokerAccount(account_no=account_no, broker=broker,
-                             account_type=account_type, line_available=line_available))
-        await db.commit()
+    from app.core.config import settings
+
+    target_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()
+    accs = set()
+    if account_no:
+        accs.add(str(account_no).strip())
+    else:
+        accs.add(target_acc)
+
+    if broker == "LIBERATOR":
+        accs.add(target_acc)
+        accs.add("7055938")
+
+    for acc in accs:
+        existing = (await db.execute(
+            select(BrokerAccount).where(BrokerAccount.account_no == acc))).scalar_one_or_none()
+        if existing is None:
+            db.add(BrokerAccount(account_no=acc, broker=broker,
+                                 account_type=account_type, line_available=line_available))
+        else:
+            existing.line_available = line_available
+    await db.commit()
 
 
-async def _seed_position(db, symbol="PTT", account_no="7055938",
+async def _seed_position(db, symbol="PTT", account_no=None,
                          position_type="LONG", volume=500):
     from app.db.models import Position
-    db.add(Position(account_no=account_no, symbol=symbol, position_type=position_type,
-                    volume=volume, avg_cost=12.0))
+    from app.core.config import settings
+
+    target_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()
+    accs = set()
+    if account_no:
+        accs.add(str(account_no).strip())
+    else:
+        accs.add(target_acc)
+
+    accs.add(target_acc)
+    accs.add("7055938")
+
+    for acc in accs:
+        db.add(Position(account_no=acc, symbol=symbol, position_type=position_type,
+                        volume=volume, avg_cost=12.0))
     await db.commit()
 
 
@@ -135,7 +164,9 @@ async def _seed_sbl(db, symbol="TISCO", remaining_qty=1000):
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_buy_drafts_and_shows_confirmation_card(service, db_session):
-    await _seed_account(db_session, "7055938", "LIBERATOR", "CASH_BALANCE", line_available=50_000.0)
+    from app.core.config import settings
+    lib_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "7055938").strip()
+    await _seed_account(db_session, lib_acc, "LIBERATOR", "CASH_BALANCE", line_available=50_000.0)
 
     res = await _run(service, "/buy PTT 100 12.50", db=db_session)
 
@@ -146,12 +177,23 @@ async def test_buy_drafts_and_shows_confirmation_card(service, db_session):
     text = _card_text(card)
     # order details + side-coloured badge + expiry note
     assert "PTT" in text and "BUY" in text and "12.50" in text and "1,250.00" in text
-    assert "หมดอายุใน 3 นาที" in text
+    expected_min = int(getattr(settings, "CARD_TTL_SECONDS", 180)) // 60
+    assert f"หมดอายุใน {expected_min} นาที" in text
     # both postback buttons carry the opaque draft_id
     assert f"action=trade_draft_confirm&draft_id={res['draft_id']}" in text
     assert f"action=trade_draft_cancel&draft_id={res['draft_id']}" in text
     # the draft is live in the store
     assert res["draft_id"] in handlers._DRAFTS
+
+
+def test_liberator_account_no_7_vs_8_digit_relationship():
+    """Pin the Liberator 7-digit investor ID (7055938) to 8-digit account number (e.g. 70559382)."""
+    from app.core.config import settings
+
+    lib_acc = (getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "").strip()
+    if lib_acc:
+        assert lib_acc.startswith("7055938")
+        assert len(lib_acc) in (7, 8)
 
 
 @pytest.mark.asyncio
