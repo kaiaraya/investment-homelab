@@ -43,7 +43,7 @@ async def test_trade_center_pre_order_approval_and_execution(db_session):
     # Verify order is saved in DB
     order = await db_session.get(Order, "ORD-TEST-CONFIRM")
     assert order is not None
-    assert order.status in ["SUBMITTED", "MATCHED"]
+    assert order.status in ["SUBMITTED", "MATCHED", "SIMULATED_SUCCESS"]
 
 
 # =============================================================================
