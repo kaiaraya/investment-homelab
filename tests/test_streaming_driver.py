@@ -6,10 +6,12 @@ Covers:
   are REAL (Sell/Buy radio + Short/Cover toggle), never simulated as SELL/BUY.
 - The Anti-DW symbol assertion (stale ticket -> REJECTED, fail-closed).
 - cancel_order (row-scoped cancel + confirm).
-- modify_order_price (cancel + replace).
+- modify_order_price (native in-place change first — SQ-7 PATCH /orders/{orderNo}/change —
+  then cancel + replace only when the native path provably sent nothing).
 No real navigation / login / order is performed.
 """
 import pytest
+import re
 from unittest.mock import AsyncMock
 
 from app.core.config import settings
@@ -25,6 +27,8 @@ from app.browser.streaming_driver import (
     PRICE_STEPPER_MINUS_SELECTOR,
     CANCEL_ACTION_SELECTOR,
     CANCEL_CONFIRM_SELECTOR,
+    STREAMING_CHANGE_JS,
+    STREAMING_ORDERS_READ_JS,
 )
 
 STREAMING_PAGE_URL = "https://wma1.settrade.com/realtime/streaming7/StreamingPage.jsp"
@@ -82,13 +86,15 @@ class FakeLocator:
 
 
 class FakePage:
-    def __init__(self, elements=None, input_values=None, evaluate_result=None):
+    def __init__(self, elements=None, input_values=None, evaluate_result=None, evaluate_queue=None):
         self.url = STREAMING_PAGE_URL
         self.clicks = []
         self.filled = {}
+        self.js_calls = []
         self._elements = elements or {}
         self._input_values = input_values or {}
         self._evaluate_result = evaluate_result
+        self._evaluate_queue = list(evaluate_queue or [])
 
     def is_closed(self):
         return False
@@ -99,7 +105,10 @@ class FakePage:
     async def query_selector(self, selector):
         return self._elements.get(selector)
 
-    async def evaluate(self, js):
+    async def evaluate(self, js, arg=None):
+        self.js_calls.append((js, arg))
+        if self._evaluate_queue:
+            return self._evaluate_queue.pop(0)
         return self._evaluate_result
 
     async def wait_for_timeout(self, ms):
@@ -347,4 +356,305 @@ async def test_execute_order_stepper_offset_minus():
     minus_clicks = [c for c in page.clicks if c == PRICE_STEPPER_MINUS_SELECTOR]
     assert len(minus_clicks) == 1
     assert res["price"] == 33.75
+
+
+# --- SQ-7 native change (PATCH /orders/{orderNo}/change) -------------------
+# Contract source: data/har/kss_change_all.har (live capture 2026-10-26 11:50).
+# The PATCH answers 200 with an EMPTY body, so success may only be claimed after
+# an Anti-Mock re-read of the SAME orderNo shows the new price.
+
+PATCH_OK = {"ok": True, "account": "3024959", "httpStatus": 200, "body": ""}
+
+
+def _order_row(order_no="11014863", price=6.70, vol=100, status="O", show="Queuing(O)"):
+    return {
+        "accountNo": "3024959", "orderNo": order_no, "symbol": "BCPG", "side": "Buy",
+        "price": price, "vol": vol, "balance": vol, "status": status,
+        "showOrderStatus": show, "rejectCode": 0,
+    }
+
+
+async def test_streaming_change_js_contract_matches_har():
+    """The embedded JS must keep the captured endpoint/method/headers/payload shape."""
+    assert "orders/${encodeURIComponent(arg.orderNo)}/change" in STREAMING_CHANGE_JS
+    assert "method: 'PATCH'" in STREAMING_CHANGE_JS
+    assert "credentials: 'include'" in STREAMING_CHANGE_JS   # SSO cookie auth, no CSRF
+    assert "'terminal': 'streaming'" in STREAMING_CHANGE_JS
+    for field in ("bypassWarning", "newVolume", "pin", "tradeDate", "newPrice"):
+        assert field in STREAMING_CHANGE_JS
+    assert "/orders`" in STREAMING_ORDERS_READ_JS
+
+
+async def test_change_order_native_happy_path_keeps_same_order_no(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, [_order_row()]])
+    d = _driver_with(page)
+
+    res = await d.change_order_native(
+        broker_order_no="11014863", new_price=6.70, new_volume=100,
+        pin="515286", symbol="BCPG", side="BUY",
+    )
+
+    assert res["success"] is True
+    assert res["status"] == "MODIFIED_IN_PLACE"
+    assert res["stage"] == "verified"
+    assert res["verified"] is True
+    assert res["broker_order_no"] == "11014863"   # SAME orderNo — no new order created
+    assert res["old_order_no"] == "11014863"
+    assert res["native_change"] is True
+    assert res["observed_price"] == 6.70
+
+    # Exactly two JS hops: PATCH, then the Anti-Mock re-read.
+    assert len(page.js_calls) == 2
+    patch_js, patch_arg = page.js_calls[0]
+    assert patch_js == STREAMING_CHANGE_JS
+    assert patch_arg["orderNo"] == "11014863"
+    assert patch_arg["newPrice"] == 6.70
+    assert patch_arg["newVolume"] == 100
+    assert patch_arg["pin"] == "515286"
+    assert re.fullmatch(r"\d{2}/\d{2}/\d{4}", patch_arg["tradeDate"])
+    assert page.js_calls[1][0] == STREAMING_ORDERS_READ_JS
+
+
+async def test_modify_order_price_prefers_native_and_never_cancels(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, [_order_row()]])
+    d = _driver_with(page)
+    cancel_mock = AsyncMock()
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+    monkeypatch.setattr(d, "execute_order", execute_mock)
+
+    res = await d.modify_order_price(
+        broker_order_no="11014863", symbol="BCPG", side="BUY",
+        new_price=6.70, remaining_volume=100, pin="515286",
+    )
+
+    assert res["success"] is True and res["status"] == "MODIFIED_IN_PLACE"
+    assert res["broker_order_no"] == "11014863"
+    cancel_mock.assert_not_awaited()   # no queue position lost
+    execute_mock.assert_not_awaited()
+
+
+async def test_modify_order_price_falls_back_when_patch_fails(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[
+        {"ok": False, "account": "3024959", "httpStatus": 500, "body": '{"errorCode":"99"}'},
+    ])
+    d = _driver_with(page)
+    cancel_mock = AsyncMock(return_value={"success": True, "status": "CANCELLED", "broker_order_no": "11014863"})
+    execute_mock = AsyncMock(return_value={"success": True, "status": "SUBMITTED", "broker_order_no": "11019999"})
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+    monkeypatch.setattr(d, "execute_order", execute_mock)
+
+    res = await d.modify_order_price(
+        broker_order_no="11014863", symbol="BCPG", side="BUY",
+        new_price=6.70, remaining_volume=100, pin="515286",
+    )
+
+    assert res["success"] is True
+    assert res["status"] == "MODIFIED"
+    assert res["broker_order_no"] == "11019999"
+    assert res["native_change"] is False
+    cancel_mock.assert_awaited_once_with(broker_order_no="11014863", symbol="BCPG", bypass_dry_run=False)
+    execute_mock.assert_awaited_once_with(
+        symbol="BCPG", side="BUY", volume=100, price=6.70, pin="515286", bypass_dry_run=False
+    )
+    assert len(page.js_calls) == 1   # failed PATCH -> no re-read attempted
+
+
+async def test_modify_order_price_falls_back_when_no_browser(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    d = StreamingDriver()
+    d._log_event = AsyncMock()
+    monkeypatch.setattr(d, "_ensure_streaming_page", AsyncMock(return_value=None))
+    cancel_mock = AsyncMock(return_value={"success": True, "status": "CANCELLED", "broker_order_no": "11014863"})
+    execute_mock = AsyncMock(return_value={"success": True, "status": "SUBMITTED", "broker_order_no": "11019999"})
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+    monkeypatch.setattr(d, "execute_order", execute_mock)
+
+    res = await d.modify_order_price(
+        broker_order_no="11014863", symbol="BCPG", new_price=6.70, remaining_volume=100, pin="515286",
+    )
+
+    assert res["status"] == "MODIFIED" and res["native_change"] is False
+    cancel_mock.assert_awaited_once()
+
+
+async def test_change_order_native_fails_closed_on_price_mismatch(monkeypatch):
+    """PATCH 200 (empty body) but the re-read still shows the OLD price => FAILED."""
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, [_order_row(price=6.75)]])
+    d = _driver_with(page)
+
+    res = await d.change_order_native(
+        broker_order_no="11014863", new_price=6.70, new_volume=100, pin="515286",
+    )
+
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["stage"] == "verify"
+    assert res["fallback_ok"] is False
+    assert "Anti-Mock" in res["error"]
+    assert res["observed_price"] == 6.75
+
+
+async def test_modify_order_price_never_cancels_after_verify_failure(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, [_order_row(price=6.75)]])
+    d = _driver_with(page)
+    cancel_mock = AsyncMock()
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+    monkeypatch.setattr(d, "execute_order", execute_mock)
+
+    res = await d.modify_order_price(
+        broker_order_no="11014863", symbol="BCPG", new_price=6.70, remaining_volume=100, pin="515286",
+    )
+
+    assert res["success"] is False and res["stage"] == "verify"
+    cancel_mock.assert_not_awaited()   # the PATCH may have landed — cancel would double-trade
+    execute_mock.assert_not_awaited()
+
+
+async def test_change_order_native_fails_closed_when_order_missing_after_patch(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, []])
+    d = _driver_with(page)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=100, pin="515286")
+
+    assert res["success"] is False and res["stage"] == "verify"
+    assert "not found" in res["error"]
+    assert res["fallback_ok"] is False
+
+
+async def test_change_order_native_fails_closed_when_orders_unreadable(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, None])
+    d = _driver_with(page)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=100, pin="515286")
+
+    assert res["success"] is False and res["stage"] == "verify"
+    assert res["fallback_ok"] is False
+
+
+async def test_change_order_native_fails_closed_on_volume_mismatch(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[PATCH_OK, [_order_row(price=6.70, vol=300)]])
+    d = _driver_with(page)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=100, pin="515286")
+
+    assert res["success"] is False and res["stage"] == "verify"
+    assert res["observed_volume"] == 300
+
+
+async def test_change_order_native_dry_run_never_patches(monkeypatch):
+    """DRY_RUN_MODE=True must not touch the broker (and must not cancel either)."""
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
+    page = FakePage()
+    d = _driver_with(page)
+    cancel_mock = AsyncMock()
+    monkeypatch.setattr(d, "cancel_order", cancel_mock)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=100, pin="515286")
+
+    assert res["success"] is True
+    assert res["status"] == "SIMULATED_SUCCESS"
+    assert res["stage"] == "dry_run"
+    assert page.js_calls == []
+
+    res2 = await d.modify_order_price(
+        broker_order_no="11014863", symbol="BCPG", new_price=6.70, remaining_volume=100, pin="515286",
+    )
+    assert res2["status"] == "SIMULATED_SUCCESS"
+    cancel_mock.assert_not_awaited()
+
+
+async def test_change_order_native_reads_remaining_volume_when_unknown(monkeypatch):
+    """Callers that don't know the volume (e.g. MCP) get it read from the live order."""
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[[_order_row()], PATCH_OK, [_order_row()]])
+    d = _driver_with(page)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=0, pin="515286")
+
+    assert res["success"] is True and res["stage"] == "verified"
+    assert page.js_calls[1][0] == STREAMING_CHANGE_JS
+    assert page.js_calls[1][1]["newVolume"] == 100   # from the live order, not guessed
+    assert res["volume"] == 100
+
+
+async def test_change_order_native_rejects_unknown_volume_without_ordering(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    page = FakePage(evaluate_queue=[None])   # orders read unavailable -> no volume known
+    d = _driver_with(page)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=0, pin="515286")
+
+    assert res["status"] == "REJECTED" and "INVALID_VOLUME" in res["error"]
+    assert res["fallback_ok"] is True
+    assert all(js != STREAMING_CHANGE_JS for js, _ in page.js_calls)   # never PATCHed
+
+
+async def test_change_order_native_requires_volume_and_pin(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    monkeypatch.setattr(settings, "KRUNGSRI_PIN", "")
+    page = FakePage()
+    d = _driver_with(page)
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=0, pin="515286")
+    assert res["status"] == "REJECTED"
+    assert "INVALID_VOLUME" in res["error"]
+    assert res["fallback_ok"] is True     # nothing was sent -> cancel+replace is safe
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=100, pin=None)
+    assert res["status"] == "REJECTED"
+    assert res["error"] == "NO_PIN"
+    assert res["fallback_ok"] is False    # cancel+replace would need the same PIN
+    assert all(js != STREAMING_CHANGE_JS for js, _ in page.js_calls)
+
+
+async def test_change_order_native_fails_closed_without_browser(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    d = StreamingDriver()
+    d._log_event = AsyncMock()
+    monkeypatch.setattr(d, "_ensure_streaming_page", AsyncMock(return_value=None))
+
+    res = await d.change_order_native(broker_order_no="11014863", new_price=6.70, new_volume=100, pin="515286")
+
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["stage"] == "no_page"
+    assert res["fallback_ok"] is True
+
+
+# --- plugin wiring (app/brokers/streaming/plugin.py) -----------------------
+
+async def test_plugin_modify_order_price_passes_native_path(monkeypatch):
+    from app.brokers.streaming import plugin as plugin_mod
+
+    captured = {}
+
+    async def fake_modify(**kw):
+        captured.update(kw)
+        return {
+            "success": True, "status": "MODIFIED_IN_PLACE", "native_change": True,
+            "broker_order_no": kw["broker_order_no"], "message": "changed in place",
+        }
+
+    monkeypatch.setattr(plugin_mod.streaming_driver, "modify_order_price", fake_modify)
+
+    res = await plugin_mod.streaming_plugin.modify_order_price(
+        "11014863", 6.70, symbol="BCPG", remaining_volume=100, pin="515286",
+    )
+
+    assert res.success is True
+    assert res.order_id == "11014863"          # same orderNo survives into the OrderResult
+    assert res.raw_response["status"] == "MODIFIED_IN_PLACE"
+    assert captured["prefer_native"] is True   # native path requested by default
+    assert captured["remaining_volume"] == 100
+    assert captured["pin"] == "515286"
 

@@ -105,6 +105,59 @@ CONFIRM_SELECTORS = [
 CANCEL_ACTION_SELECTOR = "a:has-text('Cancel'), button:has-text('Cancel')"
 CANCEL_CONFIRM_SELECTOR = "button:has-text('Confirm'), button:has-text('ตกลง'), button:has-text('OK')"
 
+# ---------------------------------------------------------------------------
+# SQ-7 native change (in-place amend) — captured from data/har/kss_change_all.har
+# ---------------------------------------------------------------------------
+# PATCH https://apigw.settrade.com/api/dgw/v3/029/accounts/{acct}/orders/{orderNo}/change
+#   body: {"bypassWarning":false,"newVolume":100,"pin":"******",
+#          "tradeDate":"26/10/2026","newPrice":6.7}
+# Auth = SSO session cookie only (credentials:'include'), no nonce/CSRF header.
+# The 200 response has an EMPTY body -> success is NEVER claimed from the PATCH
+# alone; the caller must re-read the order and see the new price (Anti-Mock).
+STREAMING_CHANGE_JS = r"""
+async (arg) => {
+    const acct = arg.acct || (() => {
+        const m = document.body.innerText.match(/3024\d{3}/);
+        return m ? m[0] : '';
+    })();
+    if (!acct) return { ok: false, account: '', httpStatus: 0, body: '', error: 'NO_ACCOUNT' };
+    const url = `https://apigw.settrade.com/api/dgw/v3/029/accounts/${acct}/orders/${encodeURIComponent(arg.orderNo)}/change`;
+    const r = await fetch(url, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+            'accept': 'application/json, text/plain, */*',
+            'content-type': 'application/json',
+            'clientversion': '4.0.0',
+            'terminal': 'streaming',
+        },
+        body: JSON.stringify({
+            bypassWarning: false,
+            newVolume: arg.newVolume,
+            pin: arg.pin,
+            tradeDate: arg.tradeDate,
+            newPrice: arg.newPrice,
+        }),
+    });
+    let body = '';
+    try { body = (await r.text()) || ''; } catch (e) { body = ''; }
+    return { ok: r.ok, account: acct, httpStatus: r.status, body: body.slice(0, 400) };
+}
+"""
+
+STREAMING_ORDERS_READ_JS = r"""
+async (arg) => {
+    const acct = arg.acct || (() => {
+        const m = document.body.innerText.match(/3024\d{3}/);
+        return m ? m[0] : '';
+    })();
+    if (!acct) return null;
+    const r = await fetch(`https://apigw.settrade.com/api/dgw/v3/029/accounts/${acct}/orders`, { credentials: 'include' });
+    if (!r.ok) return null;
+    return await r.json();
+}
+"""
+
 
 class StreamingDriver:
     """Playwright automation driver for the live Settrade Streaming console."""
@@ -694,6 +747,200 @@ class StreamingDriver:
                 "error": str(e),
             }
 
+    async def _find_order_row(self, page: Page, broker_order_no: str) -> Optional[Dict[str, Any]]:
+        """Read one order row from the DGW orders endpoint (None when unreadable/missing).
+
+        Read-only: used to learn the live remaining volume before a native change and
+        nothing else. Never raises.
+        """
+        try:
+            orders = await page.evaluate(STREAMING_ORDERS_READ_JS, {"acct": self.active_account_no})
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Streaming orders read failed: {e}")
+            return None
+        if not isinstance(orders, list):
+            return None
+        return next((o for o in orders if str(o.get("orderNo") or "") == str(broker_order_no)), None)
+
+    async def change_order_native(
+        self,
+        broker_order_no: str,
+        new_price: float,
+        new_volume: int = 0,
+        pin: Optional[str] = None,
+        symbol: str = "",
+        side: str = "BUY",
+        trade_date: Optional[str] = None,
+        bypass_dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """SQ-7: amend an open order IN PLACE via ``PATCH .../orders/{orderNo}/change``.
+
+        Changing price/volume on the *existing* ``orderNo`` keeps the queue position and
+        removes the cancel+replace window (KSS-RCA-016). Contract captured from the real
+        console HAR (``data/har/kss_change_all.har``): SSO cookie auth, no nonce/CSRF,
+        ``tradeDate`` is ``dd/mm/YYYY``, and a success returns HTTP 200 with an **empty
+        body** — therefore success is only claimed after an Anti-Mock re-read of the same
+        orderNo shows the new price. Anything else fails CLOSED.
+
+        Returns a dict with ``success`` / ``status`` plus:
+          * ``stage``       — where it stopped (``no_page`` | ``validate`` | ``dry_run`` |
+                              ``change`` | ``verify`` | ``verified``)
+          * ``fallback_ok`` — True only when nothing was sent to the broker, so a caller
+                              may safely fall back to cancel+replace. A ``verify`` failure
+                              is NOT fallback-safe: the PATCH may already have landed.
+        """
+        base: Dict[str, Any] = {
+            "broker_order_no": broker_order_no,
+            "old_order_no": broker_order_no,
+            "symbol": symbol,
+            "side": side,
+            "new_price": new_price,
+            "native_change": True,
+        }
+
+        page = await self._ensure_streaming_page()
+        if not page or page.is_closed():
+            return {
+                **base,
+                "success": False,
+                "status": "FAILED",
+                "stage": "no_page",
+                "fallback_ok": True,
+                "error": "Browser session not connected",
+            }
+
+        if not broker_order_no or not str(broker_order_no).strip():
+            return {**base, "success": False, "status": "REJECTED", "stage": "validate",
+                    "fallback_ok": False, "error": "NO_ORDER_NO"}
+        if not new_price or float(new_price) <= 0:
+            return {**base, "success": False, "status": "REJECTED", "stage": "validate",
+                    "fallback_ok": False, "error": "INVALID_PRICE"}
+        vol = int(new_volume or 0)
+        effective_pin = pin or settings.KRUNGSRI_PIN
+        if not effective_pin:
+            # A cancel+replace would demand the same PIN, so do NOT touch the order.
+            return {**base, "success": False, "status": "REJECTED", "stage": "validate",
+                    "fallback_ok": False, "error": "NO_PIN"}
+
+        effective_trade_date = trade_date or datetime.now().strftime("%d/%m/%Y")
+
+        if settings.DRY_RUN_MODE and not bypass_dry_run:
+            await self._log_event(
+                "STREAMING_CHANGE_DRY_RUN",
+                f"[DRY RUN] native change {broker_order_no} -> ฿{float(new_price):.2f} x{vol or '?'} omitted",
+            )
+            return {
+                **base,
+                "success": True,
+                "status": "SIMULATED_SUCCESS",
+                "stage": "dry_run",
+                "volume": vol or None,
+                "verified": False,
+                "message": f"Native change simulated (DRY_RUN_MODE): {broker_order_no} -> ฿{float(new_price):.2f} x{vol or '?'}",
+            }
+
+        if vol <= 0:
+            # The PATCH carries newVolume explicitly, so never guess: read the live
+            # remaining volume off the order itself (read-only, no side effects).
+            row_before = await self._find_order_row(page, broker_order_no)
+            if isinstance(row_before, dict):
+                try:
+                    vol = int(row_before.get("balance") or row_before.get("vol") or row_before.get("volume") or 0)
+                except (TypeError, ValueError):
+                    vol = 0
+            if vol <= 0:
+                return {**base, "success": False, "status": "REJECTED", "stage": "validate",
+                        "fallback_ok": True,
+                        "error": "INVALID_VOLUME: native change needs a known remaining volume"}
+
+        # 1. Fire the native PATCH (JS-first, same-origin session cookie).
+        try:
+            patch_res = await page.evaluate(
+                STREAMING_CHANGE_JS,
+                {
+                    "orderNo": str(broker_order_no),
+                    "newPrice": float(new_price),
+                    "newVolume": vol,
+                    "pin": str(effective_pin),
+                    "tradeDate": effective_trade_date,
+                    "acct": self.active_account_no,
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Streaming native change JS failed: {e}")
+            return {**base, "success": False, "status": "FAILED", "stage": "change",
+                    "fallback_ok": True, "error": f"PATCH /change raised: {e}"}
+
+        if not isinstance(patch_res, dict):
+            return {**base, "success": False, "status": "FAILED", "stage": "change",
+                    "fallback_ok": True, "error": "PATCH /change returned no result"}
+        if not patch_res.get("ok"):
+            http_status = patch_res.get("httpStatus")
+            detail = str(patch_res.get("body") or patch_res.get("error") or "").strip()
+            return {
+                **base,
+                "success": False,
+                "status": "FAILED",
+                "stage": "change",
+                "fallback_ok": True,
+                "http_status": http_status,
+                "error": f"PATCH /change HTTP {http_status} {detail}".strip(),
+            }
+
+        # 2. Anti-Mock: re-read the SAME orderNo; success requires the new price to be there.
+        acct = str(patch_res.get("account") or self.active_account_no)
+        try:
+            orders = await page.evaluate(STREAMING_ORDERS_READ_JS, {"acct": acct})
+        except Exception as e:  # noqa: BLE001
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False, "error": f"Anti-Mock re-read failed after PATCH: {e}"}
+        if not isinstance(orders, list):
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False, "error": "Anti-Mock: orders re-read unavailable after PATCH"}
+
+        row = next((o for o in orders if str(o.get("orderNo") or "") == str(broker_order_no)), None)
+        if row is None:
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False,
+                    "error": f"Anti-Mock: order {broker_order_no} not found after PATCH"}
+
+        status_text = str(row.get("showOrderStatus") or row.get("status") or "").upper()
+        if "CANCEL" in status_text or str(row.get("status") or "").upper() in ("X", "R"):
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False,
+                    "error": f"Anti-Mock: order {broker_order_no} is {status_text or 'CANCELLED/REJECTED'} after PATCH"}
+
+        try:
+            observed_price = float(row.get("price") or 0.0)
+            observed_vol = int(row.get("vol") or row.get("volume") or 0)
+        except (TypeError, ValueError):
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False, "error": "Anti-Mock: unreadable price/volume after PATCH"}
+
+        if abs(observed_price - float(new_price)) > 0.005:
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False, "observed_price": observed_price,
+                    "error": f"Anti-Mock: price on {broker_order_no} is {observed_price} (wanted {float(new_price)})"}
+        if observed_vol and observed_vol != vol:
+            return {**base, "success": False, "status": "FAILED", "stage": "verify",
+                    "fallback_ok": False, "observed_volume": observed_vol,
+                    "error": f"Anti-Mock: volume on {broker_order_no} is {observed_vol} (wanted {vol})"}
+
+        await self._log_event(
+            "STREAMING_ORDER_CHANGED_IN_PLACE",
+            f"Native change {broker_order_no} -> ฿{observed_price:.2f} x{observed_vol or vol} (verified by re-read)",
+        )
+        return {
+            **base,
+            "success": True,
+            "status": "MODIFIED_IN_PLACE",
+            "stage": "verified",
+            "volume": observed_vol or vol,
+            "observed_price": observed_price,
+            "verified": True,
+            "message": f"Changed order {broker_order_no} in place to ฿{float(new_price):.2f} x{vol} (same orderNo, verified by re-read)",
+        }
+
     async def modify_order_price(
         self,
         broker_order_no: str,
@@ -703,13 +950,51 @@ class StreamingDriver:
         remaining_volume: int = 0,
         pin: Optional[str] = None,
         bypass_dry_run: bool = False,
+        prefer_native: bool = True,
     ) -> Dict[str, Any]:
         """
-        Price negotiation via Cancel & Re-submit (Streaming has no native Modify).
+        Amend an open order: native in-place change first, cancel+replace as fallback.
 
-        Guardrail C1/C2: cancels one order, then re-submits at the new price only if
-        a positive new_price is given. DRY_RUN_MODE is honored unless bypass_dry_run.
+        SQ-7: Streaming *does* expose ``PATCH .../orders/{orderNo}/change`` (verified from
+        the live console HAR), so the primary path is ``change_order_native`` — the order
+        keeps its orderNo and queue position. The legacy cancel+replace (KSS-RCA-016) is
+        used ONLY when the native path provably sent nothing to the broker
+        (``fallback_ok``) — never after a verify failure, where the change may have landed.
+
+        Guardrail C1/C2: with ``new_price`` <= 0 only a cancel is performed.
+        DRY_RUN_MODE is honored unless ``bypass_dry_run``.
         """
+        if not new_price or new_price <= 0:
+            return await self.cancel_order(
+                broker_order_no=broker_order_no, symbol=symbol, bypass_dry_run=bypass_dry_run
+            )
+
+        if prefer_native:
+            native = await self.change_order_native(
+                broker_order_no=broker_order_no,
+                new_price=new_price,
+                new_volume=remaining_volume,
+                pin=pin,
+                symbol=symbol,
+                side=side,
+                bypass_dry_run=bypass_dry_run,
+            )
+            if native.get("success"):
+                return native
+            if not native.get("fallback_ok"):
+                # Fail closed: nothing is cancelled, the operator sees the real reason.
+                logger.warning(
+                    "Streaming native change failed without fallback (stage=%s): %s",
+                    native.get("stage"),
+                    native.get("error"),
+                )
+                return native
+            logger.info(
+                "Streaming native change unavailable (stage=%s: %s) -> cancel+replace",
+                native.get("stage"),
+                native.get("error"),
+            )
+
         cancel_res = await self.cancel_order(broker_order_no=broker_order_no, symbol=symbol, bypass_dry_run=bypass_dry_run)
         if not cancel_res.get("success"):
             return {
@@ -746,6 +1031,7 @@ class StreamingDriver:
             "side": side,
             "new_price": new_price,
             "volume": vol,
+            "native_change": False,
             "message": f"Successfully cancelled {broker_order_no} and re-submitted as {new_order_no} @ ฿{new_price:.2f}",
         }
 

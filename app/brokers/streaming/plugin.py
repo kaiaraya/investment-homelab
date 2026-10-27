@@ -141,15 +141,25 @@ class StreamingBrokerPlugin(BaseBrokerPlugin):
         side: str = "BUY",
         remaining_volume: int = 0,
         pin: Optional[str] = None,
+        prefer_native: bool = True,
     ) -> OrderResult:
-        """Cancel+replace amend (Streaming has no native Modify — KSS-RCA-016 pattern)."""
+        """Amend an open order — native in-place change first, cancel+replace as fallback.
+
+        SQ-7 (2026-10-26 HAR): Streaming *does* have a native in-place amend —
+        ``PATCH /api/dgw/v3/029/accounts/{acct}/orders/{orderNo}/change`` — so the order
+        keeps its orderNo and queue position (no KSS-RCA-016 cancel+replace window).
+        ``streaming_driver.change_order_native`` fires it and only reports success after
+        an Anti-Mock re-read shows the new price on the same orderNo. The legacy
+        cancel+replace stays as fallback for cases where nothing reached the broker.
+        """
         res = await streaming_driver.modify_order_price(
             broker_order_no=order_id,
             symbol=symbol or "",
             side=side,
             new_price=new_price,
             remaining_volume=remaining_volume,
-            pin=pin,
+            pin=pin or settings.KRUNGSRI_PIN or None,
+            prefer_native=prefer_native,
         )
         return OrderResult(
             success=res.get("success", False),
