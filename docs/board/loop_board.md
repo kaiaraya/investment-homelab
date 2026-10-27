@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-27 16:32.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-27 16:48.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-27 16:32
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 3 · triage 0 · review 0 · done 65 · archived 18
+- **Generated:** 2026-10-27 16:48
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 2 · triage 1 · review 0 · done 65 · archived 18
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,9 +27,9 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_b6749a20` | **blocked** | `default` | Witness live value BUY order flow via LINE to broker |
 | `t_1e4a05eb` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 | `t_99cc85d7` | **blocked** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
+| `t_b6749a20` | **triage** | `default` | Witness live value BUY order flow via LINE to broker |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
