@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-26 16:22.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-27 16:21.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-26 16:22
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 1 · blocked 6 · triage 1 · review 0 · done 50 · archived 17
+- **Generated:** 2026-10-27 16:21
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 4 · triage 0 · review 0 · done 64 · archived 18
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,29 +27,25 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_1e4a05eb` | **scheduled** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
-| `t_b6749a20` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.7 Witness — value BUY 50k → confirm → executor (lib CASH) |
-| `t_25ba3820` | **blocked** | `default` | ⏰ ปิดตลาด · 🔴 T2 · 2.9 Witness — Rich Menu + Quick Trade postback |
-| `t_15869000` | **blocked** | `default` | ⏰ ปิดตลาด · 🟠 HITL · 2.10 confirm/cancel TTL (human taps) |
-| `t_ee3c1ac6` | **blocked** | `default` | ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short |
-| `t_75795660` | **blocked** | `homelab-build` | 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
-| `t_e2c587f7` | **blocked** | `homelab-build` | 🔴 T2 · [Liberator] · P.4-lib Order submit ผ่าน JS (buy/sell/change/cancel) + Anti-Mock |
-| `t_2293ae5f` | **triage** | `default` | 🟢 T0 · /sbl sync ยัง launch Chromium clone — ต่อ sbl_read.js ผ่าน CDP (zero-OTP) |
+| `t_b6749a20` | **blocked** | `default` | Witness live value BUY order flow via LINE to broker |
+| `t_1e4a05eb` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
+| `t_75795660` | **blocked** | `homelab-build` | [ตลาดเปิด] 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
+| `t_99cc85d7` | **blocked** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
 | id | completed | title |
 |---|---|---|
-| `t_73d6e7e6` | 2026-10-26 16:10 | 🔴 T2 · CDP-5 G3 money guard รับ CDP (ต้องมี witness) |
-| `t_cadae6a7` | 2026-10-26 15:51 | 🟡 T1 · CDP-4 _broker_session_alive ใช้ probe (ยกเว้น G3) + MCP ตรงกัน |
-| `t_f4b373d4` | 2026-10-26 15:14 | 🟡 T1 · CDP-3 /login = attach แท็บเดิม (zero-OTP) + logout ไม่ปิดเบราว์เซอร์ |
-| `t_2b531977` | 2026-10-26 15:04 | 🟢 T0 · CDP-2 /status ใช้ probe + โชว์ port/pid/ที่มา |
-| `t_033b4521` | 2026-10-26 14:42 | 🟢 T0 · CDP-1 session probe (read-only) + path contract |
-| `t_e3f4fc6f` | 2026-10-26 14:37 | Fix Liberator test fixture account number mismatch (7-digit vs 8-digit) |
-| `t_3f64c12f` | 2026-10-26 14:23 | 🟢 T0 · 2.11d /short tests ต้องมี fresh-cache fixture (2.11c ทำให้แดง) |
-| `t_5f2d4b60` | 2026-10-26 14:05 | 🟡 T1 · 2.11c /short + /borrow pre-trade ต้องบล็อก verdict CACHE_MISS/CACHE_STALE |
-| `t_a31b5c2b` | 2026-10-26 13:51 | 🟡 T1 · 2.11b SBL check_symbol_risk fail-closed เมื่อ cache ว่าง/เก่า |
-| `t_c2b11416` | 2026-10-26 13:46 | 🟢 T0 · 2.2b Draft TTL อ่านจาก settings.CARD_TTL_SECONDS (แทน hardcode 180) |
+| `t_305334e5` | 2026-10-27 16:08 | 🟡 T1 · [Streaming] · SQ-7 native change ผ่าน REST (PATCH /change) แทน cancel+rep |
+| `t_15de71eb` | 2026-10-27 15:25 | 🟡 T1 · [Streaming] · SQ-8 JS place + cancel snippet + Anti-Mock (ปิดช่องว่างก่อน |
+| `t_15869000` | 2026-10-27 13:24 | ⏰ ปิดตลาด · 🟠 HITL · 2.10 confirm/cancel TTL (human taps) |
+| `t_14aeac1b` | 2026-10-27 11:57 | 🟡 T1 · [Liberator] · P.4-lib-exec wire LINE CLI /buy → JS snippet executor (แทน  |
+| `t_e2c587f7` | 2026-10-27 11:38 | [ตลาดเปิด] 🔴 T2 · [Liberator] · P.4-lib Order submit ผ่าน JS (buy/sell/change/ca |
+| `t_ee3c1ac6` | 2026-10-27 08:45 | ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short |
+| `t_2293ae5f` | 2026-10-26 20:40 | [ตลาดปิด] 🟢 T0 · /sbl sync ยัง launch Chromium clone — ต่อ sbl_read.js ผ่าน CDP  |
+| `t_b558906e` | 2026-10-26 20:32 | [ตลาดปิด] 🟡 T1 · N4: ส่ง target_price ลง negotiate_order_price (KSS) |
+| `t_e7a85d71` | 2026-10-26 20:31 | [ตลาดปิด] 🟢 T0 · N5: เปลี่ยน rich menu ช่อง 4 เป็น ⚡ ต่อราคา (action=nego_menu) |
+| `t_e8d95da3` | 2026-10-26 19:08 | 🟡 T1 · N3: postback nego_menu → การ์ดรายการออเดอร์ค้าง + draft/confirm |
 
 ---
 
