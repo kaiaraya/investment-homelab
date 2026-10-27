@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-27 16:21.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-27 16:32.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-27 16:21
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 4 · triage 0 · review 0 · done 64 · archived 18
+- **Generated:** 2026-10-27 16:32
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 3 · triage 0 · review 0 · done 65 · archived 18
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -29,13 +29,13 @@
 |---|---|---|---|
 | `t_b6749a20` | **blocked** | `default` | Witness live value BUY order flow via LINE to broker |
 | `t_1e4a05eb` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
-| `t_75795660` | **blocked** | `homelab-build` | [ตลาดเปิด] 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
 | `t_99cc85d7` | **blocked** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
 | id | completed | title |
 |---|---|---|
+| `t_75795660` | 2026-10-27 16:32 | [ตลาดเปิด] 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
 | `t_305334e5` | 2026-10-27 16:08 | 🟡 T1 · [Streaming] · SQ-7 native change ผ่าน REST (PATCH /change) แทน cancel+rep |
 | `t_15de71eb` | 2026-10-27 15:25 | 🟡 T1 · [Streaming] · SQ-8 JS place + cancel snippet + Anti-Mock (ปิดช่องว่างก่อน |
 | `t_15869000` | 2026-10-27 13:24 | ⏰ ปิดตลาด · 🟠 HITL · 2.10 confirm/cancel TTL (human taps) |
@@ -45,7 +45,6 @@
 | `t_2293ae5f` | 2026-10-26 20:40 | [ตลาดปิด] 🟢 T0 · /sbl sync ยัง launch Chromium clone — ต่อ sbl_read.js ผ่าน CDP  |
 | `t_b558906e` | 2026-10-26 20:32 | [ตลาดปิด] 🟡 T1 · N4: ส่ง target_price ลง negotiate_order_price (KSS) |
 | `t_e7a85d71` | 2026-10-26 20:31 | [ตลาดปิด] 🟢 T0 · N5: เปลี่ยน rich menu ช่อง 4 เป็น ⚡ ต่อราคา (action=nego_menu) |
-| `t_e8d95da3` | 2026-10-26 19:08 | 🟡 T1 · N3: postback nego_menu → การ์ดรายการออเดอร์ค้าง + draft/confirm |
 
 ---
 
