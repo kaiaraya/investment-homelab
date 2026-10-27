@@ -621,6 +621,8 @@ def _parse_sbl(rest: List[str]) -> ParseResult:
         low = tok.lower()
         if low in ("sync",):
             flags.add("sync")
+        elif low in ("--force-browser", "force-browser", "force"):
+            flags.add("force_browser")
         elif low in ("pool", "คลัง", "สต็อก"):
             subcmd = "pool"
         elif low in ("status", "สถานะ"):

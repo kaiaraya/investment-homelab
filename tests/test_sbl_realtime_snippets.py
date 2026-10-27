@@ -302,3 +302,94 @@ async def test_execute_sbl_borrow_blocked_by_stale_cache():
         res = await drv.execute_sbl_borrow("PTT", 100)
     assert res["success"] is False
     assert res["status"] == "BLOCKED_BY_STALE_CACHE"
+
+
+# ───────────────────────────────────────────────────────────────────────────── #
+# CDP zero-OTP sync (sbl_read.js) vs cloned browser fallback
+# ───────────────────────────────────────────────────────────────────────────── #
+@pytest.mark.asyncio
+async def test_scrape_full_pool_cdp_success_persists_cache_without_browser(tmp_path, monkeypatch):
+    """run_snippet success persists fresh stamped cache and never constructs a browser."""
+    cache_file = tmp_path / "krungsri_sbl_realtime.json"
+    monkeypatch.setattr(sbl_mod, "CACHE_FILE", str(cache_file))
+
+    mock_cdp_data = {
+        "broker": "kss",
+        "app": "sbl_realtime",
+        "url": "https://www.krungsrisecurities.com/sblweb/MainSBL.aspx",
+        "account": "3024959",
+        "customer_name": "คุณอารยะ สวัสดิชัย",
+        "purchasing_power": 750000.0,
+        "counts": {
+            "set50": 1,
+            "set100": 1,
+            "newsec": 0,
+            "xd_xr_risks": 1,
+            "active_borrows": 1,
+            "total_unique_inventory": 2,
+        },
+        "inventory": [
+            {"symbol": "PTT", "available_qty": 5000, "borrow_fee_pct": 3.5},
+            {"symbol": "CPALL", "available_qty": 2000, "borrow_fee_pct": 3.5},
+        ],
+        "set50_inventory": [{"symbol": "PTT", "available_qty": 5000, "borrow_fee_pct": 3.5}],
+        "set100_inventory": [{"symbol": "CPALL", "available_qty": 2000, "borrow_fee_pct": 3.5}],
+        "newsec_inventory": [],
+        "xd_xr_risks": [{"symbol": "DELTA", "book_date": "28/10/2026", "type": "XD"}],
+        "active_borrow_transactions": [{"ref_no": "B12345", "symbol": "PTT", "quantity": 1000}],
+    }
+
+    drv = KrungsriSBLRealtimeDriver()
+    with patch("scripts.broker_cdp.js_runner.run_snippet", new_callable=AsyncMock) as m_runner, \
+         patch("app.brokers.krungsri.sbl_realtime_driver.async_playwright") as m_pw:
+        m_runner.return_value = {"success": True, "data": mock_cdp_data, "tab_url": "https://sbl/MainSBL.aspx"}
+        res = await drv.scrape_full_pool(headless=True, force_browser=False)
+
+    assert res.get("success") is True
+    assert res["source"] == "sbl_read_cdp"
+    assert res["purchasing_power"] == 750000.0
+    assert len(res["set50_inventory"]) == 1
+    assert len(res["xd_xr_inventory"]) == 1
+    assert res["xd_xr_inventory"][0]["symbol"] == "DELTA"
+
+    # Crucial: Playwright was NEVER constructed
+    m_pw.assert_not_called()
+    m_runner.assert_awaited_once_with(
+        broker="kss",
+        snippet_name="sbl_read",
+        target_kind="sbl",
+        timeout_s=30.0,
+    )
+
+    # Cache on disk is stamped and fresh
+    stored = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert stored.get("timestamp") is not None
+    assert stored["source"] == "sbl_read_cdp"
+    assert drv.cache_status()["state"] == "CACHE_FRESH"
+
+
+@pytest.mark.asyncio
+async def test_scrape_full_pool_cdp_failure_fails_closed_without_force_browser():
+    """When CDP fails and force_browser=False, fail-closed without launching Playwright."""
+    drv = KrungsriSBLRealtimeDriver()
+    with patch("scripts.broker_cdp.js_runner.run_snippet", new_callable=AsyncMock) as m_runner, \
+         patch("app.brokers.krungsri.sbl_realtime_driver.async_playwright") as m_pw:
+        m_runner.return_value = {"success": False, "error": "Daemon connection refused"}
+        res = await drv.scrape_full_pool(force_browser=False)
+
+    assert res["success"] is False
+    assert "CDP sync failed" in res["error"]
+    m_pw.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scrape_full_pool_force_browser_bypasses_cdp():
+    """force_browser=True bypasses CDP snippet and directly enters browser clone path."""
+    drv = KrungsriSBLRealtimeDriver()
+    with patch("scripts.broker_cdp.js_runner.run_snippet", new_callable=AsyncMock) as m_runner, \
+         patch.object(settings, "SESSION_STATE_PATH", "/nonexistent/session_state.json"):
+        res = await drv.scrape_full_pool(force_browser=True)
+
+    m_runner.assert_not_called()
+    assert res["success"] is False
+    assert "Session file not found" in res["error"]

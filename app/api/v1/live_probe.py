@@ -182,10 +182,10 @@ async def probe_live_sbl_intelligence():
 
 
 @router.post("/live/probe/krungsri-sbl/sync")
-async def probe_krungsri_sbl_sync():
+async def probe_krungsri_sbl_sync(force_browser: bool = False):
     """Triggers an On-Demand full scan of Krungsri SBL Real Time (/sblweb/MainSBL.aspx)."""
     from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
-    res = await krungsri_sbl_driver.scrape_full_pool(headless=True)
+    res = await krungsri_sbl_driver.scrape_full_pool(headless=True, force_browser=force_browser)
     return res
 
 

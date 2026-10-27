@@ -2329,9 +2329,10 @@ async def _handle_sbl(
 
     # /sbl or /sbl sync
     if parsed.has("sync"):
+        force_b = parsed.has("force_browser")
         await service._send_reply(reply_token, _text("🔄 กำลังดึงข้อมูลหุ้นยืม SBL จาก SBL Real Time…"))
         try:
-            scraped = await krungsri_sbl_driver.scrape_sbl_lots()
+            scraped = await krungsri_sbl_driver.scrape_sbl_lots(force_refresh=True, force_browser=force_b)
             for item in scraped or []:
                 sym = item.get("symbol")
                 if not sym:

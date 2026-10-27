@@ -1209,10 +1209,9 @@ async def test_live_port_card_amount_is_computed_cost_basis(monkeypatch):
 @pytest.mark.asyncio
 async def test_live_port_card_lib_never_shows_a_borrowed_section(monkeypatch):
     """Broker isolation: LIB has no (B) loans — the section is KSS-only."""
-    from app.mcp.pillars import pillar2_portfolio as pillar2
-
-    monkeypatch.setattr(pillar2, "portfolio_holdings", AsyncMock(return_value={"holdings": [
-        {"symbol": "BCH", "volume": 4000, "avg_cost": 20.0, "current_price": 21.0}]}))
+    _patch_cdp_portfolio(monkeypatch, _cdp_portfolio_snap(
+        account_no="7055938", account_type="CASH_BALANCE", holdings=[
+            {"symbol": "BCH", "volume": 4000, "avg_cost": 20.0, "current_price": 21.0}]))
 
     card = await REAL_LIVE_CARD("port", "lib")
 

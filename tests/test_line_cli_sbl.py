@@ -26,6 +26,12 @@ def test_sbl_status_sync():
     cmd = p.parse("/sbl sync")
     assert isinstance(cmd, p.SblCommand)
     assert cmd.has("sync")
+    assert not cmd.has("force_browser")
+
+    cmd_force = p.parse("/sbl sync --force-browser")
+    assert isinstance(cmd_force, p.SblCommand)
+    assert cmd_force.has("sync")
+    assert cmd_force.has("force_browser")
 
     cmd2 = p.parse("/หุ้นยืม sync")
     assert isinstance(cmd2, p.SblCommand)

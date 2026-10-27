@@ -237,12 +237,80 @@ class KrungsriSBLRealtimeDriver:
         """Invalidates in-memory cache to force reload on next query."""
         self._cached_data = None
 
-    async def scrape_full_pool(self, headless: bool = True) -> Dict[str, Any]:
+    async def scrape_full_pool(self, headless: bool = True, force_browser: bool = False) -> Dict[str, Any]:
         """
         Executes an on-demand full scan of Krungsri SBL Real Time.
         Scrapes SET50, SET100, NEW SEC, XD/XR, Purchasing Power, and Active Transactions.
+
+        Prefers JS snippet execution via active CDP session (zero-OTP).
+        Playwright Chromium clone is an explicit fallback only (force_browser=True).
         """
         async with self._lock:
+            # 1. Try JS-first via active CDP session (zero-OTP)
+            if not force_browser:
+                try:
+                    from scripts.broker_cdp.js_runner import run_snippet
+                    cdp_res = await run_snippet(
+                        broker="kss",
+                        snippet_name="sbl_read",
+                        target_kind="sbl",
+                        timeout_s=30.0,
+                    )
+                    if cdp_res.get("success") and cdp_res.get("data"):
+                        data = cdp_res["data"]
+                        if not data.get("error"):
+                            xd_list = data.get("xd_xr_inventory") or data.get("xd_xr_risks") or []
+                            set50 = data.get("set50_inventory") or []
+                            set100 = data.get("set100_inventory") or []
+                            newsec = data.get("newsec_inventory") or []
+                            active_txs = data.get("active_borrow_transactions") or []
+                            counts = dict(data.get("counts") or {})
+                            counts.setdefault("set50", len(set50))
+                            counts.setdefault("set100", len(set100))
+                            counts.setdefault("newsec", len(newsec))
+                            counts.setdefault("xd_xr_risks", len(xd_list))
+                            counts.setdefault("active_borrows", len(active_txs))
+
+                            result_data = {
+                                "success": True,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "source": "sbl_read_cdp",
+                                "url": data.get("url") or cdp_res.get("tab_url") or SBL_START_URL,
+                                "account_no": data.get("account") or getattr(settings, "TRADEMAN_ACCOUNT_NO_MARGIN", "302495"),
+                                "account_name": data.get("customer_name") or "คุณอารยะ สวัสดิชัย",
+                                "purchasing_power": float(data.get("purchasing_power", 0.0) or 0.0),
+                                "counts": counts,
+                                "inventory": data.get("inventory") or [],
+                                "set50_inventory": set50,
+                                "set100_inventory": set100,
+                                "newsec_inventory": newsec,
+                                "xd_xr_inventory": xd_list,
+                                "active_borrow_transactions": active_txs,
+                            }
+                            self._save_cache_to_disk(result_data)
+                            logger.info(
+                                f"✅ SBL Realtime sync complete (CDP zero-OTP): "
+                                f"PP={result_data['purchasing_power']:,.2f} | "
+                                f"SET50={len(set50)} | XD/XR Risks={len(xd_list)}"
+                            )
+                            return result_data
+                        else:
+                            logger.warning(f"SBL read snippet returned error: {data.get('error')}")
+                    else:
+                        logger.warning(f"SBL read snippet failed: {cdp_res.get('error')}")
+                except Exception as e:
+                    logger.warning(f"SBL sync via CDP failed, falling back: {e}")
+
+                return {
+                    "success": False,
+                    "error": (
+                        "SBL Real Time CDP sync failed (daemon down or SBL tab missing). "
+                        "Pass force_browser=True to launch a dedicated Chromium fallback (risks SSO decay)."
+                    ),
+                    "cached_data": self._cached_data,
+                }
+
+            # 2. Cloned Playwright Chromium fallback (explicit force_browser=True)
             session_file = settings.SESSION_STATE_PATH
             if not os.path.exists(session_file):
                 return {
@@ -646,11 +714,11 @@ class KrungsriSBLRealtimeDriver:
             return 0
         return risk.get("available_qty", 0) or 0
 
-    async def scrape_sbl_lots(self) -> List[Dict[str, Any]]:
+    async def scrape_sbl_lots(self, force_refresh: bool = False, force_browser: bool = False) -> List[Dict[str, Any]]:
         """Returns active borrow transactions from SBL Real Time."""
         cache = self.get_cached_data()
-        if not cache or not cache.get("active_borrow_transactions"):
-            res = await self.scrape_full_pool(headless=True)
+        if force_refresh or not cache or not cache.get("active_borrow_transactions"):
+            res = await self.scrape_full_pool(headless=True, force_browser=force_browser)
             cache = res if res.get("success") else cache
         txs = (cache or {}).get("active_borrow_transactions", [])
         lots = []

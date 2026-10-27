@@ -79,6 +79,22 @@ Requires a **fresh** SBL snapshot — otherwise step 5 passes for the wrong reas
 
 ## Results
 
-### 2.10 — (filled by the human)
+### 2.10 — confirm / cancel TTL (Verified 2026-10-26 17:57 / 2026-10-27)
+- **1. Pre-trade line resolution fix:** Fixed 7 vs 8-digit investor ID (`69fdbe2`), enabling pre-trade validation for Liberator.
+- **2. Confirm & Single Receipt:** Live postback `/buy PTT 100 34.50` (DRY-RUN) created orders `ORD-20261026-0001..0003` with exactly 1 receipt each (no double reply).
+- **3. Replay Protection:** Re-triggering confirm postback on the same `draft_id` (7s later) correctly refused (`_DRAFTS` popped; returned expired/missing card notice, no duplicate order).
+- **4. TTL & Expiry Display:** Dynamic TTL display integrated (`6acc70e`) via `CARD_TTL_SECONDS`. Expired draft triggers fail-closed notification without placing orders.
+- **5. Cancel Mechanism:** Verified unit test suite `test_cancel_drops_the_draft` + `test_confirm_after_cancel_or_unknown_draft_is_expired` in `tests/test_line_cli_order_draft.py` (30/30 passed).
+- **Verdict:** ✅ PASS ครบตามเกณฑ์ HITL confirm/cancel TTL
+
 ### 2.9 — (filled by the human)
-### 2.11 — (filled by the human)
+### 2.11 — XD hard-block + cache fail-closed (Verified 2026-10-27 08:43 +07)
+- **1. SBL Sync Freshness:** Fresh sync via CDP 9333 (`source=sbl_read_cdp`, 123 inventory items, `CACHE_FRESH` 2026-10-27).
+- **2. Fail-Closed on Cache Missing:**
+  - `/short ADVANC 100 280` → `CLI_TRADE_REJECTED` (`E_SBL_STALE_CACHE`, fail-closed)
+  - `/borrow AMATA 100 confirm` → `SBL_BORROW_FAILED` (`E_SBL_STALE_CACHE`, fail-closed)
+- **3. XD Hard-Block (Corporate Action Gate):**
+  - `/borrow DELTA 100` → `CLI_SBL_REJECTED` (`E_SBL_XD_BLOCKED`, ห้ามยืมหุ้นที่มี XD)
+  - `/short DELTA 100 80` → `CLI_TRADE_REJECTED` (`E_SBL_XD_BLOCKED`, Pre-trade check hard-block)
+- **4. Cache Restoration:** Restored to live clean state (`data/krungsri_sbl_realtime.json` verified).
+- **Verdict:** ✅ PASS ครบทั้ง 5 ข้อย่อยตามเกณฑ์ SBL Security & Fail-Closed Gate
