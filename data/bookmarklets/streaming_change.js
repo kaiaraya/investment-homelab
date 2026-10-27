@@ -38,7 +38,7 @@
                 'clientversion': '4.0.0',
                 'terminal': 'streaming',
             },
-            body: JSON.stringify({ bypassWarning: false, newVolume: volume, pin, tradeDate, newPrice: price }),
+            body: JSON.stringify({ bypassWarning: Boolean(raw.bypassWarning || false), newVolume: volume, pin, tradeDate, newPrice: price }),
         }
     );
     let chgBody = '';

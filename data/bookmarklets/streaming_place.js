@@ -46,7 +46,7 @@
         price,
         priceType: 'Limit',
         validityType: 'Day',
-        bypassWarning: false,
+        bypassWarning: Boolean(raw.bypassWarning || false),
         pin,
         positionType: '',
     };
