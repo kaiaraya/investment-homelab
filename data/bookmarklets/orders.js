@@ -24,14 +24,16 @@
             }))
         };
     } else if (host.includes('liberator.co.th')) {
+        const getTok = () => { const m = document.cookie.match(/(?:^|;\s*)api-token=([^;]+)/); return m ? decodeURIComponent(m[1]) : null; };
         const r = await fetch('https://webtrade.liberator.co.th/va/order', {
             method: 'POST',
             credentials: 'include',
-            headers: {'content-type': 'application/json'},
+            headers: {'content-type': 'application/json', 'authorization': 'Bearer ' + getTok()},
             body: JSON.stringify({accountNo: '70559382'})
         });
         if (!r.ok) return {error: `HTTP ${r.status}`};
         const res = await r.json();
+        if (res.errorCode !== 0) return {error: res.errMsg || `errorCode ${res.errorCode}`, broker: 'liberator', account: '70559382'};
         return {
             broker: 'liberator',
             account: '70559382',

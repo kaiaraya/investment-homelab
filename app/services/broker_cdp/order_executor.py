@@ -493,20 +493,70 @@ async def _kss_preflight(page: Any, side: str) -> Dict[str, Any]:
             "target": "kss/streaming"}
 
 
-async def _lib_preflight(page: Any, side: str) -> Dict[str, Any]:
+async def _lib_preflight(
+    page: Any,
+    side: str,
+    *,
+    symbol: Optional[str] = None,
+    volume: Optional[int] = None,
+    price: Optional[float] = None,
+    pin: Optional[str] = None,
+    account_no: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Read-only preflight for Liberator in DRY_RUN — tries JS pre-place preview first, falls back to DOM."""
+    # 1. JS direct-API preflight (witness-proven contract)
+    try:
+        from scripts.broker_cdp.js_runner import run_snippet
+        acc_8 = str(account_no or getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "70559382").strip()
+        if len(acc_8) == 7:
+            acc_8 += "2"
+        arg = {
+            "symbol": (symbol or "BCPG").strip().upper(),
+            "side": "Buy" if normalise_side(side) in ("BUY", "B") else "Sell",
+            "volume": int(volume or 100),
+            "price": float(price or 1.0),
+            "pin": str(pin or getattr(settings, "LIBERATOR_PIN", "") or "123456"),
+            "dryRun": True,
+            "accountNo": acc_8,
+        }
+        js_res = await run_snippet("liberator", snippet_name="liberator_place", target_kind="portfolio", arg=arg, timeout_s=15.0)
+        if js_res.get("success"):
+            data = js_res.get("data") or {}
+            if data.get("ok"):
+                return {
+                    "ok": True,
+                    "mode": "js_snippet",
+                    "preview": data.get("preview"),
+                    "account_no": acc_8,
+                    "target": "liberator/portfolio",
+                }
+            elif data.get("step") == "pre-place":
+                return {
+                    "ok": False,
+                    "mode": "js_snippet",
+                    "error": f"pre-place rejected: {data.get('errMsg')} (code {data.get('errorCode')})",
+                    "target": "liberator/portfolio",
+                }
+    except Exception as exc:
+        logger.debug("Liberator JS preflight attempt failed: %s", exc)
+
+    # 2. Fallback: DOM preflight
     missing: List[str] = []
+    side_k = normalise_side(side) or ""
     for label, sel in (
-        ("side_toggle", LIB_SIDE_TOGGLES[side]),
+        ("side_toggle", LIB_SIDE_TOGGLES.get(side_k, ()) if side_k else ()),
         ("symbol", LIB_SYMBOL),
         ("volume", LIB_VOLUME),
         ("price", LIB_PRICE),
         ("pin", LIB_PIN),
         ("submit", LIB_SUBMIT),
     ):
+        if not sel:
+            continue
         el, _sel = await _first_visible(page, sel)
         if el is None:
             missing.append(label)
-    return {"ok": not missing, "missing": missing, "target": "liberator/portfolio"}
+    return {"ok": not missing, "missing": missing, "target": "liberator/portfolio", "mode": "dom_fallback"}
 
 
 async def _kss_execute(
@@ -614,10 +664,138 @@ async def _kss_execute(
     }
 
 
-async def _lib_execute(
+def _normalize_lib_api_orders(raw_list: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalize raw API order objects from /va/order to match_new_order_no format."""
+    norm = []
+    for o in raw_list:
+        if not isinstance(o, dict):
+            continue
+        side_val = str(o.get("side") or o.get("sideShow") or "").upper()
+        norm.append({
+            "broker_order_no": str(o.get("orderNo") or "").strip(),
+            "symbol": str(o.get("symbol") or o.get("symbolDisplay") or o.get("stockSymbol") or "").strip().upper(),
+            "side": "BUY" if side_val in ("B", "BUY") else "SELL",
+            "volume": int(o.get("volume") or 0),
+            "price": float(o.get("price") or 0.0),
+            "status": str(o.get("status") or o.get("statusShow") or ""),
+        })
+    return norm
+
+
+async def _lib_execute_js(
+    page: Any,
+    *,
+    side: str,
+    symbol: str,
+    volume: int,
+    price: float,
+    pin: str,
+    known: set,
+    account_no: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Execute Liberator order via direct-API JS snippet (pre-place -> place -> re-read anti-mock)."""
+    acc_8 = str(account_no or getattr(settings, "LIBERATOR_ACCOUNT_NO", "") or "70559382").strip()
+    if len(acc_8) == 7:
+        acc_8 += "2"
+    side_name = "Buy" if normalise_side(side) in ("BUY", "B") else "Sell"
+
+    arg = {
+        "symbol": symbol.strip().upper(),
+        "side": side_name,
+        "volume": int(volume),
+        "price": float(price),
+        "pin": str(pin),
+        "dryRun": False,
+        "accountNo": acc_8,
+    }
+
+    try:
+        from scripts.broker_cdp.js_runner import run_snippet
+        res = await run_snippet(
+            broker="liberator",
+            snippet_name="liberator_place",
+            target_kind="portfolio",
+            arg=arg,
+            timeout_s=60.0,
+        )
+    except Exception as exc:
+        return {"success": False, "submitted": False, "status": "JS_RUNNER_ERROR", "error": str(exc)}
+
+    if not res.get("success"):
+        return {
+            "success": False,
+            "submitted": False,
+            "status": "CDP_SNIPPET_FAILED",
+            "error": res.get("error", "run_snippet failed"),
+        }
+
+    data = res.get("data") or {}
+    if not isinstance(data, dict):
+        return {
+            "success": False,
+            "submitted": False,
+            "status": "INVALID_SNIPPET_DATA",
+            "error": f"Snippet returned non-dict: {data!r}",
+        }
+
+    if not data.get("ok"):
+        step = data.get("step")
+        err_msg = data.get("errMsg") or data.get("error") or f"error in step {step}"
+        return {
+            "success": False,
+            "submitted": False,
+            "status": f"REJECTED_{step.upper()}" if step else "REJECTED",
+            "error_code": f"E_LIB_{step.upper()}" if step else "E_LIB_REJECTED",
+            "error": f"Liberator JS direct-API {step} failed: {err_msg}",
+        }
+
+    # Step place succeeded -> The order WAS submitted to the exchange!
+    # Anti-Mock: verify new order number from re-read list
+    order_list = data.get("list") or []
+    norm_orders = _normalize_lib_api_orders(order_list)
+    known_seq = list(known)
+    bno = match_new_order_no(
+        norm_orders, symbol=symbol, side=side, volume=volume, price=price, known=known_seq,
+    )
+
+    # If immediate re-read missed it on a slow board, retry reading once
+    if not bno:
+        try:
+            await asyncio.sleep(2.0)
+            recheck_res = await run_snippet(
+                broker="liberator",
+                snippet_name="liberator_read",
+                target_kind="portfolio",
+                timeout_s=30.0,
+            )
+            if recheck_res.get("success"):
+                recheck_data = recheck_res.get("data") or {}
+                norm_recheck = _normalize_lib_api_orders(recheck_data.get("list") or [])
+                bno = match_new_order_no(
+                    norm_recheck, symbol=symbol, side=side, volume=volume, price=price, known=known_seq,
+                )
+        except Exception as exc:
+            logger.warning("Liberator re-read retry failed: %s", exc)
+
+    return {
+        "success": bno is not None,
+        "status": "SUBMITTED" if bno else "UNCONFIRMED",
+        "submitted": True,
+        "broker_order_no": bno,
+        "account_no": getattr(settings, "LIBERATOR_ACCOUNT_NO", acc_8),
+        "source": "liberator_js",
+        "error_code": None if bno else E_ORDER_NO_UNREADABLE,
+        "error": None if bno else (
+            "ส่งคำสั่งผ่าน JS direct-API แล้วแต่ยังอ่าน Order # จากตาราง orders ไม่ได้ — "
+            "ต้องตรวจหน้า Portfolio ด้วยตา (ห้ามถือว่าสำเร็จ)"
+        ),
+    }
+
+
+async def _lib_execute_dom(
     page: Any, *, side: str, symbol: str, volume: int, price: float, pin: str, known: set,
 ) -> Dict[str, Any]:
-    """Fill + submit the WebTrade footer ticket (BUY/SELL only)."""
+    """Fill + submit the WebTrade footer ticket (BUY/SELL only) via DOM."""
     if not await _click_first(page, LIB_SIDE_TOGGLES[side]):
         return _result_fail(E_TICKET_INCOMPLETE, f"ไม่พบ side toggle {side} บน footer ticket")
     try:
@@ -681,6 +859,78 @@ async def _lib_execute(
         "error": None if bno else (
             "ส่งคำสั่งแล้วแต่ยังอ่าน Order # จากตาราง orders ไม่ได้ใน 4 ครั้ง — "
             "ต้องตรวจหน้า Portfolio ด้วยตา (ห้ามถือว่าสำเร็จ)"),
+    }
+
+
+async def _lib_execute(
+    page: Any, *, side: str, symbol: str, volume: int, price: float, pin: str, known: set,
+    account_no: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Execute Liberator order: JS direct-API primary, DOM ticket automation fallback."""
+    # 1. Primary: JS direct-API path
+    js_res = await _lib_execute_js(
+        page, side=side, symbol=symbol, volume=volume, price=price, pin=pin,
+        known=known, account_no=account_no,
+    )
+    if js_res.get("submitted") or js_res.get("success"):
+        return js_res
+
+    # 2. Fallback: Playwright/DOM ticket automation
+    logger.warning(
+        "Liberator JS path not submitted (%s: %s) — falling back to DOM ticket",
+        js_res.get("status"), js_res.get("error"),
+    )
+    return await _lib_execute_dom(
+        page, side=side, symbol=symbol, volume=volume, price=price, pin=pin, known=known,
+    )
+
+
+async def execute_liberator_change_js(
+    order_no: str,
+    new_price: float,
+    volume: int,
+    pin: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Amend a resting Liberator order in-place via PUT /va/order (anti-mock re-read)."""
+    order_pin = pin or getattr(settings, "LIBERATOR_PIN", "")
+    if not order_pin:
+        return {"success": False, "error": "Valid Liberator PIN required."}
+    from scripts.broker_cdp.js_runner import run_snippet
+    arg = {"orderNo": str(order_no), "price": float(new_price), "volume": int(volume), "pin": str(order_pin)}
+    res = await run_snippet("liberator", snippet_name="liberator_change", target_kind="portfolio", arg=arg, timeout_s=60.0)
+    if not res.get("success"):
+        return {"success": False, "error": res.get("error", "liberator_change snippet failed")}
+    data = res.get("data") or {}
+    return {
+        "success": bool(data.get("ok") and data.get("verified")),
+        "order_no": str(order_no),
+        "changed_price": data.get("changedPrice"),
+        "verified": bool(data.get("verified")),
+        "error": data.get("errMsg") or data.get("error") if not data.get("ok") else None,
+    }
+
+
+async def execute_liberator_cancel_js(
+    order_no: str,
+    pin: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Cancel a resting Liberator order via POST /va/order/cancelled (anti-mock re-read)."""
+    order_pin = pin or getattr(settings, "LIBERATOR_PIN", "")
+    if not order_pin:
+        return {"success": False, "error": "Valid Liberator PIN required."}
+    from scripts.broker_cdp.js_runner import run_snippet
+    arg = {"orderNo": str(order_no), "pin": str(order_pin)}
+    res = await run_snippet("liberator", snippet_name="liberator_cancel", target_kind="portfolio", arg=arg, timeout_s=60.0)
+    if not res.get("success"):
+        return {"success": False, "error": res.get("error", "liberator_cancel snippet failed")}
+    data = res.get("data") or {}
+    return {
+        "success": bool(data.get("ok") and data.get("verified")),
+        "order_no": str(order_no),
+        "cancelled": data.get("cancelled"),
+        "balance": data.get("balance"),
+        "verified": bool(data.get("verified")),
+        "error": data.get("errMsg") or data.get("error") if not data.get("ok") else None,
     }
 
 
@@ -857,7 +1107,10 @@ async def execute_order_via_cdp(
             try:
                 async with get_tab(meta["cdp"], meta["target"]) as page:
                     preflight = (await _kss_preflight(page, side_c) if meta["cdp"] == "kss"
-                                 else await _lib_preflight(page, side_c))
+                                 else await _lib_preflight(
+                                     page, side_c, symbol=sym, volume=vol, price=px,
+                                     pin=pin_val, account_no=expected_account,
+                                 ))
             except Exception as exc:
                 preflight = {"ok": False,
                              "error": f"{type(exc).__name__}: {exc}",
@@ -904,7 +1157,7 @@ async def execute_order_via_cdp(
                 else:
                     result = await _lib_execute(
                         page, side=side_c, symbol=sym, volume=vol, price=px, pin=pin_val,
-                        known=known,
+                        known=known, account_no=expected_account,
                     )
         except Exception as exc:
             logger.exception("execute_order_via_cdp(%s) failed inside the tab", db_broker)

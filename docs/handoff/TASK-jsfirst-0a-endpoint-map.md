@@ -82,7 +82,7 @@ REST JSON API ล้วน — `accountNo` (ใช้ใน payload) = **7055938
 | Settrade Streaming REST | ✅ replayable ตรงๆ (JWT/SSO cookie จาก session; ไม่มี nonce ต่อ request) — Place (`POST /orders`) และ Cancel (`PATCH /cancel`) ได้รับการ capture + confirm แล้ว พร้อม payload structure |
 | Settrade live quote | ⚠️ websocket ต้องขอ `market-data-auth/v1/token` (PKCE `codeChallenge/codeVerifier`) ก่อน |
 | SBL WebForms | ⚠️ ต้องยิง `__VIEWSTATE` + `ctl09_TSM` (Telerik token) + Anticsrf — ต้อง re-read state จากหน้าแล้วยิงกลับ (stateful PostBack) |
-| Liberator REST | ✅ replayable ตรงๆ (JSON + session cookie; ไม่มี nonce ต่อ request) — PIN field ยืนยันแล้ว: place/change/cancel ทุก payload มี `"pin"` ชัดเจน |
+| Liberator REST | ✅ replayable ตรงๆ — auth = `Authorization: Bearer <api-token>` header (JWT ~210 chars; เก็บ client-side เป็น cookie `api-token` แล้ว JS อ่านส่งเป็น header — **ทุก request มี header นี้ ไม่มี cookie header**) · ไม่มี nonce ต่อ request · PIN field ยืนยันแล้ว: place/change/cancel ทุก payload มี `"pin"` ชัดเจน · **accountNo ต้อง 8 หลัก `70559382`** (ส่ง 7 หลัก `7055938` → `Error AccessAuthen: The given key was not present in the dictionary`) |
 
 ---
 
