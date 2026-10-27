@@ -559,11 +559,11 @@ async def _lib_preflight(
     return {"ok": not missing, "missing": missing, "target": "liberator/portfolio", "mode": "dom_fallback"}
 
 
-async def _kss_execute(
+async def _kss_execute_dom(
     page: Any, *, side: str, symbol: str, volume: int, price: float, pin: str,
     expected_account: str, known: set,
 ) -> Dict[str, Any]:
-    """Fill + submit the Streaming ticket. Caller owns the page/lock and the DB write."""
+    """Fill + submit the Streaming ticket via DOM. Caller owns the page/lock and the DB write."""
     # 1. Account — SHORT/COVER must be on the margin account.
     account = await _active_kss_account(page)
     if account != expected_account:
@@ -680,6 +680,158 @@ def _normalize_lib_api_orders(raw_list: Sequence[Dict[str, Any]]) -> List[Dict[s
             "status": str(o.get("status") or o.get("statusShow") or ""),
         })
     return norm
+
+
+def _normalize_kss_api_orders(raw_list: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalize raw DGW API order objects from /accounts/{acct}/orders to match_new_order_no format."""
+    norm = []
+    for o in raw_list:
+        if not isinstance(o, dict):
+            continue
+        side_val = str(o.get("side") or "").upper()
+        norm_side = "BUY"
+        if "COVER" in side_val:
+            norm_side = "COVER"
+        elif "SHORT" in side_val:
+            norm_side = "SHORT"
+        elif side_val in ("SELL", "S"):
+            norm_side = "SELL"
+        else:
+            norm_side = "BUY"
+        order_no = str(o.get("orderNo") or o.get("orderNoSeos") or "").strip()
+        norm.append({
+            "broker_order_no": order_no,
+            "symbol": str(o.get("symbol") or "").strip().upper(),
+            "side": norm_side,
+            "volume": int(o.get("vol") or o.get("volume") or 0),
+            "price": float(o.get("price") or 0.0),
+            "status": str(o.get("showOrderStatus") or o.get("status") or ""),
+        })
+    return norm
+
+
+async def _kss_execute_js(
+    page: Any,
+    *,
+    side: str,
+    symbol: str,
+    volume: int,
+    price: float,
+    pin: str,
+    known: set,
+    account_no: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Execute Streaming order via direct-API JS snippet (POST /orders -> re-read orders anti-mock)."""
+    acct = str(account_no or getattr(settings, "STREAMING_ACCOUNT_NO_MARGIN", "") or "3024959").strip()
+    arg = {
+        "symbol": symbol.strip().upper(),
+        "side": side,
+        "volume": int(volume),
+        "price": float(price),
+        "pin": str(pin),
+        "dryRun": False,
+        "acct": acct,
+    }
+
+    try:
+        from scripts.broker_cdp.js_runner import run_snippet
+        js_res = await run_snippet(
+            broker="kss",
+            snippet_name="streaming_place",
+            target_kind="streaming",
+            arg=arg,
+            timeout_s=60.0,
+        )
+    except Exception as exc:
+        return {"success": False, "submitted": False, "fallback_ok": True, "status": "JS_RUNNER_ERROR", "error": str(exc)}
+
+    if not js_res.get("success"):
+        return {
+            "success": False,
+            "submitted": False,
+            "fallback_ok": True,
+            "status": "CDP_SNIPPET_FAILED",
+            "error": js_res.get("error", "run_snippet failed"),
+        }
+
+    data = js_res.get("data") or {}
+    if not isinstance(data, dict):
+        return {
+            "success": False,
+            "submitted": False,
+            "fallback_ok": True,
+            "status": "INVALID_SNIPPET_DATA",
+            "error": f"Snippet returned non-dict: {data!r}",
+        }
+
+    if not data.get("ok"):
+        step = data.get("step")
+        err_msg = data.get("errMsg") or data.get("error") or f"error in step {step}"
+        # If step is auth/validate, nothing was sent to broker -> fallback safe.
+        # If step is place/verify, payload was sent -> fallback NOT safe.
+        fb_ok = step in ("auth", "validate")
+        return {
+            "success": False,
+            "submitted": step in ("place", "verify"),
+            "fallback_ok": fb_ok,
+            "status": f"REJECTED_{step.upper()}" if step else "REJECTED",
+            "error_code": f"E_KSS_{step.upper()}" if step else "E_KSS_REJECTED",
+            "error": f"Streaming JS direct-API {step} failed: {err_msg}",
+        }
+
+    # Anti-Mock: verify new order number from re-read list
+    order_list = data.get("list") or []
+    norm_orders = _normalize_kss_api_orders(order_list)
+    known_seq = list(known)
+    bno = match_new_order_no(
+        norm_orders, symbol=symbol, side=side, volume=volume, price=price, known=known_seq,
+    )
+    if not bno and data.get("orderNo"):
+        cand = str(data.get("orderNo")).strip()
+        if cand and cand not in known:
+            bno = cand
+
+    return {
+        "success": bno is not None,
+        "status": "SUBMITTED" if bno else "UNCONFIRMED",
+        "submitted": True,
+        "fallback_ok": False,
+        "broker_order_no": bno,
+        "account_no": acct,
+        "source": "streaming_js",
+        "error_code": None if bno else E_ORDER_NO_UNREADABLE,
+        "error": None if bno else (
+            "ส่งคำสั่งผ่าน JS direct-API แล้วแต่ยังอ่าน Order # จากตาราง orders ไม่ได้ — "
+            "ต้องตรวจหน้า View Order ด้วยตา (ห้ามถือว่าสำเร็จ)"
+        ),
+    }
+
+
+async def _kss_execute(
+    page: Any, *, side: str, symbol: str, volume: int, price: float, pin: str,
+    expected_account: str, known: set,
+) -> Dict[str, Any]:
+    """Execute Streaming order: JS direct-API primary, DOM ticket automation fallback (gated on fallback_ok)."""
+    # 1. Primary: JS direct-API path
+    js_res = await _kss_execute_js(
+        page, side=side, symbol=symbol, volume=volume, price=price, pin=pin,
+        known=known, account_no=expected_account,
+    )
+    if js_res.get("submitted") or js_res.get("success"):
+        return js_res
+
+    if not js_res.get("fallback_ok", False):
+        return js_res
+
+    # 2. Fallback: DOM ticket automation (only safe when nothing reached broker)
+    logger.warning(
+        "Streaming JS path not submitted (%s: %s) — falling back to DOM ticket",
+        js_res.get("status"), js_res.get("error"),
+    )
+    return await _kss_execute_dom(
+        page, side=side, symbol=symbol, volume=volume, price=price, pin=pin,
+        expected_account=expected_account, known=known,
+    )
 
 
 async def _lib_execute_js(
@@ -929,6 +1081,76 @@ async def execute_liberator_cancel_js(
         "order_no": str(order_no),
         "cancelled": data.get("cancelled"),
         "balance": data.get("balance"),
+        "verified": bool(data.get("verified")),
+        "error": data.get("errMsg") or data.get("error") if not data.get("ok") else None,
+    }
+
+
+async def execute_streaming_change_js(
+    order_no: str,
+    new_price: float,
+    volume: int,
+    pin: Optional[str] = None,
+    trade_date: Optional[str] = None,
+    acct: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Amend a resting Streaming order in-place via PATCH .../orders/{orderNo}/change (anti-mock re-read)."""
+    order_pin = pin or getattr(settings, "KRUNGSRI_PIN", "")
+    if not order_pin:
+        return {"success": False, "error": "Valid Krungsri/Streaming PIN required."}
+    from scripts.broker_cdp.js_runner import run_snippet
+    arg = {
+        "orderNo": str(order_no),
+        "price": float(new_price),
+        "volume": int(volume),
+        "pin": str(order_pin),
+    }
+    if trade_date:
+        arg["tradeDate"] = str(trade_date)
+    if acct:
+        arg["acct"] = str(acct)
+    res = await run_snippet("kss", snippet_name="streaming_change", target_kind="streaming", arg=arg, timeout_s=60.0)
+    if not res.get("success"):
+        return {"success": False, "error": res.get("error", "streaming_change snippet failed")}
+    data = res.get("data") or {}
+    return {
+        "success": bool(data.get("ok") and data.get("verified")),
+        "order_no": str(order_no),
+        "changed_price": data.get("changedPrice"),
+        "changed_volume": data.get("changedVolume"),
+        "verified": bool(data.get("verified")),
+        "error": data.get("errMsg") or data.get("error") if not data.get("ok") else None,
+    }
+
+
+async def execute_streaming_cancel_js(
+    order_no: str,
+    pin: Optional[str] = None,
+    symbol: Optional[str] = None,
+    trade_date: Optional[str] = None,
+    acct: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Cancel a resting Streaming order via PATCH .../accounts/{acct}/cancel (anti-mock re-read)."""
+    order_pin = pin or getattr(settings, "KRUNGSRI_PIN", "")
+    if not order_pin:
+        return {"success": False, "error": "Valid Krungsri/Streaming PIN required."}
+    from scripts.broker_cdp.js_runner import run_snippet
+    arg = {"orderNo": str(order_no), "pin": str(order_pin)}
+    if symbol:
+        arg["symbol"] = str(symbol).strip().upper()
+    if trade_date:
+        arg["tradeDate"] = str(trade_date)
+    if acct:
+        arg["acct"] = str(acct)
+    res = await run_snippet("kss", snippet_name="streaming_cancel", target_kind="streaming", arg=arg, timeout_s=60.0)
+    if not res.get("success"):
+        return {"success": False, "error": res.get("error", "streaming_cancel snippet failed")}
+    data = res.get("data") or {}
+    return {
+        "success": bool(data.get("ok") and data.get("verified")),
+        "order_no": str(order_no),
+        "cancelled": bool(data.get("cancelled")),
+        "status": data.get("status"),
         "verified": bool(data.get("verified")),
         "error": data.get("errMsg") or data.get("error") if not data.get("ok") else None,
     }

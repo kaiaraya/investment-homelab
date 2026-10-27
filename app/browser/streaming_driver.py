@@ -159,6 +159,42 @@ async (arg) => {
 """
 
 
+STREAMING_CANCEL_JS = r"""
+async (arg) => {
+    const acct = arg.acct || (() => {
+        const m = document.body.innerText.match(/3024\d{3}/);
+        return m ? m[0] : '';
+    })();
+    if (!acct) return { ok: false, account: '', httpStatus: 0, body: '', error: 'NO_ACCOUNT' };
+    const url = `https://apigw.settrade.com/api/dgw/v3/029/accounts/${acct}/cancel`;
+    const r = await fetch(url, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+            'accept': 'application/json, text/plain, */*',
+            'content-type': 'application/json',
+            'clientversion': '4.0.0',
+            'terminal': 'streaming',
+        },
+        body: JSON.stringify({
+            orders: [{
+                sequenceNo: String(arg.sequenceNo || '0'),
+                orderNo: String(arg.orderNo),
+                symbol: String(arg.symbol || ''),
+                tradeDate: String(arg.tradeDate),
+            }],
+            pin: String(arg.pin),
+        }),
+    });
+    let body = '';
+    try { body = (await r.text()) || ''; } catch (e) { body = ''; }
+    let json = null;
+    try { json = JSON.parse(body); } catch (e) { json = null; }
+    return { ok: r.ok, account: acct, httpStatus: r.status, body: body.slice(0, 400), json: json };
+}
+"""
+
+
 class StreamingDriver:
     """Playwright automation driver for the live Settrade Streaming console."""
 
@@ -675,8 +711,14 @@ class StreamingDriver:
 
             return unmatched
 
-    async def cancel_order(self, broker_order_no: str, symbol: Optional[str] = None, bypass_dry_run: bool = False) -> Dict[str, Any]:
-        """Cancel an open order on Streaming (fail-closed when the row/action is missing)."""
+    async def cancel_order(
+        self,
+        broker_order_no: str,
+        symbol: Optional[str] = None,
+        bypass_dry_run: bool = False,
+        pin: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Cancel an open order on Streaming (JS-first + DOM fallback, anti-mock re-read fail-closed)."""
         page = await self._ensure_streaming_page()
         if not page or page.is_closed():
             return {
@@ -696,6 +738,63 @@ class StreamingDriver:
                 "message": "Cancel simulated (DRY_RUN_MODE)",
             }
 
+        effective_pin = pin or settings.KRUNGSRI_PIN
+        order_no_str = str(broker_order_no).strip()
+
+        # 1. Try JS-first native cancel via PATCH /api/dgw/v3/029/accounts/{acct}/cancel
+        if effective_pin and order_no_str:
+            try:
+                row_before = await self._find_order_row(page, order_no_str)
+                seq_no = "0"
+                t_date = datetime.now().strftime("%Y-%m-%d")
+                target_sym = str(symbol or "").strip().upper()
+                if isinstance(row_before, dict):
+                    seq_no = str(row_before.get("sequenceNo") or "0")
+                    t_date = str(row_before.get("tradeDate") or t_date)
+                    target_sym = str(row_before.get("symbol") or target_sym).upper()
+
+                cancel_res = await page.evaluate(
+                    STREAMING_CANCEL_JS,
+                    {
+                        "orderNo": order_no_str,
+                        "pin": str(effective_pin),
+                        "sequenceNo": seq_no,
+                        "tradeDate": t_date,
+                        "symbol": target_sym,
+                        "acct": self.active_account_no,
+                    },
+                )
+                if isinstance(cancel_res, dict) and cancel_res.get("ok"):
+                    # Anti-Mock verification: re-read orders
+                    row_after = await self._find_order_row(page, order_no_str)
+                    is_cancelled = True
+                    if isinstance(row_after, dict):
+                        st = str(row_after.get("status") or row_after.get("showOrderStatus") or "").upper()
+                        is_cancelled = st in ("X", "XC", "R") or "CANCEL" in st
+
+                    if is_cancelled:
+                        await self._log_event("STREAMING_ORDER_CANCELLED", f"Successfully cancelled order {broker_order_no} (native JS)")
+                        return {
+                            "success": True,
+                            "status": "CANCELLED",
+                            "broker_order_no": broker_order_no,
+                            "native": True,
+                            "verified": True,
+                            "message": f"Order {broker_order_no} cancelled on Settrade Streaming (native)",
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "status": "FAILED",
+                            "broker_order_no": broker_order_no,
+                            "error": f"Anti-Mock verify failed: order {broker_order_no} still active after native cancel",
+                            "verified": False,
+                            "native": True,
+                        }
+            except Exception as e:
+                logger.debug(f"Streaming native cancel JS skipped/failed: {e}")
+
+        # 2. DOM fallback
         try:
             await self.switch_tab("order_status")
             await page.wait_for_timeout(1000)
@@ -731,12 +830,29 @@ class StreamingDriver:
                 await confirm_btn.click()
                 await page.wait_for_timeout(1000)
 
+            # Anti-Mock verification on DOM path
+            row_after = await self._find_order_row(page, order_no_str)
+            is_cancelled = True
+            if isinstance(row_after, dict):
+                st = str(row_after.get("status") or row_after.get("showOrderStatus") or "").upper()
+                is_cancelled = st in ("X", "XC", "R") or "CANCEL" in st
+
+            if not is_cancelled:
+                return {
+                    "success": False,
+                    "status": "FAILED",
+                    "broker_order_no": broker_order_no,
+                    "error": f"Anti-Mock verify failed: order {broker_order_no} still active after DOM cancel",
+                    "verified": False,
+                }
+
             await self._log_event("STREAMING_ORDER_CANCELLED", f"Successfully cancelled order {broker_order_no}")
             return {
                 "success": True,
                 "status": "CANCELLED",
                 "broker_order_no": broker_order_no,
                 "message": f"Order {broker_order_no} cancelled on Settrade Streaming",
+                "verified": True,
             }
         except Exception as e:
             logger.warning(f"Error during Streaming cancel: {e}")

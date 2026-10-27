@@ -658,3 +658,50 @@ async def test_plugin_modify_order_price_passes_native_path(monkeypatch):
     assert captured["remaining_volume"] == 100
     assert captured["pin"] == "515286"
 
+
+async def test_streaming_cancel_js_contract_matches_har():
+    """The embedded cancel JS must keep the captured endpoint/method/headers/payload shape."""
+    from app.browser.streaming_driver import STREAMING_CANCEL_JS
+    assert "/accounts/${acct}/cancel" in STREAMING_CANCEL_JS
+    assert "method: 'PATCH'" in STREAMING_CANCEL_JS
+    assert "credentials: 'include'" in STREAMING_CANCEL_JS
+    assert "'terminal': 'streaming'" in STREAMING_CANCEL_JS
+    for field in ("orders", "sequenceNo", "orderNo", "symbol", "tradeDate", "pin"):
+        assert field in STREAMING_CANCEL_JS
+
+
+async def test_cancel_order_native_happy_path(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    # 1. find_order_row (before cancel): order is 'Open' (O)
+    order_open = _order_row(order_no="11007722", status="O", show="Open")
+    # 2. evaluate call in cancel_order: PATCH cancel returns ok: True
+    # 3. find_order_row (after cancel, Anti-Mock): order status is 'Cancelled' (X)
+    order_cancelled = _order_row(order_no="11007722", status="X", show="Cancelled")
+    page = FakePage(evaluate_queue=[[order_open], {"ok": True, "httpStatus": 200}, [order_cancelled]])
+    d = _driver_with(page)
+
+    res = await d.cancel_order(broker_order_no="11007722", symbol="TU", pin="515286")
+    assert res["success"] is True
+    assert res["status"] == "CANCELLED"
+    assert res["native"] is True
+    assert res["verified"] is True
+    assert res["broker_order_no"] == "11007722"
+
+
+async def test_cancel_order_native_fails_closed_when_order_remains_active(monkeypatch):
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", False)
+    # 1. find_order_row (before cancel): order is 'Open'
+    order_open = _order_row(order_no="11007722", status="O", show="Open")
+    # 2. PATCH says ok
+    # 3. re-read shows order STILL 'Open'
+    order_still_open = _order_row(order_no="11007722", status="O", show="Open")
+    page = FakePage(evaluate_queue=[[order_open], {"ok": True, "httpStatus": 200}, [order_still_open]])
+    d = _driver_with(page)
+
+    res = await d.cancel_order(broker_order_no="11007722", symbol="TU", pin="515286")
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["verified"] is False
+    assert "Anti-Mock verify failed" in res["error"]
+
+
