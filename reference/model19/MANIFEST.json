@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-10-27T20:54:00+07:00",
+  "description": "Model 19 Golden Snapshot vendor files and reference notebook",
+  "files": {
+    "18_model_era4_grandmaster_v6_chandelierbooster_forwardtest.py": {
+      "sha256": "1ee8915972981852190a7515d8845ea07207834fa6d70ce980c0efce45a6080f",
+      "bytes": 64969,
+      "role": "reference_notebook",
+      "source": "~/Downloads/18_model_era4_grandmaster_v6_chandelierbooster_forwardtest.py"
+    },
+    "thai_fear_greed_daily.csv": {
+      "sha256": "532ca580a2122bd6fc2d0c2a4c004501aaac50a910a375f546010d1db9f88847",
+      "bytes": 44717,
+      "role": "macro_sentiment",
+      "source": "~/compute/data/colab_pull/data/thai_fear_greed_daily.csv"
+    },
+    "kinematic_wave_zones_daily.csv": {
+      "sha256": "ae22b47fff2f9595ab71a49ae26726b2ce9f924ccb003dde0af1240b16929bc4",
+      "bytes": 173151,
+      "role": "wave_zones",
+      "source": "~/compute/data/colab_pull/data/kinematic_wave_zones_daily.csv"
+    },
+    "chandelier_stop_daily_cache.csv": {
+      "sha256": "e685bdf7b0e342f2d3ea3ee66e2b422825d6df9b1f6a25e7c33c029e64f06a75",
+      "bytes": 27699703,
+      "role": "chandelier_stops_and_weights",
+      "source": "~/compute/data/colab_pull/data/chandelier_stop_daily_cache.csv"
+    },
+    "decision_compass_master_records.csv": {
+      "sha256": "6bc306eb8c4bfeca71375eeb7bd825e8020e19887dc2ffdebfece6d303d19d23",
+      "bytes": 79848,
+      "role": "compass_historical_setups",
+      "source": "~/compute/data/colab_pull/data/decision_compass_master_records.csv"
+    },
+    "wave_forensics_context_daily.csv": {
+      "sha256": "d702ad08e6d0889001df16a88234cc703909c31de6c6153bb8b8f14f515e50c9",
+      "bytes": 141639,
+      "role": "wave_forensics_context",
+      "source": "~/compute/data/colab_pull/data/wave_forensics_context_daily.csv"
+    },
+    "prices_2023_cache.csv": {
+      "sha256": "d85f7370c678b2b51a5d14e5d8ffc9a4463256a2b32bd8c98c9b7200ec3cad5b",
+      "bytes": 802341,
+      "role": "prices_2023",
+      "source": "~/compute/data/colab_pull/data/backtest/prices_2023_cache.csv"
+    },
+    "prices_2024_cache.csv": {
+      "sha256": "a6cd6a05370c2884f70ea91e8a3426d0abc3da7a295fd6f39da9503b01c085fe",
+      "bytes": 818967,
+      "role": "prices_2024",
+      "source": "~/compute/data/colab_pull/data/backtest/prices_2024_cache.csv"
+    },
+    "prices_2025_cache.csv": {
+      "sha256": "6c38bfa0a9a4d8b4ab758ecfbbe95f1c6cee5021b91a41e62dd074ad8b8b787d",
+      "bytes": 812283,
+      "role": "prices_2025",
+      "source": "~/compute/data/colab_pull/data/backtest/prices_2025_cache.csv"
+    },
+    "prices_2026_cache.csv": {
+      "sha256": "77dddbb8bda1ce24af39d62b646d2a3d4fe4597fc15c82862e2efbd25c810053",
+      "bytes": 718664,
+      "role": "prices_2026",
+      "source": "~/compute/data/colab_pull/data/backtest/prices_2026_cache.csv"
+    },
+    "mcp_historical_sqn_data.json": {
+      "sha256": "ca22d431b75ed2e88d9d517490650516c0d89807a91530ded3ae0ab87b6e22c0",
+      "bytes": 127920,
+      "role": "market_sqn_and_volatility",
+      "source": "~/compute/data/colab_pull/data/shared_mcp/mcp_historical_sqn_data.json"
+    },
+    "compass_returns_engine.py": {
+      "sha256": "df1a376f861edbb7071e5fc2420af22faf554f51b2c537d772a99ce9c8d28f69",
+      "bytes": 12774,
+      "role": "compass_engine_module",
+      "source": "~/compute/data/colab_pull/data/shared_mcp/compass_returns_engine.py"
+    },
+    "plot_comparison_boxplot.py": {
+      "sha256": "f6f8272192d6c0e73bcb40df3fdf4a7786adaf5cf5267c8beff28d151d90168f",
+      "bytes": 4062,
+      "role": "stats_calc_module",
+      "source": "~/compute/data/colab_pull/data/shared_mcp/plot_comparison_boxplot.py"
+    }
+  }
+}

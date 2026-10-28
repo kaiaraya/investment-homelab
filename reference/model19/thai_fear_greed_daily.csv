@@ -1,0 +1,927 @@
+date,report_date,weekly_score,zone,source,master_score,zone_master,linear_score_raw,calibrated_score_2025,days_since_report
+2022-12-29,2022-12-29,56.0,Greed,Gap-filled (from GreedNFearBarometer_230105.pdf 1W-Ago),56.0,Greed,56.0,56.0,0
+2022-12-30,2022-12-29,56.0,Greed,Gap-filled (from GreedNFearBarometer_230105.pdf 1W-Ago),56.0,Greed,56.0,56.0,1
+2023-01-03,2022-12-29,56.0,Greed,Gap-filled (from GreedNFearBarometer_230105.pdf 1W-Ago),56.0,Greed,56.0,56.0,5
+2023-01-04,2022-12-29,56.0,Greed,Gap-filled (from GreedNFearBarometer_230105.pdf 1W-Ago),56.0,Greed,56.0,56.0,6
+2023-01-05,2023-01-05,64.0,Greed,Official 2023 PDF,64.0,Greed,64.0,64.0,0
+2023-01-06,2023-01-05,64.0,Greed,Official 2023 PDF,64.0,Greed,64.0,64.0,1
+2023-01-09,2023-01-05,64.0,Greed,Official 2023 PDF,64.0,Greed,64.0,64.0,4
+2023-01-10,2023-01-05,64.0,Greed,Official 2023 PDF,64.0,Greed,64.0,64.0,5
+2023-01-11,2023-01-05,64.0,Greed,Official 2023 PDF,64.0,Greed,64.0,64.0,6
+2023-01-12,2023-01-12,71.0,Greed,Official 2023 PDF,71.0,Greed,71.0,71.0,0
+2023-01-13,2023-01-12,71.0,Greed,Official 2023 PDF,71.0,Greed,71.0,71.0,1
+2023-01-16,2023-01-12,71.0,Greed,Official 2023 PDF,71.0,Greed,71.0,71.0,4
+2023-01-17,2023-01-12,71.0,Greed,Official 2023 PDF,71.0,Greed,71.0,71.0,5
+2023-01-18,2023-01-12,71.0,Greed,Official 2023 PDF,71.0,Greed,71.0,71.0,6
+2023-01-19,2023-01-19,68.0,Greed,Gap-filled (from GreedNFearBarometer_230126.pdf 1W-Ago),68.0,Greed,68.0,68.0,0
+2023-01-20,2023-01-19,68.0,Greed,Gap-filled (from GreedNFearBarometer_230126.pdf 1W-Ago),68.0,Greed,68.0,68.0,1
+2023-01-23,2023-01-19,68.0,Greed,Gap-filled (from GreedNFearBarometer_230126.pdf 1W-Ago),68.0,Greed,68.0,68.0,4
+2023-01-24,2023-01-19,68.0,Greed,Gap-filled (from GreedNFearBarometer_230126.pdf 1W-Ago),68.0,Greed,68.0,68.0,5
+2023-01-25,2023-01-19,68.0,Greed,Gap-filled (from GreedNFearBarometer_230126.pdf 1W-Ago),68.0,Greed,68.0,68.0,6
+2023-01-26,2023-01-26,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,0
+2023-01-27,2023-01-26,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,1
+2023-01-30,2023-01-26,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,4
+2023-01-31,2023-01-26,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,5
+2023-02-01,2023-01-26,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,6
+2023-02-02,2023-02-02,65.0,Greed,Official 2023 PDF,65.0,Greed,65.0,65.0,0
+2023-02-03,2023-02-02,65.0,Greed,Official 2023 PDF,65.0,Greed,65.0,65.0,1
+2023-02-06,2023-02-02,65.0,Greed,Official 2023 PDF,65.0,Greed,65.0,65.0,4
+2023-02-07,2023-02-02,65.0,Greed,Official 2023 PDF,65.0,Greed,65.0,65.0,5
+2023-02-08,2023-02-02,65.0,Greed,Official 2023 PDF,65.0,Greed,65.0,65.0,6
+2023-02-09,2023-02-09,63.0,Greed,Official 2023 PDF,63.0,Greed,63.0,63.0,0
+2023-02-10,2023-02-09,63.0,Greed,Official 2023 PDF,63.0,Greed,63.0,63.0,1
+2023-02-13,2023-02-09,63.0,Greed,Official 2023 PDF,63.0,Greed,63.0,63.0,4
+2023-02-14,2023-02-09,63.0,Greed,Official 2023 PDF,63.0,Greed,63.0,63.0,5
+2023-02-15,2023-02-09,63.0,Greed,Official 2023 PDF,63.0,Greed,63.0,63.0,6
+2023-02-16,2023-02-16,62.0,Greed,Official 2023 PDF,62.0,Greed,62.0,62.0,0
+2023-02-17,2023-02-16,62.0,Greed,Official 2023 PDF,62.0,Greed,62.0,62.0,1
+2023-02-20,2023-02-16,62.0,Greed,Official 2023 PDF,62.0,Greed,62.0,62.0,4
+2023-02-21,2023-02-16,62.0,Greed,Official 2023 PDF,62.0,Greed,62.0,62.0,5
+2023-02-22,2023-02-16,62.0,Greed,Official 2023 PDF,62.0,Greed,62.0,62.0,6
+2023-02-23,2023-02-23,49.0,Neutral,Official 2023 PDF,49.0,Neutral,49.0,49.0,0
+2023-02-24,2023-02-23,49.0,Neutral,Official 2023 PDF,49.0,Neutral,49.0,49.0,1
+2023-02-27,2023-02-23,49.0,Neutral,Official 2023 PDF,49.0,Neutral,49.0,49.0,4
+2023-02-28,2023-02-23,49.0,Neutral,Official 2023 PDF,49.0,Neutral,49.0,49.0,5
+2023-03-01,2023-02-23,49.0,Neutral,Official 2023 PDF,49.0,Neutral,49.0,49.0,6
+2023-03-02,2023-03-02,36.0,Fear,Official 2023 PDF,36.0,Fear,36.0,36.0,0
+2023-03-03,2023-03-02,36.0,Fear,Official 2023 PDF,36.0,Fear,36.0,36.0,1
+2023-03-07,2023-03-02,36.0,Fear,Official 2023 PDF,36.0,Fear,36.0,36.0,5
+2023-03-08,2023-03-02,36.0,Fear,Official 2023 PDF,36.0,Fear,36.0,36.0,6
+2023-03-09,2023-03-09,32.0,Fear,Official 2023 PDF,32.0,Fear,32.0,32.0,0
+2023-03-10,2023-03-09,32.0,Fear,Official 2023 PDF,32.0,Fear,32.0,32.0,1
+2023-03-13,2023-03-09,32.0,Fear,Official 2023 PDF,32.0,Fear,32.0,32.0,4
+2023-03-14,2023-03-09,32.0,Fear,Official 2023 PDF,32.0,Fear,32.0,32.0,5
+2023-03-15,2023-03-15,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,0
+2023-03-16,2023-03-15,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,1
+2023-03-17,2023-03-15,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,2
+2023-03-20,2023-03-15,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,5
+2023-03-21,2023-03-15,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,6
+2023-03-22,2023-03-15,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,7
+2023-03-23,2023-03-23,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,0
+2023-03-24,2023-03-23,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,1
+2023-03-27,2023-03-23,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,4
+2023-03-28,2023-03-23,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,5
+2023-03-29,2023-03-23,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,6
+2023-03-30,2023-03-30,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,0
+2023-03-31,2023-03-30,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,1
+2023-04-03,2023-03-30,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,4
+2023-04-04,2023-03-30,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,5
+2023-04-05,2023-03-30,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,6
+2023-04-07,2023-04-07,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,0
+2023-04-10,2023-04-07,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,3
+2023-04-11,2023-04-07,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,4
+2023-04-12,2023-04-07,30.0,Fear,Official 2023 PDF,30.0,Fear,30.0,30.0,5
+2023-04-17,2023-04-13,35.0,Fear,Gap-filled (from GreedNFearBarometer_230420.pdf 1W-Ago),35.0,Fear,35.0,35.0,4
+2023-04-18,2023-04-13,35.0,Fear,Gap-filled (from GreedNFearBarometer_230420.pdf 1W-Ago),35.0,Fear,35.0,35.0,5
+2023-04-19,2023-04-13,35.0,Fear,Gap-filled (from GreedNFearBarometer_230420.pdf 1W-Ago),35.0,Fear,35.0,35.0,6
+2023-04-20,2023-04-20,29.0,Fear,Official 2023 PDF,29.0,Fear,29.0,29.0,0
+2023-04-21,2023-04-20,29.0,Fear,Official 2023 PDF,29.0,Fear,29.0,29.0,1
+2023-04-24,2023-04-20,29.0,Fear,Official 2023 PDF,29.0,Fear,29.0,29.0,4
+2023-04-25,2023-04-20,29.0,Fear,Official 2023 PDF,29.0,Fear,29.0,29.0,5
+2023-04-26,2023-04-20,29.0,Fear,Official 2023 PDF,29.0,Fear,29.0,29.0,6
+2023-04-27,2023-04-27,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,0
+2023-04-28,2023-04-27,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,1
+2023-05-02,2023-04-27,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,5
+2023-05-03,2023-04-27,23.0,Extreme Fear,Official 2023 PDF,23.0,Extreme Fear,23.0,23.0,6
+2023-05-08,2023-05-04,20.0,Extreme Fear,Gap-filled (from GreedNFearBarometer_230511.pdf 1W-Ago),20.0,Extreme Fear,20.0,20.0,4
+2023-05-09,2023-05-04,20.0,Extreme Fear,Gap-filled (from GreedNFearBarometer_230511.pdf 1W-Ago),20.0,Extreme Fear,20.0,20.0,5
+2023-05-10,2023-05-04,20.0,Extreme Fear,Gap-filled (from GreedNFearBarometer_230511.pdf 1W-Ago),20.0,Extreme Fear,20.0,20.0,6
+2023-05-11,2023-05-11,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,0
+2023-05-12,2023-05-11,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,1
+2023-05-15,2023-05-11,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,4
+2023-05-16,2023-05-11,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,5
+2023-05-17,2023-05-11,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,6
+2023-05-18,2023-05-18,24.0,Extreme Fear,Official 2023 PDF,24.0,Extreme Fear,24.0,24.0,0
+2023-05-19,2023-05-18,24.0,Extreme Fear,Official 2023 PDF,24.0,Extreme Fear,24.0,24.0,1
+2023-05-22,2023-05-18,24.0,Extreme Fear,Official 2023 PDF,24.0,Extreme Fear,24.0,24.0,4
+2023-05-23,2023-05-18,24.0,Extreme Fear,Official 2023 PDF,24.0,Extreme Fear,24.0,24.0,5
+2023-05-24,2023-05-18,24.0,Extreme Fear,Official 2023 PDF,24.0,Extreme Fear,24.0,24.0,6
+2023-05-25,2023-05-25,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,0
+2023-05-26,2023-05-25,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,1
+2023-05-29,2023-05-25,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,4
+2023-05-30,2023-05-25,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,5
+2023-05-31,2023-05-25,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,6
+2023-06-01,2023-06-01,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,0
+2023-06-02,2023-06-01,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,1
+2023-06-06,2023-06-01,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,5
+2023-06-07,2023-06-01,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,6
+2023-06-08,2023-06-08,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,0
+2023-06-09,2023-06-08,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,1
+2023-06-12,2023-06-08,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,4
+2023-06-13,2023-06-08,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,5
+2023-06-14,2023-06-08,25.0,Extreme Fear,Official 2023 PDF,25.0,Extreme Fear,25.0,25.0,6
+2023-06-15,2023-06-15,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,0
+2023-06-16,2023-06-15,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,1
+2023-06-19,2023-06-15,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,4
+2023-06-20,2023-06-15,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,5
+2023-06-21,2023-06-15,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,6
+2023-06-22,2023-06-22,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,0
+2023-06-23,2023-06-22,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,1
+2023-06-26,2023-06-22,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,4
+2023-06-27,2023-06-22,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,5
+2023-06-28,2023-06-22,41.0,Fear,Official 2023 PDF,41.0,Fear,41.0,41.0,6
+2023-06-29,2023-06-29,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,0
+2023-06-30,2023-06-29,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,1
+2023-07-03,2023-06-29,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,4
+2023-07-04,2023-06-29,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,5
+2023-07-05,2023-06-29,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,6
+2023-07-06,2023-07-06,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,0
+2023-07-07,2023-07-06,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,1
+2023-07-10,2023-07-06,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,4
+2023-07-11,2023-07-06,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,5
+2023-07-12,2023-07-06,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,6
+2023-07-13,2023-07-13,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,0
+2023-07-14,2023-07-13,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,1
+2023-07-17,2023-07-13,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,4
+2023-07-18,2023-07-13,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,5
+2023-07-19,2023-07-13,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,6
+2023-07-20,2023-07-20,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,0
+2023-07-21,2023-07-20,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,1
+2023-07-24,2023-07-20,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,4
+2023-07-25,2023-07-20,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,5
+2023-07-26,2023-07-20,31.0,Fear,Official 2023 PDF,31.0,Fear,31.0,31.0,6
+2023-07-27,2023-07-27,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,0
+2023-07-31,2023-07-27,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,4
+2023-08-02,2023-07-27,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,6
+2023-08-03,2023-08-03,57.0,Greed,Gap-filled (from GreedNFearBarometer_230810.pdf 1W-Ago),57.0,Greed,57.0,57.0,0
+2023-08-04,2023-08-03,57.0,Greed,Gap-filled (from GreedNFearBarometer_230810.pdf 1W-Ago),57.0,Greed,57.0,57.0,1
+2023-08-07,2023-08-03,57.0,Greed,Gap-filled (from GreedNFearBarometer_230810.pdf 1W-Ago),57.0,Greed,57.0,57.0,4
+2023-08-08,2023-08-03,57.0,Greed,Gap-filled (from GreedNFearBarometer_230810.pdf 1W-Ago),57.0,Greed,57.0,57.0,5
+2023-08-09,2023-08-03,57.0,Greed,Gap-filled (from GreedNFearBarometer_230810.pdf 1W-Ago),57.0,Greed,57.0,57.0,6
+2023-08-10,2023-08-10,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,0
+2023-08-11,2023-08-10,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,1
+2023-08-15,2023-08-10,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,5
+2023-08-16,2023-08-10,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,6
+2023-08-17,2023-08-17,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,0
+2023-08-18,2023-08-17,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,1
+2023-08-21,2023-08-17,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,4
+2023-08-22,2023-08-17,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,5
+2023-08-23,2023-08-17,46.0,Neutral,Official 2023 PDF,46.0,Neutral,46.0,46.0,6
+2023-08-24,2023-08-24,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,0
+2023-08-25,2023-08-24,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,1
+2023-08-28,2023-08-24,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,4
+2023-08-29,2023-08-24,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,5
+2023-08-30,2023-08-24,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,6
+2023-08-31,2023-08-31,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,0
+2023-09-01,2023-08-31,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,1
+2023-09-04,2023-08-31,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,4
+2023-09-05,2023-08-31,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,5
+2023-09-06,2023-08-31,68.0,Greed,Official 2023 PDF,68.0,Greed,68.0,68.0,6
+2023-09-07,2023-09-07,60.0,Greed,Official 2023 PDF,60.0,Greed,60.0,60.0,0
+2023-09-08,2023-09-07,60.0,Greed,Official 2023 PDF,60.0,Greed,60.0,60.0,1
+2023-09-11,2023-09-07,60.0,Greed,Official 2023 PDF,60.0,Greed,60.0,60.0,4
+2023-09-12,2023-09-07,60.0,Greed,Official 2023 PDF,60.0,Greed,60.0,60.0,5
+2023-09-13,2023-09-07,60.0,Greed,Official 2023 PDF,60.0,Greed,60.0,60.0,6
+2023-09-14,2023-09-14,61.0,Greed,Official 2023 PDF,61.0,Greed,61.0,61.0,0
+2023-09-15,2023-09-14,61.0,Greed,Official 2023 PDF,61.0,Greed,61.0,61.0,1
+2023-09-18,2023-09-14,61.0,Greed,Official 2023 PDF,61.0,Greed,61.0,61.0,4
+2023-09-19,2023-09-14,61.0,Greed,Official 2023 PDF,61.0,Greed,61.0,61.0,5
+2023-09-20,2023-09-14,61.0,Greed,Official 2023 PDF,61.0,Greed,61.0,61.0,6
+2023-09-21,2023-09-21,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,0
+2023-09-22,2023-09-21,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,1
+2023-09-25,2023-09-21,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,4
+2023-09-26,2023-09-21,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,5
+2023-09-27,2023-09-21,56.0,Greed,Official 2023 PDF,56.0,Greed,56.0,56.0,6
+2023-09-28,2023-09-28,45.0,Fear,Official 2023 PDF,45.0,Fear,45.0,45.0,0
+2023-09-29,2023-09-28,45.0,Fear,Official 2023 PDF,45.0,Fear,45.0,45.0,1
+2023-10-02,2023-09-28,45.0,Fear,Official 2023 PDF,45.0,Fear,45.0,45.0,4
+2023-10-03,2023-09-28,45.0,Fear,Official 2023 PDF,45.0,Fear,45.0,45.0,5
+2023-10-04,2023-09-28,45.0,Fear,Official 2023 PDF,45.0,Fear,45.0,45.0,6
+2023-10-05,2023-10-05,39.0,Fear,Official 2023 PDF,39.0,Fear,39.0,39.0,0
+2023-10-06,2023-10-05,39.0,Fear,Official 2023 PDF,39.0,Fear,39.0,39.0,1
+2023-10-09,2023-10-05,39.0,Fear,Official 2023 PDF,39.0,Fear,39.0,39.0,4
+2023-10-10,2023-10-05,39.0,Fear,Official 2023 PDF,39.0,Fear,39.0,39.0,5
+2023-10-11,2023-10-05,39.0,Fear,Official 2023 PDF,39.0,Fear,39.0,39.0,6
+2023-10-12,2023-10-12,35.0,Fear,Official 2023 PDF,35.0,Fear,35.0,35.0,0
+2023-10-16,2023-10-12,35.0,Fear,Official 2023 PDF,35.0,Fear,35.0,35.0,4
+2023-10-17,2023-10-12,35.0,Fear,Official 2023 PDF,35.0,Fear,35.0,35.0,5
+2023-10-18,2023-10-12,35.0,Fear,Official 2023 PDF,35.0,Fear,35.0,35.0,6
+2023-10-19,2023-10-19,27.0,Fear,Official 2023 PDF,27.0,Fear,27.0,27.0,0
+2023-10-20,2023-10-19,27.0,Fear,Official 2023 PDF,27.0,Fear,27.0,27.0,1
+2023-10-24,2023-10-19,27.0,Fear,Official 2023 PDF,27.0,Fear,27.0,27.0,5
+2023-10-25,2023-10-19,27.0,Fear,Official 2023 PDF,27.0,Fear,27.0,27.0,6
+2023-10-26,2023-10-26,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,0
+2023-10-27,2023-10-26,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,1
+2023-10-30,2023-10-26,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,4
+2023-10-31,2023-10-26,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,5
+2023-11-01,2023-10-26,20.0,Extreme Fear,Official 2023 PDF,20.0,Extreme Fear,20.0,20.0,6
+2023-11-02,2023-11-02,12.0,Extreme Fear,Official 2023 PDF,12.0,Extreme Fear,12.0,12.0,0
+2023-11-03,2023-11-02,12.0,Extreme Fear,Official 2023 PDF,12.0,Extreme Fear,12.0,12.0,1
+2023-11-06,2023-11-02,12.0,Extreme Fear,Official 2023 PDF,12.0,Extreme Fear,12.0,12.0,4
+2023-11-07,2023-11-02,12.0,Extreme Fear,Official 2023 PDF,12.0,Extreme Fear,12.0,12.0,5
+2023-11-08,2023-11-02,12.0,Extreme Fear,Official 2023 PDF,12.0,Extreme Fear,12.0,12.0,6
+2023-11-09,2023-11-09,16.0,Extreme Fear,Official 2023 PDF,16.0,Extreme Fear,16.0,16.0,0
+2023-11-10,2023-11-09,16.0,Extreme Fear,Official 2023 PDF,16.0,Extreme Fear,16.0,16.0,1
+2023-11-13,2023-11-09,16.0,Extreme Fear,Official 2023 PDF,16.0,Extreme Fear,16.0,16.0,4
+2023-11-14,2023-11-09,16.0,Extreme Fear,Official 2023 PDF,16.0,Extreme Fear,16.0,16.0,5
+2023-11-15,2023-11-09,16.0,Extreme Fear,Official 2023 PDF,16.0,Extreme Fear,16.0,16.0,6
+2023-11-16,2023-11-16,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,0
+2023-11-17,2023-11-16,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,1
+2023-11-20,2023-11-16,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,4
+2023-11-21,2023-11-16,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,5
+2023-11-22,2023-11-16,26.0,Fear,Official 2023 PDF,26.0,Fear,26.0,26.0,6
+2023-11-23,2023-11-23,38.0,Fear,Official 2023 PDF,38.0,Fear,38.0,38.0,0
+2023-11-24,2023-11-23,38.0,Fear,Official 2023 PDF,38.0,Fear,38.0,38.0,1
+2023-11-27,2023-11-23,38.0,Fear,Official 2023 PDF,38.0,Fear,38.0,38.0,4
+2023-11-28,2023-11-23,38.0,Fear,Official 2023 PDF,38.0,Fear,38.0,38.0,5
+2023-11-29,2023-11-23,38.0,Fear,Official 2023 PDF,38.0,Fear,38.0,38.0,6
+2023-11-30,2023-11-30,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,0
+2023-12-01,2023-11-30,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,1
+2023-12-04,2023-11-30,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,4
+2023-12-06,2023-11-30,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,6
+2023-12-07,2023-12-07,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,0
+2023-12-08,2023-12-07,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,1
+2023-12-12,2023-12-07,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,5
+2023-12-13,2023-12-07,33.0,Fear,Official 2023 PDF,33.0,Fear,33.0,33.0,6
+2023-12-14,2023-12-14,21.0,Extreme Fear,Official 2023 PDF,21.0,Extreme Fear,21.0,21.0,0
+2023-12-15,2023-12-14,21.0,Extreme Fear,Official 2023 PDF,21.0,Extreme Fear,21.0,21.0,1
+2023-12-18,2023-12-14,21.0,Extreme Fear,Official 2023 PDF,21.0,Extreme Fear,21.0,21.0,4
+2023-12-19,2023-12-14,21.0,Extreme Fear,Official 2023 PDF,21.0,Extreme Fear,21.0,21.0,5
+2023-12-20,2023-12-14,21.0,Extreme Fear,Official 2023 PDF,21.0,Extreme Fear,21.0,21.0,6
+2023-12-21,2023-12-21,38.0,Fear,Gap-filled (from GreedNFearBarometer_231228.pdf 1W-Ago),38.0,Fear,38.0,38.0,0
+2023-12-22,2023-12-21,38.0,Fear,Gap-filled (from GreedNFearBarometer_231228.pdf 1W-Ago),38.0,Fear,38.0,38.0,1
+2023-12-25,2023-12-21,38.0,Fear,Gap-filled (from GreedNFearBarometer_231228.pdf 1W-Ago),38.0,Fear,38.0,38.0,4
+2023-12-26,2023-12-21,38.0,Fear,Gap-filled (from GreedNFearBarometer_231228.pdf 1W-Ago),38.0,Fear,38.0,38.0,5
+2023-12-27,2023-12-21,38.0,Fear,Gap-filled (from GreedNFearBarometer_231228.pdf 1W-Ago),38.0,Fear,38.0,38.0,6
+2023-12-28,2023-12-28,43.0,Fear,Official 2023 PDF,43.0,Fear,43.0,43.0,0
+2024-01-02,2023-12-28,43.0,Fear,Official 2023 PDF,43.0,Fear,43.0,43.0,5
+2024-01-03,2023-12-28,43.0,Fear,Official 2023 PDF,43.0,Fear,43.0,43.0,6
+2024-01-04,2024-01-04,50.0,Neutral,Official 2024 PDF,50.0,Neutral,50.0,50.0,0
+2024-01-05,2024-01-04,50.0,Neutral,Official 2024 PDF,50.0,Neutral,50.0,50.0,1
+2024-01-08,2024-01-04,50.0,Neutral,Official 2024 PDF,50.0,Neutral,50.0,50.0,4
+2024-01-09,2024-01-04,50.0,Neutral,Official 2024 PDF,50.0,Neutral,50.0,50.0,5
+2024-01-10,2024-01-04,50.0,Neutral,Official 2024 PDF,50.0,Neutral,50.0,50.0,6
+2024-01-11,2024-01-11,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,0
+2024-01-12,2024-01-11,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,1
+2024-01-15,2024-01-11,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,4
+2024-01-16,2024-01-11,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,5
+2024-01-17,2024-01-11,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,6
+2024-01-18,2024-01-18,38.0,Fear,Official 2024 PDF,38.0,Fear,38.0,38.0,0
+2024-01-19,2024-01-18,38.0,Fear,Official 2024 PDF,38.0,Fear,38.0,38.0,1
+2024-01-22,2024-01-18,38.0,Fear,Official 2024 PDF,38.0,Fear,38.0,38.0,4
+2024-01-23,2024-01-18,38.0,Fear,Official 2024 PDF,38.0,Fear,38.0,38.0,5
+2024-01-24,2024-01-18,38.0,Fear,Official 2024 PDF,38.0,Fear,38.0,38.0,6
+2024-01-25,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,0
+2024-01-26,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,1
+2024-01-29,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,4
+2024-01-30,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,5
+2024-01-31,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,6
+2024-02-01,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,7
+2024-02-02,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,8
+2024-02-05,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,11
+2024-02-06,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,12
+2024-02-07,2024-01-25,30.0,Fear,Official 2024 PDF,30.0,Fear,30.0,30.0,13
+2024-02-08,2024-02-08,42.0,Fear,Gap-filled (from GreedNFearBarometer_240307.pdf 1M-Ago),42.0,Fear,42.0,42.0,0
+2024-02-09,2024-02-08,42.0,Fear,Gap-filled (from GreedNFearBarometer_240307.pdf 1M-Ago),42.0,Fear,42.0,42.0,1
+2024-02-12,2024-02-08,42.0,Fear,Gap-filled (from GreedNFearBarometer_240307.pdf 1M-Ago),42.0,Fear,42.0,42.0,4
+2024-02-13,2024-02-08,42.0,Fear,Gap-filled (from GreedNFearBarometer_240307.pdf 1M-Ago),42.0,Fear,42.0,42.0,5
+2024-02-14,2024-02-08,42.0,Fear,Gap-filled (from GreedNFearBarometer_240307.pdf 1M-Ago),42.0,Fear,42.0,42.0,6
+2024-02-15,2024-02-15,45.0,Fear,Gap-filled (from GreedNFearBarometer_240314.pdf 1M-Ago),45.0,Fear,45.0,45.0,0
+2024-02-16,2024-02-15,45.0,Fear,Gap-filled (from GreedNFearBarometer_240314.pdf 1M-Ago),45.0,Fear,45.0,45.0,1
+2024-02-19,2024-02-15,45.0,Fear,Gap-filled (from GreedNFearBarometer_240314.pdf 1M-Ago),45.0,Fear,45.0,45.0,4
+2024-02-20,2024-02-15,45.0,Fear,Gap-filled (from GreedNFearBarometer_240314.pdf 1M-Ago),45.0,Fear,45.0,45.0,5
+2024-02-21,2024-02-15,45.0,Fear,Gap-filled (from GreedNFearBarometer_240314.pdf 1M-Ago),45.0,Fear,45.0,45.0,6
+2024-02-22,2024-02-22,43.0,Fear,Gap-filled (from GreedNFearBarometer_240321.pdf 1M-Ago),43.0,Fear,43.0,43.0,0
+2024-02-23,2024-02-22,43.0,Fear,Gap-filled (from GreedNFearBarometer_240321.pdf 1M-Ago),43.0,Fear,43.0,43.0,1
+2024-02-27,2024-02-22,43.0,Fear,Gap-filled (from GreedNFearBarometer_240321.pdf 1M-Ago),43.0,Fear,43.0,43.0,5
+2024-02-28,2024-02-22,43.0,Fear,Gap-filled (from GreedNFearBarometer_240321.pdf 1M-Ago),43.0,Fear,43.0,43.0,6
+2024-02-29,2024-02-29,47.0,Neutral,Gap-filled (from GreedNFearBarometer_240307.pdf 1W-Ago),47.0,Neutral,47.0,47.0,0
+2024-03-01,2024-02-29,47.0,Neutral,Gap-filled (from GreedNFearBarometer_240307.pdf 1W-Ago),47.0,Neutral,47.0,47.0,1
+2024-03-04,2024-02-29,47.0,Neutral,Gap-filled (from GreedNFearBarometer_240307.pdf 1W-Ago),47.0,Neutral,47.0,47.0,4
+2024-03-05,2024-02-29,47.0,Neutral,Gap-filled (from GreedNFearBarometer_240307.pdf 1W-Ago),47.0,Neutral,47.0,47.0,5
+2024-03-06,2024-02-29,47.0,Neutral,Gap-filled (from GreedNFearBarometer_240307.pdf 1W-Ago),47.0,Neutral,47.0,47.0,6
+2024-03-07,2024-03-07,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,0
+2024-03-08,2024-03-07,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,1
+2024-03-11,2024-03-07,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,4
+2024-03-12,2024-03-07,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,5
+2024-03-13,2024-03-07,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,6
+2024-03-14,2024-03-14,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,0
+2024-03-15,2024-03-14,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,1
+2024-03-18,2024-03-14,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,4
+2024-03-19,2024-03-14,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,5
+2024-03-20,2024-03-14,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,6
+2024-03-21,2024-03-21,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,0
+2024-03-22,2024-03-21,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,1
+2024-03-25,2024-03-21,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,4
+2024-03-26,2024-03-21,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,5
+2024-03-27,2024-03-21,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,6
+2024-03-28,2024-03-28,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,0
+2024-03-29,2024-03-28,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,1
+2024-04-01,2024-03-28,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,4
+2024-04-02,2024-03-28,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,5
+2024-04-03,2024-03-28,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,6
+2024-04-04,2024-04-04,35.0,Fear,Official 2024 PDF,35.0,Fear,35.0,35.0,0
+2024-04-05,2024-04-04,35.0,Fear,Official 2024 PDF,35.0,Fear,35.0,35.0,1
+2024-04-09,2024-04-04,35.0,Fear,Official 2024 PDF,35.0,Fear,35.0,35.0,5
+2024-04-10,2024-04-04,35.0,Fear,Official 2024 PDF,35.0,Fear,35.0,35.0,6
+2024-04-11,2024-04-11,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,0
+2024-04-17,2024-04-11,43.0,Fear,Official 2024 PDF,43.0,Fear,43.0,43.0,6
+2024-04-18,2024-04-18,41.0,Fear,Gap-filled (from GreedNFearBarometer_240425.pdf 1W-Ago),41.0,Fear,41.0,41.0,0
+2024-04-19,2024-04-18,41.0,Fear,Gap-filled (from GreedNFearBarometer_240425.pdf 1W-Ago),41.0,Fear,41.0,41.0,1
+2024-04-22,2024-04-18,41.0,Fear,Gap-filled (from GreedNFearBarometer_240425.pdf 1W-Ago),41.0,Fear,41.0,41.0,4
+2024-04-23,2024-04-18,41.0,Fear,Gap-filled (from GreedNFearBarometer_240425.pdf 1W-Ago),41.0,Fear,41.0,41.0,5
+2024-04-24,2024-04-18,41.0,Fear,Gap-filled (from GreedNFearBarometer_240425.pdf 1W-Ago),41.0,Fear,41.0,41.0,6
+2024-04-25,2024-04-25,28.0,Fear,Official 2024 PDF,28.0,Fear,28.0,28.0,0
+2024-04-26,2024-04-25,28.0,Fear,Official 2024 PDF,28.0,Fear,28.0,28.0,1
+2024-04-29,2024-04-25,28.0,Fear,Official 2024 PDF,28.0,Fear,28.0,28.0,4
+2024-04-30,2024-04-25,28.0,Fear,Official 2024 PDF,28.0,Fear,28.0,28.0,5
+2024-05-02,2024-05-02,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,0
+2024-05-03,2024-05-02,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,1
+2024-05-07,2024-05-02,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,5
+2024-05-08,2024-05-02,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,6
+2024-05-09,2024-05-09,37.0,Fear,Gap-filled (from GreedNFearBarometer_240516.pdf 1W-Ago),37.0,Fear,37.0,37.0,0
+2024-05-10,2024-05-09,37.0,Fear,Gap-filled (from GreedNFearBarometer_240516.pdf 1W-Ago),37.0,Fear,37.0,37.0,1
+2024-05-13,2024-05-09,37.0,Fear,Gap-filled (from GreedNFearBarometer_240516.pdf 1W-Ago),37.0,Fear,37.0,37.0,4
+2024-05-14,2024-05-09,37.0,Fear,Gap-filled (from GreedNFearBarometer_240516.pdf 1W-Ago),37.0,Fear,37.0,37.0,5
+2024-05-15,2024-05-09,37.0,Fear,Gap-filled (from GreedNFearBarometer_240516.pdf 1W-Ago),37.0,Fear,37.0,37.0,6
+2024-05-16,2024-05-16,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,0
+2024-05-17,2024-05-16,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,1
+2024-05-20,2024-05-16,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,4
+2024-05-21,2024-05-16,44.0,Fear,Official 2024 PDF,44.0,Fear,44.0,44.0,5
+2024-05-23,2024-05-23,45.0,Fear,Gap-filled (from GreedNFearBarometer_240620.pdf 1M-Ago),45.0,Fear,45.0,45.0,0
+2024-05-24,2024-05-23,45.0,Fear,Gap-filled (from GreedNFearBarometer_240620.pdf 1M-Ago),45.0,Fear,45.0,45.0,1
+2024-05-27,2024-05-23,45.0,Fear,Gap-filled (from GreedNFearBarometer_240620.pdf 1M-Ago),45.0,Fear,45.0,45.0,4
+2024-05-28,2024-05-23,45.0,Fear,Gap-filled (from GreedNFearBarometer_240620.pdf 1M-Ago),45.0,Fear,45.0,45.0,5
+2024-05-29,2024-05-23,45.0,Fear,Gap-filled (from GreedNFearBarometer_240620.pdf 1M-Ago),45.0,Fear,45.0,45.0,6
+2024-05-30,2024-05-30,36.0,Fear,Gap-filled (from GreedNFearBarometer_240606.pdf 1W-Ago),36.0,Fear,36.0,36.0,0
+2024-05-31,2024-05-30,36.0,Fear,Gap-filled (from GreedNFearBarometer_240606.pdf 1W-Ago),36.0,Fear,36.0,36.0,1
+2024-06-04,2024-05-30,36.0,Fear,Gap-filled (from GreedNFearBarometer_240606.pdf 1W-Ago),36.0,Fear,36.0,36.0,5
+2024-06-05,2024-05-30,36.0,Fear,Gap-filled (from GreedNFearBarometer_240606.pdf 1W-Ago),36.0,Fear,36.0,36.0,6
+2024-06-06,2024-06-06,26.0,Fear,Official 2024 PDF,26.0,Fear,26.0,26.0,0
+2024-06-07,2024-06-06,26.0,Fear,Official 2024 PDF,26.0,Fear,26.0,26.0,1
+2024-06-10,2024-06-06,26.0,Fear,Official 2024 PDF,26.0,Fear,26.0,26.0,4
+2024-06-11,2024-06-06,26.0,Fear,Official 2024 PDF,26.0,Fear,26.0,26.0,5
+2024-06-12,2024-06-06,26.0,Fear,Official 2024 PDF,26.0,Fear,26.0,26.0,6
+2024-06-13,2024-06-13,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,0
+2024-06-14,2024-06-13,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,1
+2024-06-17,2024-06-13,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,4
+2024-06-18,2024-06-13,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,5
+2024-06-19,2024-06-13,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,6
+2024-06-20,2024-06-20,21.0,Extreme Fear,Official 2024 PDF,21.0,Extreme Fear,21.0,21.0,0
+2024-06-21,2024-06-20,21.0,Extreme Fear,Official 2024 PDF,21.0,Extreme Fear,21.0,21.0,1
+2024-06-24,2024-06-20,21.0,Extreme Fear,Official 2024 PDF,21.0,Extreme Fear,21.0,21.0,4
+2024-06-25,2024-06-20,21.0,Extreme Fear,Official 2024 PDF,21.0,Extreme Fear,21.0,21.0,5
+2024-06-26,2024-06-20,21.0,Extreme Fear,Official 2024 PDF,21.0,Extreme Fear,21.0,21.0,6
+2024-06-27,2024-06-27,19.0,Extreme Fear,Official 2024 PDF,19.0,Extreme Fear,19.0,19.0,0
+2024-06-28,2024-06-27,19.0,Extreme Fear,Official 2024 PDF,19.0,Extreme Fear,19.0,19.0,1
+2024-07-01,2024-06-27,19.0,Extreme Fear,Official 2024 PDF,19.0,Extreme Fear,19.0,19.0,4
+2024-07-02,2024-06-27,19.0,Extreme Fear,Official 2024 PDF,19.0,Extreme Fear,19.0,19.0,5
+2024-07-03,2024-06-27,19.0,Extreme Fear,Official 2024 PDF,19.0,Extreme Fear,19.0,19.0,6
+2024-07-04,2024-07-04,17.0,Extreme Fear,Official 2024 PDF,17.0,Extreme Fear,17.0,17.0,0
+2024-07-05,2024-07-04,17.0,Extreme Fear,Official 2024 PDF,17.0,Extreme Fear,17.0,17.0,1
+2024-07-08,2024-07-04,17.0,Extreme Fear,Official 2024 PDF,17.0,Extreme Fear,17.0,17.0,4
+2024-07-09,2024-07-04,17.0,Extreme Fear,Official 2024 PDF,17.0,Extreme Fear,17.0,17.0,5
+2024-07-10,2024-07-04,17.0,Extreme Fear,Official 2024 PDF,17.0,Extreme Fear,17.0,17.0,6
+2024-07-11,2024-07-11,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,0
+2024-07-12,2024-07-11,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,1
+2024-07-15,2024-07-11,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,4
+2024-07-16,2024-07-11,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,5
+2024-07-17,2024-07-11,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,6
+2024-07-18,2024-07-18,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,0
+2024-07-19,2024-07-18,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,1
+2024-07-23,2024-07-18,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,5
+2024-07-24,2024-07-18,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,6
+2024-07-25,2024-07-25,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,0
+2024-07-26,2024-07-25,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,1
+2024-07-30,2024-07-25,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,5
+2024-07-31,2024-07-25,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,6
+2024-08-01,2024-08-01,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,0
+2024-08-02,2024-08-01,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,1
+2024-08-05,2024-08-01,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,4
+2024-08-06,2024-08-01,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,5
+2024-08-07,2024-08-01,37.0,Fear,Official 2024 PDF,37.0,Fear,37.0,37.0,6
+2024-08-08,2024-08-08,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,0
+2024-08-09,2024-08-08,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,1
+2024-08-13,2024-08-08,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,5
+2024-08-14,2024-08-08,31.0,Fear,Official 2024 PDF,31.0,Fear,31.0,31.0,6
+2024-08-15,2024-08-15,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,0
+2024-08-16,2024-08-15,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,1
+2024-08-19,2024-08-15,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,4
+2024-08-20,2024-08-15,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,5
+2024-08-21,2024-08-15,25.0,Extreme Fear,Official 2024 PDF,25.0,Extreme Fear,25.0,25.0,6
+2024-08-22,2024-08-22,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,0
+2024-08-23,2024-08-22,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,1
+2024-08-26,2024-08-22,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,4
+2024-08-27,2024-08-22,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,5
+2024-08-28,2024-08-22,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,6
+2024-08-29,2024-08-29,46.0,Neutral,Official 2024 PDF,46.0,Neutral,46.0,46.0,0
+2024-08-30,2024-08-29,46.0,Neutral,Official 2024 PDF,46.0,Neutral,46.0,46.0,1
+2024-09-02,2024-08-29,46.0,Neutral,Official 2024 PDF,46.0,Neutral,46.0,46.0,4
+2024-09-03,2024-08-29,46.0,Neutral,Official 2024 PDF,46.0,Neutral,46.0,46.0,5
+2024-09-04,2024-08-29,46.0,Neutral,Official 2024 PDF,46.0,Neutral,46.0,46.0,6
+2024-09-05,2024-09-05,54.0,Neutral,Official 2024 PDF,54.0,Neutral,54.0,54.0,0
+2024-09-06,2024-09-05,54.0,Neutral,Official 2024 PDF,54.0,Neutral,54.0,54.0,1
+2024-09-09,2024-09-05,54.0,Neutral,Official 2024 PDF,54.0,Neutral,54.0,54.0,4
+2024-09-10,2024-09-05,54.0,Neutral,Official 2024 PDF,54.0,Neutral,54.0,54.0,5
+2024-09-11,2024-09-05,54.0,Neutral,Official 2024 PDF,54.0,Neutral,54.0,54.0,6
+2024-09-12,2024-09-12,51.0,Neutral,Official 2024 PDF,51.0,Neutral,51.0,51.0,0
+2024-09-13,2024-09-12,51.0,Neutral,Official 2024 PDF,51.0,Neutral,51.0,51.0,1
+2024-09-16,2024-09-12,51.0,Neutral,Official 2024 PDF,51.0,Neutral,51.0,51.0,4
+2024-09-17,2024-09-12,51.0,Neutral,Official 2024 PDF,51.0,Neutral,51.0,51.0,5
+2024-09-18,2024-09-12,51.0,Neutral,Official 2024 PDF,51.0,Neutral,51.0,51.0,6
+2024-09-19,2024-09-19,62.0,Greed,Official 2024 PDF,62.0,Greed,62.0,62.0,0
+2024-09-20,2024-09-19,62.0,Greed,Official 2024 PDF,62.0,Greed,62.0,62.0,1
+2024-09-23,2024-09-19,62.0,Greed,Official 2024 PDF,62.0,Greed,62.0,62.0,4
+2024-09-24,2024-09-19,62.0,Greed,Official 2024 PDF,62.0,Greed,62.0,62.0,5
+2024-09-25,2024-09-19,62.0,Greed,Official 2024 PDF,62.0,Greed,62.0,62.0,6
+2024-09-26,2024-09-26,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,0
+2024-09-27,2024-09-26,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,1
+2024-09-30,2024-09-26,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,4
+2024-10-01,2024-09-26,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,5
+2024-10-02,2024-09-26,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,6
+2024-10-03,2024-10-03,83.0,Extreme Greed,Official 2024 PDF,83.0,Extreme Greed,83.0,83.0,0
+2024-10-04,2024-10-03,83.0,Extreme Greed,Official 2024 PDF,83.0,Extreme Greed,83.0,83.0,1
+2024-10-07,2024-10-03,83.0,Extreme Greed,Official 2024 PDF,83.0,Extreme Greed,83.0,83.0,4
+2024-10-08,2024-10-03,83.0,Extreme Greed,Official 2024 PDF,83.0,Extreme Greed,83.0,83.0,5
+2024-10-09,2024-10-03,83.0,Extreme Greed,Official 2024 PDF,83.0,Extreme Greed,83.0,83.0,6
+2024-10-10,2024-10-10,73.0,Greed,Official 2024 PDF,73.0,Greed,73.0,73.0,0
+2024-10-11,2024-10-10,73.0,Greed,Official 2024 PDF,73.0,Greed,73.0,73.0,1
+2024-10-15,2024-10-10,73.0,Greed,Official 2024 PDF,73.0,Greed,73.0,73.0,5
+2024-10-16,2024-10-10,73.0,Greed,Official 2024 PDF,73.0,Greed,73.0,73.0,6
+2024-10-17,2024-10-17,80.0,Extreme Greed,Official 2024 PDF,80.0,Extreme Greed,80.0,80.0,0
+2024-10-18,2024-10-17,80.0,Extreme Greed,Official 2024 PDF,80.0,Extreme Greed,80.0,80.0,1
+2024-10-21,2024-10-17,80.0,Extreme Greed,Official 2024 PDF,80.0,Extreme Greed,80.0,80.0,4
+2024-10-22,2024-10-17,80.0,Extreme Greed,Official 2024 PDF,80.0,Extreme Greed,80.0,80.0,5
+2024-10-24,2024-10-24,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,0
+2024-10-25,2024-10-24,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,1
+2024-10-28,2024-10-24,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,4
+2024-10-29,2024-10-24,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,5
+2024-10-30,2024-10-24,72.0,Greed,Official 2024 PDF,72.0,Greed,72.0,72.0,6
+2024-10-31,2024-10-31,53.0,Neutral,Gap-filled (from GreedNFearBarometer_241107.pdf 1W-Ago),53.0,Neutral,53.0,53.0,0
+2024-11-01,2024-10-31,53.0,Neutral,Gap-filled (from GreedNFearBarometer_241107.pdf 1W-Ago),53.0,Neutral,53.0,53.0,1
+2024-11-04,2024-10-31,53.0,Neutral,Gap-filled (from GreedNFearBarometer_241107.pdf 1W-Ago),53.0,Neutral,53.0,53.0,4
+2024-11-05,2024-10-31,53.0,Neutral,Gap-filled (from GreedNFearBarometer_241107.pdf 1W-Ago),53.0,Neutral,53.0,53.0,5
+2024-11-06,2024-10-31,53.0,Neutral,Gap-filled (from GreedNFearBarometer_241107.pdf 1W-Ago),53.0,Neutral,53.0,53.0,6
+2024-11-07,2024-11-07,49.0,Neutral,Official 2024 PDF,49.0,Neutral,49.0,49.0,0
+2024-11-08,2024-11-07,49.0,Neutral,Official 2024 PDF,49.0,Neutral,49.0,49.0,1
+2024-11-11,2024-11-07,49.0,Neutral,Official 2024 PDF,49.0,Neutral,49.0,49.0,4
+2024-11-12,2024-11-07,49.0,Neutral,Official 2024 PDF,49.0,Neutral,49.0,49.0,5
+2024-11-13,2024-11-07,49.0,Neutral,Official 2024 PDF,49.0,Neutral,49.0,49.0,6
+2024-11-14,2024-11-14,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,0
+2024-11-15,2024-11-14,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,1
+2024-11-18,2024-11-14,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,4
+2024-11-19,2024-11-14,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,5
+2024-11-20,2024-11-14,40.0,Fear,Official 2024 PDF,40.0,Fear,40.0,40.0,6
+2024-11-21,2024-11-21,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,0
+2024-11-22,2024-11-21,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,1
+2024-11-25,2024-11-21,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,4
+2024-11-26,2024-11-21,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,5
+2024-11-27,2024-11-21,36.0,Fear,Official 2024 PDF,36.0,Fear,36.0,36.0,6
+2024-11-28,2024-11-28,29.0,Fear,Official 2024 PDF,29.0,Fear,29.0,29.0,0
+2024-11-29,2024-11-29,29.0,Fear,Gap-filled (from GreedNFearBarometer_241206.pdf 1W-Ago),29.0,Fear,29.0,29.0,0
+2024-12-02,2024-11-29,29.0,Fear,Gap-filled (from GreedNFearBarometer_241206.pdf 1W-Ago),29.0,Fear,29.0,29.0,3
+2024-12-03,2024-11-29,29.0,Fear,Gap-filled (from GreedNFearBarometer_241206.pdf 1W-Ago),29.0,Fear,29.0,29.0,4
+2024-12-04,2024-11-29,29.0,Fear,Gap-filled (from GreedNFearBarometer_241206.pdf 1W-Ago),29.0,Fear,29.0,29.0,5
+2024-12-06,2024-12-06,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,0
+2024-12-09,2024-12-06,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,3
+2024-12-11,2024-12-06,32.0,Fear,Official 2024 PDF,32.0,Fear,32.0,32.0,5
+2024-12-12,2024-12-12,51.0,Neutral,Gap-filled (from GreedNFearBarometer_241219.pdf 1W-Ago),51.0,Neutral,51.0,51.0,0
+2024-12-13,2024-12-12,51.0,Neutral,Gap-filled (from GreedNFearBarometer_241219.pdf 1W-Ago),51.0,Neutral,51.0,51.0,1
+2024-12-16,2024-12-12,51.0,Neutral,Gap-filled (from GreedNFearBarometer_241219.pdf 1W-Ago),51.0,Neutral,51.0,51.0,4
+2024-12-17,2024-12-12,51.0,Neutral,Gap-filled (from GreedNFearBarometer_241219.pdf 1W-Ago),51.0,Neutral,51.0,51.0,5
+2024-12-18,2024-12-12,51.0,Neutral,Gap-filled (from GreedNFearBarometer_241219.pdf 1W-Ago),51.0,Neutral,51.0,51.0,6
+2024-12-19,2024-12-19,24.0,Extreme Fear,Official 2024 PDF,24.0,Extreme Fear,24.0,24.0,0
+2024-12-20,2024-12-19,24.0,Extreme Fear,Official 2024 PDF,24.0,Extreme Fear,24.0,24.0,1
+2024-12-23,2024-12-19,24.0,Extreme Fear,Official 2024 PDF,24.0,Extreme Fear,24.0,24.0,4
+2024-12-24,2024-12-19,24.0,Extreme Fear,Official 2024 PDF,24.0,Extreme Fear,24.0,24.0,5
+2024-12-25,2024-12-19,24.0,Extreme Fear,Official 2024 PDF,24.0,Extreme Fear,24.0,24.0,6
+2024-12-26,2024-12-26,16.0,Extreme Fear,Official 2024 PDF,16.0,Extreme Fear,16.0,16.0,0
+2024-12-27,2024-12-26,16.0,Extreme Fear,Official 2024 PDF,16.0,Extreme Fear,16.0,16.0,1
+2024-12-30,2024-12-26,16.0,Extreme Fear,Official 2024 PDF,16.0,Extreme Fear,16.0,16.0,4
+2025-01-02,2025-01-02,17.0,Extreme Fear,Official PDF (GreedNFearBarometer_250102.pdf),17.0,Extreme Fear,17.0,17.0,0
+2025-01-03,2025-01-02,17.0,Extreme Fear,Official PDF (GreedNFearBarometer_250102.pdf),17.0,Extreme Fear,17.0,17.0,1
+2025-01-06,2025-01-02,17.0,Extreme Fear,Official PDF (GreedNFearBarometer_250102.pdf),17.0,Extreme Fear,17.0,17.0,4
+2025-01-07,2025-01-02,17.0,Extreme Fear,Official PDF (GreedNFearBarometer_250102.pdf),17.0,Extreme Fear,17.0,17.0,5
+2025-01-08,2025-01-02,17.0,Extreme Fear,Official PDF (GreedNFearBarometer_250102.pdf),17.0,Extreme Fear,17.0,17.0,6
+2025-01-09,2025-01-09,30.0,Fear,Official PDF (GreedNFearBarometer_250109.pdf),30.0,Fear,30.0,30.0,0
+2025-01-10,2025-01-09,30.0,Fear,Official PDF (GreedNFearBarometer_250109.pdf),30.0,Fear,30.0,30.0,1
+2025-01-13,2025-01-09,30.0,Fear,Official PDF (GreedNFearBarometer_250109.pdf),30.0,Fear,30.0,30.0,4
+2025-01-14,2025-01-09,30.0,Fear,Official PDF (GreedNFearBarometer_250109.pdf),30.0,Fear,30.0,30.0,5
+2025-01-15,2025-01-09,30.0,Fear,Official PDF (GreedNFearBarometer_250109.pdf),30.0,Fear,30.0,30.0,6
+2025-01-16,2025-01-16,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250116.pdf),15.0,Extreme Fear,15.0,15.0,0
+2025-01-17,2025-01-16,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250116.pdf),15.0,Extreme Fear,15.0,15.0,1
+2025-01-20,2025-01-16,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250116.pdf),15.0,Extreme Fear,15.0,15.0,4
+2025-01-21,2025-01-16,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250116.pdf),15.0,Extreme Fear,15.0,15.0,5
+2025-01-22,2025-01-16,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250116.pdf),15.0,Extreme Fear,15.0,15.0,6
+2025-01-23,2025-01-23,25.0,Extreme Fear,Official PDF (GreedNFearBarometer_250123.pdf),25.0,Extreme Fear,25.0,25.0,0
+2025-01-24,2025-01-23,25.0,Extreme Fear,Official PDF (GreedNFearBarometer_250123.pdf),25.0,Extreme Fear,25.0,25.0,1
+2025-01-27,2025-01-23,25.0,Extreme Fear,Official PDF (GreedNFearBarometer_250123.pdf),25.0,Extreme Fear,25.0,25.0,4
+2025-01-28,2025-01-23,25.0,Extreme Fear,Official PDF (GreedNFearBarometer_250123.pdf),25.0,Extreme Fear,25.0,25.0,5
+2025-01-29,2025-01-23,25.0,Extreme Fear,Official PDF (GreedNFearBarometer_250123.pdf),25.0,Extreme Fear,25.0,25.0,6
+2025-01-30,2025-01-30,21.0,Extreme Fear,Official PDF (GreedNFearBarometer_250130.pdf),21.0,Extreme Fear,21.0,21.0,0
+2025-01-31,2025-01-30,21.0,Extreme Fear,Official PDF (GreedNFearBarometer_250130.pdf),21.0,Extreme Fear,21.0,21.0,1
+2025-02-03,2025-01-30,21.0,Extreme Fear,Official PDF (GreedNFearBarometer_250130.pdf),21.0,Extreme Fear,21.0,21.0,4
+2025-02-04,2025-01-30,21.0,Extreme Fear,Official PDF (GreedNFearBarometer_250130.pdf),21.0,Extreme Fear,21.0,21.0,5
+2025-02-05,2025-01-30,21.0,Extreme Fear,Official PDF (GreedNFearBarometer_250130.pdf),21.0,Extreme Fear,21.0,21.0,6
+2025-02-06,2025-02-06,18.0,Extreme Fear,Official PDF (GreedNFearBarometer_250206.pdf),18.0,Extreme Fear,18.0,18.0,0
+2025-02-07,2025-02-06,18.0,Extreme Fear,Official PDF (GreedNFearBarometer_250206.pdf),18.0,Extreme Fear,18.0,18.0,1
+2025-02-10,2025-02-06,18.0,Extreme Fear,Official PDF (GreedNFearBarometer_250206.pdf),18.0,Extreme Fear,18.0,18.0,4
+2025-02-11,2025-02-06,18.0,Extreme Fear,Official PDF (GreedNFearBarometer_250206.pdf),18.0,Extreme Fear,18.0,18.0,5
+2025-02-13,2025-02-13,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250213.pdf),15.0,Extreme Fear,15.0,15.0,0
+2025-02-14,2025-02-13,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250213.pdf),15.0,Extreme Fear,15.0,15.0,1
+2025-02-17,2025-02-13,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250213.pdf),15.0,Extreme Fear,15.0,15.0,4
+2025-02-18,2025-02-13,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250213.pdf),15.0,Extreme Fear,15.0,15.0,5
+2025-02-19,2025-02-13,15.0,Extreme Fear,Official PDF (GreedNFearBarometer_250213.pdf),15.0,Extreme Fear,15.0,15.0,6
+2025-02-20,2025-02-20,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,0
+2025-02-21,2025-02-20,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,1
+2025-02-24,2025-02-20,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,4
+2025-02-25,2025-02-20,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,5
+2025-02-26,2025-02-20,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,6
+2025-02-27,2025-02-27,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,0
+2025-02-28,2025-02-27,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,1
+2025-03-03,2025-02-27,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,4
+2025-03-04,2025-02-27,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,5
+2025-03-05,2025-02-27,12.0,Extreme Fear,Report Current,12.0,Extreme Fear,12.0,12.0,6
+2025-03-06,2025-03-06,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,0
+2025-03-07,2025-03-06,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,1
+2025-03-10,2025-03-06,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,4
+2025-03-11,2025-03-06,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,5
+2025-03-12,2025-03-06,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,6
+2025-03-13,2025-03-13,3.0,Extreme Fear,Gap-filled (from 250320_SentimentIndicator.pdf Prev),3.0,Extreme Fear,3.0,3.0,0
+2025-03-14,2025-03-13,3.0,Extreme Fear,Gap-filled (from 250320_SentimentIndicator.pdf Prev),3.0,Extreme Fear,3.0,3.0,1
+2025-03-17,2025-03-13,3.0,Extreme Fear,Gap-filled (from 250320_SentimentIndicator.pdf Prev),3.0,Extreme Fear,3.0,3.0,4
+2025-03-18,2025-03-13,3.0,Extreme Fear,Gap-filled (from 250320_SentimentIndicator.pdf Prev),3.0,Extreme Fear,3.0,3.0,5
+2025-03-19,2025-03-13,3.0,Extreme Fear,Gap-filled (from 250320_SentimentIndicator.pdf Prev),3.0,Extreme Fear,3.0,3.0,6
+2025-03-20,2025-03-20,10.0,Extreme Fear,Report Current,10.0,Extreme Fear,10.0,10.0,0
+2025-03-21,2025-03-20,10.0,Extreme Fear,Report Current,10.0,Extreme Fear,10.0,10.0,1
+2025-03-24,2025-03-20,10.0,Extreme Fear,Report Current,10.0,Extreme Fear,10.0,10.0,4
+2025-03-25,2025-03-20,10.0,Extreme Fear,Report Current,10.0,Extreme Fear,10.0,10.0,5
+2025-03-26,2025-03-20,10.0,Extreme Fear,Report Current,10.0,Extreme Fear,10.0,10.0,6
+2025-03-27,2025-03-27,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,0
+2025-03-28,2025-03-27,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,1
+2025-03-31,2025-03-27,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,4
+2025-04-01,2025-03-27,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,5
+2025-04-02,2025-03-27,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,6
+2025-04-03,2025-04-03,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,0
+2025-04-04,2025-04-03,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,1
+2025-04-08,2025-04-03,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,5
+2025-04-09,2025-04-03,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,6
+2025-04-10,2025-04-10,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,0
+2025-04-11,2025-04-10,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,1
+2025-04-16,2025-04-10,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,6
+2025-04-17,2025-04-10,1.0,Extreme Fear,Report Current,1.0,Extreme Fear,1.0,1.0,7
+2025-04-18,2025-04-18,4.0,Extreme Fear,Report Current,4.0,Extreme Fear,4.0,4.0,0
+2025-04-21,2025-04-18,4.0,Extreme Fear,Report Current,4.0,Extreme Fear,4.0,4.0,3
+2025-04-22,2025-04-18,4.0,Extreme Fear,Report Current,4.0,Extreme Fear,4.0,4.0,4
+2025-04-23,2025-04-18,4.0,Extreme Fear,Report Current,4.0,Extreme Fear,4.0,4.0,5
+2025-04-24,2025-04-18,4.0,Extreme Fear,Report Current,4.0,Extreme Fear,4.0,4.0,6
+2025-04-25,2025-04-25,16.0,Extreme Fear,Report Current,16.0,Extreme Fear,16.0,16.0,0
+2025-04-28,2025-04-25,16.0,Extreme Fear,Report Current,16.0,Extreme Fear,16.0,16.0,3
+2025-04-29,2025-04-25,16.0,Extreme Fear,Report Current,16.0,Extreme Fear,16.0,16.0,4
+2025-04-30,2025-04-25,16.0,Extreme Fear,Report Current,16.0,Extreme Fear,16.0,16.0,5
+2025-05-02,2025-05-02,30.0,Fear,Report Current,30.0,Fear,30.0,30.0,0
+2025-05-06,2025-05-02,30.0,Fear,Report Current,30.0,Fear,30.0,30.0,4
+2025-05-07,2025-05-02,30.0,Fear,Report Current,30.0,Fear,30.0,30.0,5
+2025-05-08,2025-05-02,30.0,Fear,Report Current,30.0,Fear,30.0,30.0,6
+2025-05-09,2025-05-09,35.0,Fear,Gap-filled (from 250516_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,0
+2025-05-13,2025-05-09,35.0,Fear,Gap-filled (from 250516_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,4
+2025-05-14,2025-05-09,35.0,Fear,Gap-filled (from 250516_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,5
+2025-05-15,2025-05-09,35.0,Fear,Gap-filled (from 250516_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,6
+2025-05-16,2025-05-16,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,0
+2025-05-19,2025-05-16,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,3
+2025-05-20,2025-05-16,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,4
+2025-05-21,2025-05-16,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,5
+2025-05-22,2025-05-16,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,6
+2025-05-23,2025-05-23,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,0
+2025-05-26,2025-05-23,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,3
+2025-05-27,2025-05-23,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,4
+2025-05-28,2025-05-23,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,5
+2025-05-29,2025-05-23,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,6
+2025-05-30,2025-05-30,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,0
+2025-06-04,2025-05-30,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,5
+2025-06-05,2025-05-30,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,6
+2025-06-06,2025-06-06,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,0
+2025-06-09,2025-06-06,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,3
+2025-06-10,2025-06-06,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,4
+2025-06-11,2025-06-06,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,5
+2025-06-12,2025-06-06,21.0,Extreme Fear,Report Current,21.0,Extreme Fear,21.0,21.0,6
+2025-06-13,2025-06-13,19.0,Extreme Fear,Report Current,19.0,Extreme Fear,19.0,19.0,0
+2025-06-16,2025-06-13,19.0,Extreme Fear,Report Current,19.0,Extreme Fear,19.0,19.0,3
+2025-06-17,2025-06-13,19.0,Extreme Fear,Report Current,19.0,Extreme Fear,19.0,19.0,4
+2025-06-18,2025-06-13,19.0,Extreme Fear,Report Current,19.0,Extreme Fear,19.0,19.0,5
+2025-06-19,2025-06-13,19.0,Extreme Fear,Report Current,19.0,Extreme Fear,19.0,19.0,6
+2025-06-20,2025-06-20,11.0,Extreme Fear,Report Current,11.0,Extreme Fear,11.0,11.0,0
+2025-06-23,2025-06-20,11.0,Extreme Fear,Report Current,11.0,Extreme Fear,11.0,11.0,3
+2025-06-24,2025-06-20,11.0,Extreme Fear,Report Current,11.0,Extreme Fear,11.0,11.0,4
+2025-06-25,2025-06-20,11.0,Extreme Fear,Report Current,11.0,Extreme Fear,11.0,11.0,5
+2025-06-26,2025-06-20,11.0,Extreme Fear,Report Current,11.0,Extreme Fear,11.0,11.0,6
+2025-06-27,2025-06-27,17.0,Extreme Fear,Report Current,17.0,Extreme Fear,17.0,17.0,0
+2025-06-30,2025-06-27,17.0,Extreme Fear,Report Current,17.0,Extreme Fear,17.0,17.0,3
+2025-07-01,2025-06-27,17.0,Extreme Fear,Report Current,17.0,Extreme Fear,17.0,17.0,4
+2025-07-02,2025-06-27,17.0,Extreme Fear,Report Current,17.0,Extreme Fear,17.0,17.0,5
+2025-07-03,2025-06-27,17.0,Extreme Fear,Report Current,17.0,Extreme Fear,17.0,17.0,6
+2025-07-04,2025-07-04,20.0,Extreme Fear,Report Current,20.0,Extreme Fear,20.0,20.0,0
+2025-07-07,2025-07-04,20.0,Extreme Fear,Report Current,20.0,Extreme Fear,20.0,20.0,3
+2025-07-08,2025-07-04,20.0,Extreme Fear,Report Current,20.0,Extreme Fear,20.0,20.0,4
+2025-07-09,2025-07-04,20.0,Extreme Fear,Report Current,20.0,Extreme Fear,20.0,20.0,5
+2025-07-11,2025-07-11,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,0
+2025-07-14,2025-07-11,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,3
+2025-07-15,2025-07-11,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,4
+2025-07-16,2025-07-11,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,5
+2025-07-17,2025-07-11,22.0,Extreme Fear,Report Current,22.0,Extreme Fear,22.0,22.0,6
+2025-07-18,2025-07-18,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,0
+2025-07-21,2025-07-18,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,3
+2025-07-22,2025-07-18,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,4
+2025-07-23,2025-07-18,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,5
+2025-07-24,2025-07-18,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,6
+2025-07-25,2025-07-25,45.0,Fear,Report Current,45.0,Fear,45.0,45.0,0
+2025-07-29,2025-07-25,45.0,Fear,Report Current,45.0,Fear,45.0,45.0,4
+2025-07-30,2025-07-25,45.0,Fear,Report Current,45.0,Fear,45.0,45.0,5
+2025-07-31,2025-07-25,45.0,Fear,Report Current,45.0,Fear,45.0,45.0,6
+2025-08-01,2025-08-01,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,0
+2025-08-04,2025-08-01,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,3
+2025-08-05,2025-08-01,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,4
+2025-08-06,2025-08-01,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,5
+2025-08-07,2025-08-01,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,6
+2025-08-08,2025-08-08,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,0
+2025-08-13,2025-08-08,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,5
+2025-08-14,2025-08-08,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,6
+2025-08-15,2025-08-15,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,0
+2025-08-18,2025-08-15,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,3
+2025-08-19,2025-08-15,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,4
+2025-08-20,2025-08-15,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,5
+2025-08-21,2025-08-15,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,6
+2025-08-22,2025-08-22,56.0,Greed,Gap-filled (from 250919_SentimentIndicator.pdf 1M-Ago),56.0,Greed,56.0,56.0,0
+2025-08-25,2025-08-22,56.0,Greed,Gap-filled (from 250919_SentimentIndicator.pdf 1M-Ago),56.0,Greed,56.0,56.0,3
+2025-08-26,2025-08-22,56.0,Greed,Gap-filled (from 250919_SentimentIndicator.pdf 1M-Ago),56.0,Greed,56.0,56.0,4
+2025-08-27,2025-08-22,56.0,Greed,Gap-filled (from 250919_SentimentIndicator.pdf 1M-Ago),56.0,Greed,56.0,56.0,5
+2025-08-28,2025-08-22,56.0,Greed,Gap-filled (from 250919_SentimentIndicator.pdf 1M-Ago),56.0,Greed,56.0,56.0,6
+2025-08-29,2025-08-29,58.0,Greed,Gap-filled (from 250905_SentimentIndicator.pdf Prev),58.0,Greed,58.0,58.0,0
+2025-09-01,2025-08-29,58.0,Greed,Gap-filled (from 250905_SentimentIndicator.pdf Prev),58.0,Greed,58.0,58.0,3
+2025-09-02,2025-08-29,58.0,Greed,Gap-filled (from 250905_SentimentIndicator.pdf Prev),58.0,Greed,58.0,58.0,4
+2025-09-03,2025-08-29,58.0,Greed,Gap-filled (from 250905_SentimentIndicator.pdf Prev),58.0,Greed,58.0,58.0,5
+2025-09-04,2025-08-29,58.0,Greed,Gap-filled (from 250905_SentimentIndicator.pdf Prev),58.0,Greed,58.0,58.0,6
+2025-09-05,2025-09-05,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,0
+2025-09-08,2025-09-05,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,3
+2025-09-09,2025-09-05,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,4
+2025-09-10,2025-09-05,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,5
+2025-09-11,2025-09-05,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,6
+2025-09-12,2025-09-12,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,0
+2025-09-15,2025-09-12,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,3
+2025-09-16,2025-09-12,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,4
+2025-09-17,2025-09-12,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,5
+2025-09-18,2025-09-12,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,6
+2025-09-19,2025-09-19,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,0
+2025-09-22,2025-09-19,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,3
+2025-09-23,2025-09-19,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,4
+2025-09-24,2025-09-19,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,5
+2025-09-25,2025-09-19,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,6
+2025-09-26,2025-09-26,68.0,Greed,Report Current,68.0,Greed,68.0,68.0,0
+2025-09-29,2025-09-26,68.0,Greed,Report Current,68.0,Greed,68.0,68.0,3
+2025-09-30,2025-09-26,68.0,Greed,Report Current,68.0,Greed,68.0,68.0,4
+2025-10-01,2025-09-26,68.0,Greed,Report Current,68.0,Greed,68.0,68.0,5
+2025-10-02,2025-09-26,68.0,Greed,Report Current,68.0,Greed,68.0,68.0,6
+2025-10-03,2025-10-03,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,0
+2025-10-06,2025-10-03,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,3
+2025-10-07,2025-10-03,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,4
+2025-10-08,2025-10-03,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,5
+2025-10-09,2025-10-03,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,6
+2025-10-10,2025-10-10,65.0,Greed,Report Current,65.0,Greed,65.0,65.0,0
+2025-10-14,2025-10-10,65.0,Greed,Report Current,65.0,Greed,65.0,65.0,4
+2025-10-15,2025-10-10,65.0,Greed,Report Current,65.0,Greed,65.0,65.0,5
+2025-10-16,2025-10-10,65.0,Greed,Report Current,65.0,Greed,65.0,65.0,6
+2025-10-17,2025-10-17,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,0
+2025-10-20,2025-10-17,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,3
+2025-10-21,2025-10-17,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,4
+2025-10-22,2025-10-17,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,5
+2025-10-24,2025-10-24,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,0
+2025-10-27,2025-10-24,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,3
+2025-10-28,2025-10-24,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,4
+2025-10-29,2025-10-24,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,5
+2025-10-30,2025-10-24,51.0,Neutral,Report Current,51.0,Neutral,51.0,51.0,6
+2025-10-31,2025-10-31,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,0
+2025-11-03,2025-10-31,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,3
+2025-11-04,2025-10-31,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,4
+2025-11-05,2025-10-31,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,5
+2025-11-06,2025-10-31,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,6
+2025-11-07,2025-11-07,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,0
+2025-11-10,2025-11-07,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,3
+2025-11-11,2025-11-07,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,4
+2025-11-12,2025-11-07,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,5
+2025-11-13,2025-11-07,62.0,Greed,Report Current,62.0,Greed,62.0,62.0,6
+2025-11-14,2025-11-14,34.0,Fear,Report Current,34.0,Fear,34.0,34.0,0
+2025-11-17,2025-11-14,34.0,Fear,Report Current,34.0,Fear,34.0,34.0,3
+2025-11-18,2025-11-14,34.0,Fear,Report Current,34.0,Fear,34.0,34.0,4
+2025-11-19,2025-11-14,34.0,Fear,Report Current,34.0,Fear,34.0,34.0,5
+2025-11-20,2025-11-14,34.0,Fear,Report Current,34.0,Fear,34.0,34.0,6
+2025-11-21,2025-11-21,28.0,Fear,Report Current,28.0,Fear,28.0,28.0,0
+2025-11-24,2025-11-21,28.0,Fear,Report Current,28.0,Fear,28.0,28.0,3
+2025-11-25,2025-11-21,28.0,Fear,Report Current,28.0,Fear,28.0,28.0,4
+2025-11-26,2025-11-21,28.0,Fear,Report Current,28.0,Fear,28.0,28.0,5
+2025-11-27,2025-11-21,28.0,Fear,Report Current,28.0,Fear,28.0,28.0,6
+2025-11-28,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,0
+2025-12-01,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,3
+2025-12-02,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,4
+2025-12-03,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,5
+2025-12-04,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,6
+2025-12-08,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,10
+2025-12-09,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,11
+2025-12-11,2025-11-28,24.0,Extreme Fear,Report Current,24.0,Extreme Fear,24.0,24.0,13
+2025-12-12,2025-12-12,36.0,Fear,Gap-filled (from 251219_SentimentIndicator.pdf Prev),36.0,Fear,36.0,36.0,0
+2025-12-15,2025-12-12,36.0,Fear,Gap-filled (from 251219_SentimentIndicator.pdf Prev),36.0,Fear,36.0,36.0,3
+2025-12-16,2025-12-12,36.0,Fear,Gap-filled (from 251219_SentimentIndicator.pdf Prev),36.0,Fear,36.0,36.0,4
+2025-12-17,2025-12-12,36.0,Fear,Gap-filled (from 251219_SentimentIndicator.pdf Prev),36.0,Fear,36.0,36.0,5
+2025-12-18,2025-12-12,36.0,Fear,Gap-filled (from 251219_SentimentIndicator.pdf Prev),36.0,Fear,36.0,36.0,6
+2025-12-19,2025-12-19,38.0,Fear,Report Current,38.0,Fear,38.0,38.0,0
+2025-12-22,2025-12-19,38.0,Fear,Report Current,38.0,Fear,38.0,38.0,3
+2025-12-23,2025-12-19,38.0,Fear,Report Current,38.0,Fear,38.0,38.0,4
+2025-12-24,2025-12-19,38.0,Fear,Report Current,38.0,Fear,38.0,38.0,5
+2025-12-25,2025-12-19,38.0,Fear,Report Current,38.0,Fear,38.0,38.0,6
+2025-12-26,2025-12-26,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,0
+2025-12-29,2025-12-26,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,3
+2025-12-30,2025-12-26,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,4
+2026-01-05,2026-01-02,35.0,Fear,Gap-filled (from 260109_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,3
+2026-01-06,2026-01-02,35.0,Fear,Gap-filled (from 260109_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,4
+2026-01-07,2026-01-02,35.0,Fear,Gap-filled (from 260109_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,5
+2026-01-08,2026-01-02,35.0,Fear,Gap-filled (from 260109_SentimentIndicator.pdf Prev),35.0,Fear,35.0,35.0,6
+2026-01-09,2026-01-09,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,0
+2026-01-12,2026-01-09,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,3
+2026-01-13,2026-01-09,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,4
+2026-01-14,2026-01-09,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,5
+2026-01-15,2026-01-09,41.0,Fear,Report Current,41.0,Fear,41.0,41.0,6
+2026-01-16,2026-01-16,36.0,Fear,Report Current,36.0,Fear,36.0,36.0,0
+2026-01-19,2026-01-16,36.0,Fear,Report Current,36.0,Fear,36.0,36.0,3
+2026-01-20,2026-01-16,36.0,Fear,Report Current,36.0,Fear,36.0,36.0,4
+2026-01-21,2026-01-16,36.0,Fear,Report Current,36.0,Fear,36.0,36.0,5
+2026-01-22,2026-01-16,36.0,Fear,Report Current,36.0,Fear,36.0,36.0,6
+2026-01-23,2026-01-23,46.0,Neutral,Gap-filled (from 260130_SentimentIndicator.pdf Prev),46.0,Neutral,46.0,46.0,0
+2026-01-26,2026-01-23,46.0,Neutral,Gap-filled (from 260130_SentimentIndicator.pdf Prev),46.0,Neutral,46.0,46.0,3
+2026-01-27,2026-01-23,46.0,Neutral,Gap-filled (from 260130_SentimentIndicator.pdf Prev),46.0,Neutral,46.0,46.0,4
+2026-01-28,2026-01-23,46.0,Neutral,Gap-filled (from 260130_SentimentIndicator.pdf Prev),46.0,Neutral,46.0,46.0,5
+2026-01-29,2026-01-23,46.0,Neutral,Gap-filled (from 260130_SentimentIndicator.pdf Prev),46.0,Neutral,46.0,46.0,6
+2026-01-30,2026-01-30,52.0,Neutral,Report Current,52.0,Neutral,52.0,52.0,0
+2026-02-02,2026-01-30,52.0,Neutral,Report Current,52.0,Neutral,52.0,52.0,3
+2026-02-03,2026-01-30,52.0,Neutral,Report Current,52.0,Neutral,52.0,52.0,4
+2026-02-04,2026-01-30,52.0,Neutral,Report Current,52.0,Neutral,52.0,52.0,5
+2026-02-05,2026-01-30,52.0,Neutral,Report Current,52.0,Neutral,52.0,52.0,6
+2026-02-06,2026-02-06,54.0,Neutral,Gap-filled (from 260213_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,0
+2026-02-09,2026-02-06,54.0,Neutral,Gap-filled (from 260213_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,3
+2026-02-10,2026-02-06,54.0,Neutral,Gap-filled (from 260213_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,4
+2026-02-11,2026-02-06,54.0,Neutral,Gap-filled (from 260213_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,5
+2026-02-12,2026-02-06,54.0,Neutral,Gap-filled (from 260213_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,6
+2026-02-13,2026-02-13,57.0,Greed,Report Current,57.0,Greed,57.0,57.0,0
+2026-02-16,2026-02-13,57.0,Greed,Report Current,57.0,Greed,57.0,57.0,3
+2026-02-17,2026-02-13,57.0,Greed,Report Current,57.0,Greed,57.0,57.0,4
+2026-02-18,2026-02-13,57.0,Greed,Report Current,57.0,Greed,57.0,57.0,5
+2026-02-19,2026-02-13,57.0,Greed,Report Current,57.0,Greed,57.0,57.0,6
+2026-02-20,2026-02-20,63.0,Greed,Report Current,63.0,Greed,63.0,63.0,0
+2026-02-23,2026-02-20,63.0,Greed,Report Current,63.0,Greed,63.0,63.0,3
+2026-02-24,2026-02-20,63.0,Greed,Report Current,63.0,Greed,63.0,63.0,4
+2026-02-25,2026-02-20,63.0,Greed,Report Current,63.0,Greed,63.0,63.0,5
+2026-02-26,2026-02-20,63.0,Greed,Report Current,63.0,Greed,63.0,63.0,6
+2026-02-27,2026-02-27,73.0,Greed,Report Current,73.0,Greed,73.0,73.0,0
+2026-03-02,2026-02-27,73.0,Greed,Report Current,73.0,Greed,73.0,73.0,3
+2026-03-04,2026-02-27,73.0,Greed,Report Current,73.0,Greed,73.0,73.0,5
+2026-03-05,2026-02-27,73.0,Greed,Report Current,73.0,Greed,73.0,73.0,6
+2026-03-06,2026-02-27,73.0,Greed,Report Current,73.0,Greed,73.0,73.0,7
+2026-03-09,2026-03-09,54.0,Neutral,Gap-filled (from 260316_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,0
+2026-03-10,2026-03-09,54.0,Neutral,Gap-filled (from 260316_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,1
+2026-03-11,2026-03-09,54.0,Neutral,Gap-filled (from 260316_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,2
+2026-03-12,2026-03-09,54.0,Neutral,Gap-filled (from 260316_SentimentIndicator.pdf Prev),54.0,Neutral,54.0,54.0,3
+2026-03-13,2026-03-13,43.0,Fear,Gap-filled (from 260320_SentimentIndicator.pdf Prev),43.0,Fear,43.0,43.0,0
+2026-03-16,2026-03-16,44.0,Fear,Report Current,44.0,Fear,44.0,44.0,0
+2026-03-17,2026-03-16,44.0,Fear,Report Current,44.0,Fear,44.0,44.0,1
+2026-03-18,2026-03-16,44.0,Fear,Report Current,44.0,Fear,44.0,44.0,2
+2026-03-19,2026-03-16,44.0,Fear,Report Current,44.0,Fear,44.0,44.0,3
+2026-03-20,2026-03-20,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,0
+2026-03-23,2026-03-20,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,3
+2026-03-24,2026-03-20,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,4
+2026-03-25,2026-03-20,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,5
+2026-03-26,2026-03-20,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,6
+2026-03-27,2026-03-27,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,0
+2026-03-30,2026-03-27,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,3
+2026-03-31,2026-03-27,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,4
+2026-04-01,2026-03-27,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,5
+2026-04-02,2026-03-27,43.0,Fear,Report Current,43.0,Fear,43.0,43.0,6
+2026-04-03,2026-04-03,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,0
+2026-04-07,2026-04-03,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,4
+2026-04-08,2026-04-03,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,5
+2026-04-09,2026-04-03,46.0,Neutral,Report Current,46.0,Neutral,46.0,46.0,6
+2026-04-10,2026-04-10,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,0
+2026-04-16,2026-04-10,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,6
+2026-04-17,2026-04-17,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,0
+2026-04-20,2026-04-17,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,3
+2026-04-21,2026-04-17,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,4
+2026-04-22,2026-04-17,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,5
+2026-04-23,2026-04-17,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,6
+2026-04-24,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,0
+2026-04-27,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,3
+2026-04-28,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,4
+2026-04-29,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,5
+2026-04-30,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,6
+2026-05-05,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,11
+2026-05-06,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,12
+2026-05-07,2026-04-24,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,13
+2026-05-08,2026-05-08,64.0,Greed,Gap-filled (from 260515_SentimentIndicator.pdf Prev),64.0,Greed,64.0,64.0,0
+2026-05-11,2026-05-08,64.0,Greed,Gap-filled (from 260515_SentimentIndicator.pdf Prev),64.0,Greed,64.0,64.0,3
+2026-05-12,2026-05-08,64.0,Greed,Gap-filled (from 260515_SentimentIndicator.pdf Prev),64.0,Greed,64.0,64.0,4
+2026-05-13,2026-05-08,64.0,Greed,Gap-filled (from 260515_SentimentIndicator.pdf Prev),64.0,Greed,64.0,64.0,5
+2026-05-14,2026-05-08,64.0,Greed,Gap-filled (from 260515_SentimentIndicator.pdf Prev),64.0,Greed,64.0,64.0,6
+2026-05-15,2026-05-15,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,0
+2026-05-18,2026-05-15,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,3
+2026-05-19,2026-05-15,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,4
+2026-05-20,2026-05-15,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,5
+2026-05-21,2026-05-15,61.0,Greed,Report Current,61.0,Greed,61.0,61.0,6
+2026-05-22,2026-05-22,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,0
+2026-05-25,2026-05-22,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,3
+2026-05-26,2026-05-22,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,4
+2026-05-27,2026-05-22,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,5
+2026-05-28,2026-05-22,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,6
+2026-05-29,2026-05-29,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,0
+2026-06-02,2026-05-29,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,4
+2026-06-04,2026-05-29,74.0,Greed,Report Current,74.0,Greed,74.0,74.0,6
+2026-06-05,2026-06-05,80.0,Extreme Greed,Report Current,80.0,Extreme Greed,80.0,80.0,0
+2026-06-08,2026-06-05,80.0,Extreme Greed,Report Current,80.0,Extreme Greed,80.0,80.0,3
+2026-06-09,2026-06-05,80.0,Extreme Greed,Report Current,80.0,Extreme Greed,80.0,80.0,4
+2026-06-10,2026-06-05,80.0,Extreme Greed,Report Current,80.0,Extreme Greed,80.0,80.0,5
+2026-06-11,2026-06-05,80.0,Extreme Greed,Report Current,80.0,Extreme Greed,80.0,80.0,6
+2026-06-12,2026-06-12,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,0
+2026-06-15,2026-06-12,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,3
+2026-06-16,2026-06-12,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,4
+2026-06-17,2026-06-12,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,5
+2026-06-18,2026-06-12,64.0,Greed,Report Current,64.0,Greed,64.0,64.0,6
+2026-06-19,2026-06-19,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,0
+2026-06-22,2026-06-19,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,3
+2026-06-23,2026-06-19,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,4
+2026-06-24,2026-06-19,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,5
+2026-06-25,2026-06-19,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,6
+2026-06-26,2026-06-26,54.0,Neutral,Report Current,54.0,Neutral,54.0,54.0,0
+2026-06-29,2026-06-26,54.0,Neutral,Report Current,54.0,Neutral,54.0,54.0,3
+2026-06-30,2026-06-26,54.0,Neutral,Report Current,54.0,Neutral,54.0,54.0,4
+2026-07-01,2026-06-26,54.0,Neutral,Report Current,54.0,Neutral,54.0,54.0,5
+2026-07-02,2026-06-26,54.0,Neutral,Report Current,54.0,Neutral,54.0,54.0,6
+2026-07-03,2026-07-03,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,0
+2026-07-06,2026-07-03,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,3
+2026-07-07,2026-07-03,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,4
+2026-07-08,2026-07-03,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,5
+2026-07-09,2026-07-03,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,6
+2026-07-10,2026-07-10,60.0,Greed,Report Current,60.0,Greed,60.0,60.0,0
+2026-07-13,2026-07-10,60.0,Greed,Report Current,60.0,Greed,60.0,60.0,3
+2026-07-14,2026-07-10,60.0,Greed,Report Current,60.0,Greed,60.0,60.0,4
+2026-07-15,2026-07-10,60.0,Greed,Report Current,60.0,Greed,60.0,60.0,5
+2026-07-16,2026-07-10,60.0,Greed,Report Current,60.0,Greed,60.0,60.0,6
+2026-07-17,2026-07-17,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,0
+2026-07-20,2026-07-17,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,3
+2026-07-21,2026-07-17,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,4
+2026-07-22,2026-07-17,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,5
+2026-07-23,2026-07-17,66.0,Greed,Report Current,66.0,Greed,66.0,66.0,6
+2026-07-24,2026-07-24,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,0
+2026-07-27,2026-07-24,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,3
+2026-07-30,2026-07-24,71.0,Greed,Report Current,71.0,Greed,71.0,71.0,6
+2026-07-31,2026-07-31,66.0,Greed,Gap-filled (from 260807_SentimentIndicator.pdf Prev),66.0,Greed,66.0,66.0,0
+2026-08-03,2026-07-31,66.0,Greed,Gap-filled (from 260807_SentimentIndicator.pdf Prev),66.0,Greed,66.0,66.0,3
+2026-08-04,2026-07-31,66.0,Greed,Gap-filled (from 260807_SentimentIndicator.pdf Prev),66.0,Greed,66.0,66.0,4
+2026-08-05,2026-07-31,66.0,Greed,Gap-filled (from 260807_SentimentIndicator.pdf Prev),66.0,Greed,66.0,66.0,5
+2026-08-06,2026-07-31,66.0,Greed,Gap-filled (from 260807_SentimentIndicator.pdf Prev),66.0,Greed,66.0,66.0,6
+2026-08-07,2026-08-07,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,0
+2026-08-10,2026-08-07,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,3
+2026-08-11,2026-08-07,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,4
+2026-08-13,2026-08-07,58.0,Greed,Report Current,58.0,Greed,58.0,58.0,6
+2026-08-14,2026-08-14,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,0
+2026-08-17,2026-08-14,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,3
+2026-08-18,2026-08-14,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,4
+2026-08-19,2026-08-14,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,5
+2026-08-20,2026-08-14,59.0,Greed,Report Current,59.0,Greed,59.0,59.0,6
+2026-08-21,2026-08-21,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,0
+2026-08-24,2026-08-21,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,3
+2026-08-25,2026-08-21,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,4
+2026-08-26,2026-08-21,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,5
+2026-08-27,2026-08-21,55.0,Neutral,Report Current,55.0,Neutral,55.0,55.0,6
+2026-08-28,2026-08-28,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,0
+2026-08-31,2026-08-28,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,3
+2026-09-01,2026-08-28,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,4
+2026-09-02,2026-08-28,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,5
+2026-09-03,2026-08-28,50.0,Neutral,Report Current,50.0,Neutral,50.0,50.0,6
+2026-09-04,2026-09-04,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,0
+2026-09-07,2026-09-04,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,3
+2026-09-08,2026-09-04,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,4
+2026-09-09,2026-09-04,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,5
+2026-09-10,2026-09-04,42.0,Fear,Report Current,42.0,Fear,42.0,42.0,6
+2026-09-11,2026-09-11,47.0,Neutral,Report Current,47.0,Neutral,47.0,47.0,0
+2026-09-14,2026-09-11,47.0,Neutral,Report Current,47.0,Neutral,47.0,47.0,3
+2026-09-15,2026-09-11,47.0,Neutral,Report Current,47.0,Neutral,47.0,47.0,4
+2026-09-16,2026-09-11,47.0,Neutral,Report Current,47.0,Neutral,47.0,47.0,5
+2026-09-17,2026-09-11,47.0,Neutral,Report Current,47.0,Neutral,47.0,47.0,6
+2026-09-18,2026-09-18,44.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-09-25 report),44.0,Fear,44.0,44.0,0
+2026-09-21,2026-09-18,44.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-09-25 report),44.0,Fear,44.0,44.0,3
+2026-09-22,2026-09-18,44.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-09-25 report),44.0,Fear,44.0,44.0,4
+2026-09-23,2026-09-18,44.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-09-25 report),44.0,Fear,44.0,44.0,5
+2026-09-24,2026-09-18,44.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-09-25 report),44.0,Fear,44.0,44.0,6
+2026-09-25,2026-09-25,49.0,Neutral,Report Current,49.0,Neutral,49.0,49.0,0
+2026-09-28,2026-09-25,49.0,Neutral,Report Current,49.0,Neutral,49.0,49.0,3
+2026-09-29,2026-09-25,49.0,Neutral,Report Current,49.0,Neutral,49.0,49.0,4
+2026-09-30,2026-09-25,49.0,Neutral,Report Current,49.0,Neutral,49.0,49.0,5
+2026-10-01,2026-09-25,49.0,Neutral,Report Current,49.0,Neutral,49.0,49.0,6
+2026-10-02,2026-10-02,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,0
+2026-10-05,2026-10-02,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,3
+2026-10-06,2026-10-02,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,4
+2026-10-07,2026-10-02,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,5
+2026-10-08,2026-10-02,39.0,Fear,Report Current,39.0,Fear,39.0,39.0,6
+2026-10-09,2026-10-09,37.0,Fear,Report Current,37.0,Fear,37.0,37.0,0
+2026-10-12,2026-10-09,37.0,Fear,Report Current,37.0,Fear,37.0,37.0,3
+2026-10-14,2026-10-09,37.0,Fear,Report Current,37.0,Fear,37.0,37.0,5
+2026-10-15,2026-10-15,45.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-10-22 report),45.0,Fear,45.0,45.0,0
+2026-10-19,2026-10-15,45.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-10-22 report),45.0,Fear,45.0,45.0,4
+2026-10-20,2026-10-15,45.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-10-22 report),45.0,Fear,45.0,45.0,5
+2026-10-21,2026-10-15,45.0,Fear,Official 2026 PDF (1W-Ago cited in 2026-10-22 report),45.0,Fear,45.0,45.0,6
+2026-10-22,2026-10-22,30.0,Fear,Report Current,30.0,Fear,30.0,30.0,0
