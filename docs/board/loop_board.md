@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-27 16:56.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-28 19:29.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-27 16:56
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 2 · triage 1 · review 0 · done 65 · archived 18
+- **Generated:** 2026-10-28 19:29
+- **Counts:** running 1 · ready 0 · todo 3 · scheduled 0 · blocked 2 · triage 1 · review 0 · done 12 · archived 79
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,24 +27,28 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_1e4a05eb` | **blocked** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
+| `t_ccaf8647` | **running** | `homelab-build` | 🟡 T1 · LINE CLI · retire /login /logout /quicktrade /halt → RustDesk |
+| `t_53b32b72` | **todo** | `homelab-build` | 🟡 T1 · LINE CLI · add /sync portfolio|orders|borrow|balance |
+| `t_ee9bd654` | **todo** | `homelab-build` | 🟡 T1 · LINE CLI · add /nego all (ต่อราคาทั้ง 2 โบรกเกอร์) |
+| `t_4458dea1` | **todo** | `homelab-build` | 🟢 T0 · LINE CLI · update /help text + board snapshot |
+| `t_b6749a20` | **blocked** | `default` | Witness live value BUY order flow via LINE to broker |
 | `t_99cc85d7` | **blocked** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
-| `t_b6749a20` | **triage** | `default` | Witness live value BUY order flow via LINE to broker |
+| `t_1e4a05eb` | **triage** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
 | id | completed | title |
 |---|---|---|
-| `t_75795660` | 2026-10-27 16:32 | [ตลาดเปิด] 🔴 T2 · [Streaming] · P.4-kss Order submit ผ่าน JS + Anti-Mock |
-| `t_305334e5` | 2026-10-27 16:08 | 🟡 T1 · [Streaming] · SQ-7 native change ผ่าน REST (PATCH /change) แทน cancel+rep |
-| `t_15de71eb` | 2026-10-27 15:25 | 🟡 T1 · [Streaming] · SQ-8 JS place + cancel snippet + Anti-Mock (ปิดช่องว่างก่อน |
-| `t_15869000` | 2026-10-27 13:24 | ⏰ ปิดตลาด · 🟠 HITL · 2.10 confirm/cancel TTL (human taps) |
-| `t_14aeac1b` | 2026-10-27 11:57 | 🟡 T1 · [Liberator] · P.4-lib-exec wire LINE CLI /buy → JS snippet executor (แทน  |
-| `t_e2c587f7` | 2026-10-27 11:38 | [ตลาดเปิด] 🔴 T2 · [Liberator] · P.4-lib Order submit ผ่าน JS (buy/sell/change/ca |
+| `t_5b35b939` | 2026-10-28 18:02 | 🟢 T0 · SNAP.2: wire cron 09:15 Mon-Fri → run pre_market_snapshot.py (no-agent) + |
+| `t_f6ade9d5` | 2026-10-28 17:58 | 🟢 T0 · SNAP.1: scripts/pre_market_snapshot.py — อ่าน KSS+LIB (balance+portfolio+ |
+| `t_e4cc1add` | 2026-10-28 10:59 | 🔍 0a · SNAP.0a: Verify broker read-only REST endpoints (KSS+LIB) via CDP daemon  |
+| `t_4e823047` | 2026-10-28 09:01 | 3.2 Port Regime & Wave Thrust Engine |
+| `t_d326ce5f` | 2026-10-28 08:29 | 3.1 Port Compass Engine & Setup Scoring |
+| `t_49794e8b` | 2026-10-28 08:00 | 3.0a STEP 0a Probe: Model 19 Code Map & Golden Snapshot |
 | `t_ee3c1ac6` | 2026-10-27 08:45 | ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short |
-| `t_2293ae5f` | 2026-10-26 20:40 | [ตลาดปิด] 🟢 T0 · /sbl sync ยัง launch Chromium clone — ต่อ sbl_read.js ผ่าน CDP  |
 | `t_b558906e` | 2026-10-26 20:32 | [ตลาดปิด] 🟡 T1 · N4: ส่ง target_price ลง negotiate_order_price (KSS) |
 | `t_e7a85d71` | 2026-10-26 20:31 | [ตลาดปิด] 🟢 T0 · N5: เปลี่ยน rich menu ช่อง 4 เป็น ⚡ ต่อราคา (action=nego_menu) |
+| `t_0c99d89c` | 2026-10-23 12:59 | ⏰ ปิดตลาด · 🟡 T1 · 2.6 Value sizing edge cases (tick/board-lot/budget/G6) |
 
 ---
 
