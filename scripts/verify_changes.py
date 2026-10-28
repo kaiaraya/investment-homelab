@@ -120,6 +120,9 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_krungsri_session_health.py",
         "tests/test_auth_session_nondestructive.py",
     ],
+    # Broker pre-market snapshot (SNAP.1)
+    "app/services/broker_snapshot.py": ["tests/test_broker_snapshot.py"],
+    "scripts/pre_market_snapshot.py": ["tests/test_broker_snapshot.py"],
     # Settrade Streaming (Krungsri SSO) — TASK-loop1-8 Phase 1
     "app/browser/streaming_driver.py": ["tests/test_streaming_driver.py"],
     "app/browser/streaming_auth_driver.py": ["tests/test_streaming_driver.py"],
