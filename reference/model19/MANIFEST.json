@@ -3,10 +3,13 @@
   "description": "Model 19 Golden Snapshot vendor files and reference notebook",
   "files": {
     "18_model_era4_grandmaster_v6_chandelierbooster_forwardtest.py": {
-      "sha256": "1ee8915972981852190a7515d8845ea07207834fa6d70ce980c0efce45a6080f",
-      "bytes": 64969,
-      "role": "reference_notebook",
-      "source": "~/Downloads/18_model_era4_grandmaster_v6_chandelierbooster_forwardtest.py"
+      "sha256": "5d50f77b2253acf9930fd48fc849d26dc865f60b5543b813b85f62451b6bc028",
+      "bytes": 64314,
+      "role": "reference_notebook_neutralized",
+      "source": "~/Downloads/18_model_era4_grandmaster_v6_chandelierbooster_forwardtest.py",
+      "pristine_sha256": "1ee8915972981852190a7515d8845ea07207834fa6d70ce980c0efce45a6080f",
+      "pristine_bytes": 64969,
+      "neutralized_note": "find_file() and TARGET_DIR neutralized to point locally to reference/model19/ instead of Drive"
     },
     "thai_fear_greed_daily.csv": {
       "sha256": "532ca580a2122bd6fc2d0c2a4c004501aaac50a910a375f546010d1db9f88847",

@@ -50,41 +50,23 @@ plt.rcParams['font.size'] = 11
 print(f"[{datetime.now().strftime('%H:%M:%S')}] Environment ready for Model 19 Supreme & Model 18/17 Multi-Track Evaluation.")
 
 # ==============================================================================
-# CELL 2: Autonomous Data Ingestion & Google Drive Auto-Mount (Zero Upload Needed)
+# CELL 2: Neutralized Local Ingestion for reference/model19 (Zero Drive Needed)
 # ==============================================================================
-DATA_ZIP = "backtest_runtime_pack.zip"
-TARGET_DIR = "/content/data" if os.path.exists("/content") else "./data"
-os.makedirs(TARGET_DIR, exist_ok=True)
-
-if not os.path.exists(DATA_ZIP):
-    try:
-        from google.colab import drive
-        if not os.path.exists('/content/drive'):
-            print("[*] Mounting Google Drive...")
-            drive.mount('/content/drive', force_remount=False)
-        drive_matches = glob.glob(f'/content/drive/**/{DATA_ZIP}', recursive=True)
-        if drive_matches:
-            print(f"[+] Found runtime pack on Google Drive: {drive_matches[0]}")
-            shutil.copy2(drive_matches[0], DATA_ZIP)
-    except Exception:
-        pass
-
-if os.path.exists(DATA_ZIP):
-    with zipfile.ZipFile(DATA_ZIP, 'r') as zf:
-        zf.extractall(TARGET_DIR)
-    print(f"[+] Successfully extracted {DATA_ZIP} -> {TARGET_DIR}")
-else:
-    print(f"[*] Checking local directories for {DATA_ZIP}...")
+# Resolves paths relative to this script / repo's reference/model19 snapshot
+MODEL19_DIR = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.path.abspath('reference/model19')
+TARGET_DIR = MODEL19_DIR
+DATA_ROOT = TARGET_DIR
 
 def find_file(fname):
     candidates = [
+        os.path.join(MODEL19_DIR, fname),
+        os.path.join('reference', 'model19', fname),
+        os.path.join('.', fname),
         os.path.join(TARGET_DIR, fname),
         os.path.join(TARGET_DIR, 'data', fname),
         os.path.join(TARGET_DIR, 'shared_mcp', fname),
         os.path.join('/content', fname),
         os.path.join('output', fname),
-        os.path.join('output', 'colab_export', fname),
-        os.path.join('.', fname)
     ]
     for c in candidates:
         if os.path.exists(c): return c
@@ -92,7 +74,6 @@ def find_file(fname):
     if matches: return matches[0]
     return None
 
-DATA_ROOT = TARGET_DIR
 print(f"[+] Data Root resolved to: {DATA_ROOT}")
 
 # ==============================================================================
