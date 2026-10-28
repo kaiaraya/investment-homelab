@@ -106,6 +106,13 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     # Pillar 2 portfolio (CLI-RCA-003 Anti-Mock balances; RCA-002/RCA-006 holdings)
     "app/mcp/pillars/pillar2_portfolio.py": ["tests/test_remote_mcp.py", "tests/test_pillar2_order_ledger.py"],
     "app/services/kdeconnect_service.py": ["tests/test_kdeconnect_service.py"],
+    # Model 19 quantitative engine (Loop 3 — Card 3.1: compass + 6-setup scoring)
+    "app/services/model19/__init__.py": ["tests/test_model19_compass.py"],
+    "app/services/model19/compass_engine.py": ["tests/test_model19_compass.py"],
+    "app/services/model19/setups.py": ["tests/test_model19_compass.py"],
+    # Model 19 quantitative engine (Loop 3 — Card 3.2: 10-regime + wave thrust)
+    "app/services/model19/regime_engine.py": ["tests/test_model19_regime.py"],
+    "app/services/model19/wave_thrust.py": ["tests/test_model19_regime.py"],
     "app/services/action_exit_dispatcher.py": ["tests/test_krungsri_pdca_guardrails.py"],
     "app/api/v1/endpoints/webhook_line.py": [
         "tests/test_webhook_line.py",

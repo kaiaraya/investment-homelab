@@ -1,0 +1,1404 @@
+{
+  "generated_from": {
+    "compass_returns_engine.py": {
+      "path": "reference/model19/compass_returns_engine.py",
+      "sha256": "df1a376f861edbb7071e5fc2420af22faf554f51b2c537d772a99ce9c8d28f69"
+    },
+    "decision_compass_master_records.csv": {
+      "path": "reference/model19/decision_compass_master_records.csv",
+      "sha256": "6bc306eb8c4bfeca71375eeb7bd825e8020e19887dc2ffdebfece6d303d19d23",
+      "rows": 2646
+    },
+    "note": "Expected values produced by the frozen reference engine (compute_all_6_setups) plus notebook CELL 4 scoring/mode formulas. Regenerate only against a re-frozen snapshot.",
+    "plot_comparison_boxplot.py": {
+      "path": "reference/model19/plot_comparison_boxplot.py",
+      "sha256": "f6f8272192d6c0e73bcb40df3fdf4a7786adaf5cf5267c8beff28d151d90168f",
+      "source_function": "calc_stats_20d"
+    }
+  },
+  "scenarios": [
+    {
+      "name": "bull_greed_mixed_slots",
+      "is_bull": true,
+      "fg_tier": "Greed",
+      "l_cnt": 120,
+      "s_cnt": 40,
+      "slots": {
+        "tl": [
+          "Q4",
+          "Short (Squeeze)"
+        ],
+        "ts": [
+          "Q1",
+          "Short (Squeeze)"
+        ],
+        "pb": [
+          "Q1",
+          "Tall (Dispersion)"
+        ],
+        "bear": [
+          "Q4",
+          "Short (Squeeze)"
+        ],
+        "kl": [
+          "Q4",
+          "Short (Squeeze)"
+        ],
+        "ks": [
+          "Q1",
+          "Short (Squeeze)"
+        ]
+      },
+      "order": [
+        "tl",
+        "ts",
+        "pb",
+        "bear",
+        "kl",
+        "ks"
+      ],
+      "expected": {
+        "table": [
+          {
+            "id": 1,
+            "name": "Transition Setups",
+            "sub": "Long (L1+L2)",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 51.35135135135135,
+            "ret_norm": 0.04243243243243237,
+            "inv_name": "Inverse Long (ดักย่อ/กลับหน้า)",
+            "win_inv": 48.64864864864865,
+            "ret_inv": -0.04243243243243237,
+            "days": 37
+          },
+          {
+            "id": 2,
+            "name": "Transition Setups",
+            "sub": "Short (S1+S2)",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 65.51724137931035,
+            "ret_norm": 0.36758620689655175,
+            "inv_name": "Inverse Short (ดักเด้งสวนทาง)",
+            "win_inv": 34.48275862068965,
+            "ret_inv": -0.36758620689655175,
+            "days": 29
+          },
+          {
+            "id": 3,
+            "name": "Pure Trend Setups",
+            "sub": "Long (+++)",
+            "dir": "Long (+++)",
+            "q": "Q1",
+            "box": "กล่องยาว",
+            "win_norm": 25.0,
+            "ret_norm": -1.355,
+            "inv_name": "Inverse Short",
+            "win_inv": 75.0,
+            "ret_inv": 1.355,
+            "days": 20
+          },
+          {
+            "id": 4,
+            "name": "Pure Trend Setups",
+            "sub": "Short (---)",
+            "dir": "Short (---)",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 95.0,
+            "ret_norm": 2.973,
+            "inv_name": "Inverse Long (ดัก Short Squeeze)",
+            "win_inv": 5.0,
+            "ret_inv": -2.973,
+            "days": 20
+          },
+          {
+            "id": 5,
+            "name": "King Trend Hybrid",
+            "sub": "Long Timing",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 59.45945945945946,
+            "ret_norm": 1.4848648648648648,
+            "inv_name": "Inverse Short",
+            "win_inv": 40.54054054054054,
+            "ret_inv": -1.4848648648648648,
+            "days": 37
+          },
+          {
+            "id": 6,
+            "name": "King Trend Hybrid",
+            "sub": "Short Timing",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 82.75862068965517,
+            "ret_norm": 1.746551724137931,
+            "inv_name": "Inverse Long (ดัก Squeeze)",
+            "win_inv": 17.241379310344826,
+            "ret_inv": -1.746551724137931,
+            "days": 29
+          }
+        ],
+        "long_rets": [
+          0.04,
+          -0.37,
+          -1.35,
+          -2.97,
+          1.48,
+          -1.75
+        ],
+        "short_rets": [
+          -0.04,
+          0.37,
+          1.35,
+          2.97,
+          -1.48,
+          1.75
+        ],
+        "long_scores": [
+          {
+            "pool_key": "tl",
+            "dir": "LONG",
+            "score": 2.05
+          },
+          {
+            "pool_key": "ts",
+            "dir": "LONG",
+            "score": -12.76
+          },
+          {
+            "pool_key": "pb",
+            "dir": "LONG",
+            "score": -33.75
+          },
+          {
+            "pool_key": "bear",
+            "dir": "LONG",
+            "score": -14.85
+          },
+          {
+            "pool_key": "kl",
+            "dir": "LONG",
+            "score": 88.0
+          },
+          {
+            "pool_key": "ks",
+            "dir": "LONG",
+            "score": -30.17
+          }
+        ],
+        "short_scores": [
+          {
+            "pool_key": "tb",
+            "dir": "SHORT",
+            "score": -1.95
+          },
+          {
+            "pool_key": "ts_short",
+            "dir": "SHORT",
+            "score": 24.24
+          },
+          {
+            "pool_key": "pb_breakdown",
+            "dir": "SHORT",
+            "score": 101.25
+          },
+          {
+            "pool_key": "bear_short",
+            "dir": "SHORT",
+            "score": 282.15
+          },
+          {
+            "pool_key": "kl_breakdown",
+            "dir": "SHORT",
+            "score": -60.0
+          },
+          {
+            "pool_key": "ks_short",
+            "dir": "SHORT",
+            "score": 144.83
+          }
+        ],
+        "long_qual_keys": [],
+        "short_qual_keys": [
+          "pb_breakdown",
+          "bear_short",
+          "ks_short"
+        ],
+        "mode": "SHORT",
+        "target_l": 0,
+        "target_s": 4
+      }
+    },
+    {
+      "name": "non_bull_fear_mixed_slots",
+      "is_bull": false,
+      "fg_tier": "Fear",
+      "l_cnt": 30,
+      "s_cnt": 150,
+      "slots": {
+        "tl": [
+          "Q1",
+          "Short (Squeeze)"
+        ],
+        "ts": [
+          "Q4",
+          "Tall (Dispersion)"
+        ],
+        "pb": [
+          "Q2",
+          "Tall (Dispersion)"
+        ],
+        "bear": [
+          "Q3",
+          "Short (Squeeze)"
+        ],
+        "kl": [
+          "Q1",
+          "Tall (Dispersion)"
+        ],
+        "ks": [
+          "Q4",
+          "Short (Squeeze)"
+        ]
+      },
+      "order": [
+        "tl",
+        "ts",
+        "pb",
+        "bear",
+        "kl",
+        "ks"
+      ],
+      "expected": {
+        "table": [
+          {
+            "id": 1,
+            "name": "Transition Setups",
+            "sub": "Long (L1+L2)",
+            "dir": "Long",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 40.0,
+            "ret_norm": -1.232,
+            "inv_name": "Inverse Long (ดักย่อ/กลับหน้า)",
+            "win_inv": 60.0,
+            "ret_inv": 1.232,
+            "days": 30
+          },
+          {
+            "id": 2,
+            "name": "Transition Setups",
+            "sub": "Short (S1+S2)",
+            "dir": "Short",
+            "q": "Q4",
+            "box": "กล่องยาว",
+            "win_norm": 60.0,
+            "ret_norm": 1.0166666666666666,
+            "inv_name": "Inverse Short (ดักเด้งสวนทาง)",
+            "win_inv": 40.0,
+            "ret_inv": -1.0166666666666666,
+            "days": 30
+          },
+          {
+            "id": 3,
+            "name": "Pure Trend Setups",
+            "sub": "Long (+++)",
+            "dir": "Long (+++)",
+            "q": "Q2",
+            "box": "กล่องยาว",
+            "win_norm": 42.857142857142854,
+            "ret_norm": -0.5576190476190477,
+            "inv_name": "Inverse Short",
+            "win_inv": 57.142857142857146,
+            "ret_inv": 0.5576190476190477,
+            "days": 21
+          },
+          {
+            "id": 4,
+            "name": "Pure Trend Setups",
+            "sub": "Short (---)",
+            "dir": "Short (---)",
+            "q": "Q3",
+            "box": "กล่องสั้น",
+            "win_norm": 72.22222222222221,
+            "ret_norm": 1.371388888888889,
+            "inv_name": "Inverse Long (ดัก Short Squeeze)",
+            "win_inv": 27.777777777777786,
+            "ret_inv": -1.371388888888889,
+            "days": 36
+          },
+          {
+            "id": 5,
+            "name": "King Trend Hybrid",
+            "sub": "Long Timing",
+            "dir": "Long",
+            "q": "Q1",
+            "box": "กล่องยาว",
+            "win_norm": 50.0,
+            "ret_norm": 0.5644444444444444,
+            "inv_name": "Inverse Short",
+            "win_inv": 50.0,
+            "ret_inv": -0.5644444444444444,
+            "days": 54
+          },
+          {
+            "id": 6,
+            "name": "King Trend Hybrid",
+            "sub": "Short Timing",
+            "dir": "Short",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 51.724137931034484,
+            "ret_norm": 0.8255172413793104,
+            "inv_name": "Inverse Long (ดัก Squeeze)",
+            "win_inv": 48.275862068965516,
+            "ret_inv": -0.8255172413793104,
+            "days": 58
+          }
+        ],
+        "long_rets": [
+          -1.23,
+          -1.02,
+          -0.56,
+          -1.37,
+          0.56,
+          -0.83
+        ],
+        "short_rets": [
+          1.23,
+          1.02,
+          0.56,
+          1.37,
+          -0.56,
+          0.83
+        ],
+        "long_scores": [
+          {
+            "pool_key": "tl",
+            "dir": "LONG",
+            "score": -49.2
+          },
+          {
+            "pool_key": "ts",
+            "dir": "LONG",
+            "score": -40.8
+          },
+          {
+            "pool_key": "pb",
+            "dir": "LONG",
+            "score": -24.0
+          },
+          {
+            "pool_key": "bear",
+            "dir": "LONG",
+            "score": -38.06
+          },
+          {
+            "pool_key": "kl",
+            "dir": "LONG",
+            "score": 28.0
+          },
+          {
+            "pool_key": "ks",
+            "dir": "LONG",
+            "score": -40.07
+          }
+        ],
+        "short_scores": [
+          {
+            "pool_key": "tb",
+            "dir": "SHORT",
+            "score": 73.8
+          },
+          {
+            "pool_key": "ts_short",
+            "dir": "SHORT",
+            "score": 61.2
+          },
+          {
+            "pool_key": "pb_breakdown",
+            "dir": "SHORT",
+            "score": 32.0
+          },
+          {
+            "pool_key": "bear_short",
+            "dir": "SHORT",
+            "score": 98.94
+          },
+          {
+            "pool_key": "kl_breakdown",
+            "dir": "SHORT",
+            "score": -28.0
+          },
+          {
+            "pool_key": "ks_short",
+            "dir": "SHORT",
+            "score": 42.93
+          }
+        ],
+        "long_qual_keys": [],
+        "short_qual_keys": [],
+        "mode": "HOLD CASH",
+        "target_l": 0,
+        "target_s": 0
+      }
+    },
+    {
+      "name": "bull_extreme_greed_defaults",
+      "is_bull": true,
+      "fg_tier": "Extreme Greed",
+      "l_cnt": 200,
+      "s_cnt": 10,
+      "slots": null,
+      "order": [
+        "tl",
+        "ts",
+        "pb",
+        "bear",
+        "kl",
+        "ks"
+      ],
+      "expected": {
+        "table": [
+          {
+            "id": 1,
+            "name": "Transition Setups",
+            "sub": "Long (L1+L2)",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องยาว",
+            "win_norm": 44.44444444444444,
+            "ret_norm": -0.6666666666666665,
+            "inv_name": "Inverse Long (ดักย่อ/กลับหน้า)",
+            "win_inv": 55.55555555555556,
+            "ret_inv": 0.6666666666666665,
+            "days": 9
+          },
+          {
+            "id": 2,
+            "name": "Transition Setups",
+            "sub": "Short (S1+S2)",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 0.0,
+            "ret_norm": -4.905,
+            "inv_name": "Inverse Short (ดักเด้งสวนทาง)",
+            "win_inv": 100.0,
+            "ret_inv": 4.905,
+            "days": 4
+          },
+          {
+            "id": 3,
+            "name": "Pure Trend Setups",
+            "sub": "Long (+++)",
+            "dir": "Long (+++)",
+            "q": "Q1",
+            "box": "กล่องยาว",
+            "win_norm": 0.0,
+            "ret_norm": -2.92,
+            "inv_name": "Inverse Short",
+            "win_inv": 100.0,
+            "ret_inv": 2.92,
+            "days": 3
+          },
+          {
+            "id": 4,
+            "name": "Pure Trend Setups",
+            "sub": "Short (---)",
+            "dir": "Short (---)",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 77.77777777777779,
+            "ret_norm": 2.464444444444444,
+            "inv_name": "Inverse Long (ดัก Short Squeeze)",
+            "win_inv": 22.222222222222214,
+            "ret_inv": -2.464444444444444,
+            "days": 9
+          },
+          {
+            "id": 5,
+            "name": "King Trend Hybrid",
+            "sub": "Long Timing",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 44.44444444444444,
+            "ret_norm": 1.1566666666666667,
+            "inv_name": "Inverse Short",
+            "win_inv": 55.55555555555556,
+            "ret_inv": -1.1566666666666667,
+            "days": 9
+          },
+          {
+            "id": 6,
+            "name": "King Trend Hybrid",
+            "sub": "Short Timing",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 0.0,
+            "ret_norm": -6.9575,
+            "inv_name": "Inverse Long (ดัก Squeeze)",
+            "win_inv": 100.0,
+            "ret_inv": 6.9575,
+            "days": 4
+          }
+        ],
+        "long_rets": [
+          -0.67,
+          4.91,
+          -2.92,
+          -2.46,
+          1.16,
+          6.96
+        ],
+        "short_rets": [
+          0.67,
+          -4.91,
+          2.92,
+          2.46,
+          -1.16,
+          -6.96
+        ],
+        "long_scores": [
+          {
+            "pool_key": "tl",
+            "dir": "LONG",
+            "score": -29.78
+          },
+          {
+            "pool_key": "ts",
+            "dir": "LONG",
+            "score": 491.0
+          },
+          {
+            "pool_key": "pb",
+            "dir": "LONG",
+            "score": -0.0
+          },
+          {
+            "pool_key": "bear",
+            "dir": "LONG",
+            "score": -54.67
+          },
+          {
+            "pool_key": "kl",
+            "dir": "LONG",
+            "score": 51.56
+          },
+          {
+            "pool_key": "ks",
+            "dir": "LONG",
+            "score": 696.0
+          }
+        ],
+        "short_scores": [
+          {
+            "pool_key": "tb",
+            "dir": "SHORT",
+            "score": 37.22
+          },
+          {
+            "pool_key": "ts_short",
+            "dir": "SHORT",
+            "score": -0.0
+          },
+          {
+            "pool_key": "pb_breakdown",
+            "dir": "SHORT",
+            "score": 292.0
+          },
+          {
+            "pool_key": "bear_short",
+            "dir": "SHORT",
+            "score": 191.33
+          },
+          {
+            "pool_key": "kl_breakdown",
+            "dir": "SHORT",
+            "score": -64.44
+          },
+          {
+            "pool_key": "ks_short",
+            "dir": "SHORT",
+            "score": -0.0
+          }
+        ],
+        "long_qual_keys": [
+          "ts",
+          "ks"
+        ],
+        "short_qual_keys": [
+          "pb_breakdown",
+          "bear_short"
+        ],
+        "mode": "LONG",
+        "target_l": 4,
+        "target_s": 0
+      }
+    },
+    {
+      "name": "non_bull_extreme_fear_defaults",
+      "is_bull": false,
+      "fg_tier": "Extreme Fear",
+      "l_cnt": 5,
+      "s_cnt": 200,
+      "slots": null,
+      "order": [
+        "tl",
+        "ts",
+        "pb",
+        "bear",
+        "kl",
+        "ks"
+      ],
+      "expected": {
+        "table": [
+          {
+            "id": 1,
+            "name": "Transition Setups",
+            "sub": "Long (L1+L2)",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องยาว",
+            "win_norm": 37.2093023255814,
+            "ret_norm": -1.3113953488372092,
+            "inv_name": "Inverse Long (ดักย่อ/กลับหน้า)",
+            "win_inv": 62.7906976744186,
+            "ret_inv": 1.3113953488372092,
+            "days": 43
+          },
+          {
+            "id": 2,
+            "name": "Transition Setups",
+            "sub": "Short (S1+S2)",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 51.02040816326531,
+            "ret_norm": -0.9736734693877551,
+            "inv_name": "Inverse Short (ดักเด้งสวนทาง)",
+            "win_inv": 48.97959183673469,
+            "ret_inv": 0.9736734693877551,
+            "days": 49
+          },
+          {
+            "id": 3,
+            "name": "Pure Trend Setups",
+            "sub": "Long (+++)",
+            "dir": "Long (+++)",
+            "q": "Q1",
+            "box": "กล่องยาว",
+            "win_norm": 25.0,
+            "ret_norm": -1.725,
+            "inv_name": "Inverse Short",
+            "win_inv": 75.0,
+            "ret_inv": 1.725,
+            "days": 4
+          },
+          {
+            "id": 4,
+            "name": "Pure Trend Setups",
+            "sub": "Short (---)",
+            "dir": "Short (---)",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 36.84210526315789,
+            "ret_norm": -3.4078947368421053,
+            "inv_name": "Inverse Long (ดัก Short Squeeze)",
+            "win_inv": 63.15789473684211,
+            "ret_inv": 3.4078947368421053,
+            "days": 19
+          },
+          {
+            "id": 5,
+            "name": "King Trend Hybrid",
+            "sub": "Long Timing",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 43.47826086956522,
+            "ret_norm": -0.7104347826086956,
+            "inv_name": "Inverse Short",
+            "win_inv": 56.52173913043478,
+            "ret_inv": 0.7104347826086956,
+            "days": 23
+          },
+          {
+            "id": 6,
+            "name": "King Trend Hybrid",
+            "sub": "Short Timing",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 53.06122448979592,
+            "ret_norm": -1.099591836734694,
+            "inv_name": "Inverse Long (ดัก Squeeze)",
+            "win_inv": 46.93877551020408,
+            "ret_inv": 1.099591836734694,
+            "days": 49
+          }
+        ],
+        "long_rets": [
+          -1.31,
+          0.97,
+          -1.73,
+          3.41,
+          -0.71,
+          1.1
+        ],
+        "short_rets": [
+          1.31,
+          -0.97,
+          1.73,
+          -3.41,
+          0.71,
+          -1.1
+        ],
+        "long_scores": [
+          {
+            "pool_key": "tl",
+            "dir": "LONG",
+            "score": -48.74
+          },
+          {
+            "pool_key": "ts",
+            "dir": "LONG",
+            "score": 47.51
+          },
+          {
+            "pool_key": "pb",
+            "dir": "LONG",
+            "score": -43.25
+          },
+          {
+            "pool_key": "bear",
+            "dir": "LONG",
+            "score": 215.37
+          },
+          {
+            "pool_key": "kl",
+            "dir": "LONG",
+            "score": -30.87
+          },
+          {
+            "pool_key": "ks",
+            "dir": "LONG",
+            "score": 51.63
+          }
+        ],
+        "short_scores": [
+          {
+            "pool_key": "tb",
+            "dir": "SHORT",
+            "score": 82.26
+          },
+          {
+            "pool_key": "ts_short",
+            "dir": "SHORT",
+            "score": -49.49
+          },
+          {
+            "pool_key": "pb_breakdown",
+            "dir": "SHORT",
+            "score": 129.75
+          },
+          {
+            "pool_key": "bear_short",
+            "dir": "SHORT",
+            "score": -125.63
+          },
+          {
+            "pool_key": "kl_breakdown",
+            "dir": "SHORT",
+            "score": 40.13
+          },
+          {
+            "pool_key": "ks_short",
+            "dir": "SHORT",
+            "score": -58.37
+          }
+        ],
+        "long_qual_keys": [
+          "bear"
+        ],
+        "short_qual_keys": [
+          "pb_breakdown"
+        ],
+        "mode": "BI-DIRECTIONAL",
+        "target_l": 2,
+        "target_s": 2
+      }
+    },
+    {
+      "name": "bull_neutral_defaults",
+      "is_bull": true,
+      "fg_tier": "Neutral",
+      "l_cnt": 60,
+      "s_cnt": 60,
+      "slots": null,
+      "order": [
+        "tl",
+        "ts",
+        "pb",
+        "bear",
+        "kl",
+        "ks"
+      ],
+      "expected": {
+        "table": [
+          {
+            "id": 1,
+            "name": "Transition Setups",
+            "sub": "Long (L1+L2)",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องยาว",
+            "win_norm": 30.0,
+            "ret_norm": -1.526,
+            "inv_name": "Inverse Long (ดักย่อ/กลับหน้า)",
+            "win_inv": 70.0,
+            "ret_inv": 1.526,
+            "days": 10
+          },
+          {
+            "id": 2,
+            "name": "Transition Setups",
+            "sub": "Short (S1+S2)",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 33.33333333333333,
+            "ret_norm": -4.3066666666666675,
+            "inv_name": "Inverse Short (ดักเด้งสวนทาง)",
+            "win_inv": 66.66666666666667,
+            "ret_inv": 4.3066666666666675,
+            "days": 3
+          },
+          {
+            "id": 3,
+            "name": "Pure Trend Setups",
+            "sub": "Long (+++)",
+            "dir": "Long (+++)",
+            "q": "Q1",
+            "box": "กล่องยาว",
+            "win_norm": 40.0,
+            "ret_norm": -1.68,
+            "inv_name": "Inverse Short",
+            "win_inv": 60.0,
+            "ret_inv": 1.68,
+            "days": 15
+          },
+          {
+            "id": 4,
+            "name": "Pure Trend Setups",
+            "sub": "Short (---)",
+            "dir": "Short (---)",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 50.0,
+            "ret_norm": 0.4549999999999999,
+            "inv_name": "Inverse Long (ดัก Short Squeeze)",
+            "win_inv": 50.0,
+            "ret_inv": -0.4549999999999999,
+            "days": 6
+          },
+          {
+            "id": 5,
+            "name": "King Trend Hybrid",
+            "sub": "Long Timing",
+            "dir": "Long",
+            "q": "Q4",
+            "box": "กล่องสั้น",
+            "win_norm": 58.333333333333336,
+            "ret_norm": 2.4525,
+            "inv_name": "Inverse Short",
+            "win_inv": 41.666666666666664,
+            "ret_inv": -2.4525,
+            "days": 12
+          },
+          {
+            "id": 6,
+            "name": "King Trend Hybrid",
+            "sub": "Short Timing",
+            "dir": "Short",
+            "q": "Q1",
+            "box": "กล่องสั้น",
+            "win_norm": 33.33333333333333,
+            "ret_norm": -0.3133333333333335,
+            "inv_name": "Inverse Long (ดัก Squeeze)",
+            "win_inv": 66.66666666666667,
+            "ret_inv": 0.3133333333333335,
+            "days": 3
+          }
+        ],
+        "long_rets": [
+          -1.53,
+          4.31,
+          -1.68,
+          -0.45,
+          2.45,
+          0.31
+        ],
+        "short_rets": [
+          1.53,
+          -4.31,
+          1.68,
+          0.45,
+          -2.45,
+          -0.31
+        ],
+        "long_scores": [
+          {
+            "pool_key": "tl",
+            "dir": "LONG",
+            "score": -45.9
+          },
+          {
+            "pool_key": "ts",
+            "dir": "LONG",
+            "score": 287.33
+          },
+          {
+            "pool_key": "pb",
+            "dir": "LONG",
+            "score": -67.2
+          },
+          {
+            "pool_key": "bear",
+            "dir": "LONG",
+            "score": -22.5
+          },
+          {
+            "pool_key": "kl",
+            "dir": "LONG",
+            "score": 142.92
+          },
+          {
+            "pool_key": "ks",
+            "dir": "LONG",
+            "score": 20.67
+          }
+        ],
+        "short_scores": [
+          {
+            "pool_key": "tb",
+            "dir": "SHORT",
+            "score": 107.1
+          },
+          {
+            "pool_key": "ts_short",
+            "dir": "SHORT",
+            "score": -143.67
+          },
+          {
+            "pool_key": "pb_breakdown",
+            "dir": "SHORT",
+            "score": 100.8
+          },
+          {
+            "pool_key": "bear_short",
+            "dir": "SHORT",
+            "score": 22.5
+          },
+          {
+            "pool_key": "kl_breakdown",
+            "dir": "SHORT",
+            "score": -102.08
+          },
+          {
+            "pool_key": "ks_short",
+            "dir": "SHORT",
+            "score": -10.33
+          }
+        ],
+        "long_qual_keys": [
+          "ts",
+          "kl"
+        ],
+        "short_qual_keys": [
+          "tb",
+          "pb_breakdown"
+        ],
+        "mode": "LONG",
+        "target_l": 4,
+        "target_s": 0
+      }
+    }
+  ],
+  "calc_stats_20d": {
+    "provenance": "Expected dicts produced by the frozen calc_stats_20d — its function source extracted from reference/model19/plot_comparison_boxplot.py via ast (matplotlib/pandas never imported) and executed with numpy 2.5.4 + scipy 1.18.1. Not generated from app/services/model19/setups.py.",
+    "note": "Even- and odd-length windows, both IQR arms, exact-baseline boundary, no-baseline arm, tied scores, plus non-binary-exact decimal windows that pin NumPy's two-branch _lerp (each decimal case's why_non_binary_exact records the 1-ULP drift a single-arm interpolation produces).",
+    "cases": [
+      {
+        "name": "even_20d_dispersion",
+        "arr": [
+          12,
+          9,
+          15,
+          7,
+          18,
+          11,
+          14,
+          10,
+          16,
+          13,
+          8,
+          17,
+          12,
+          19,
+          10,
+          14,
+          11,
+          13,
+          15,
+          9
+        ],
+        "cur": 15,
+        "median_baseline": 14.8,
+        "expected": {
+          "min": 7.0,
+          "q25": 10.0,
+          "median": 12.5,
+          "q75": 15.0,
+          "iqr": 5.0,
+          "max": 19.0,
+          "latest": 15,
+          "pct": 80.0,
+          "zone": "Max Zone / Q4",
+          "q_label": "Q4",
+          "box_type": "Short (Squeeze)",
+          "thai_box": "กล่องสั้น (Squeeze)"
+        }
+      },
+      {
+        "name": "even_20d_squeeze",
+        "arr": [
+          10,
+          12,
+          9,
+          11,
+          10,
+          13,
+          11,
+          12,
+          10,
+          9,
+          11,
+          10,
+          12,
+          11,
+          13,
+          10,
+          12,
+          11,
+          9,
+          10
+        ],
+        "cur": 12,
+        "median_baseline": 14.8,
+        "expected": {
+          "min": 9.0,
+          "q25": 10.0,
+          "median": 11.0,
+          "q75": 12.0,
+          "iqr": 2.0,
+          "max": 13.0,
+          "latest": 12,
+          "pct": 90.0,
+          "zone": "Max Zone / Q4",
+          "q_label": "Q4",
+          "box_type": "Short (Squeeze)",
+          "thai_box": "กล่องสั้น (Squeeze)"
+        }
+      },
+      {
+        "name": "odd_7d_median_zone",
+        "arr": [
+          3,
+          8,
+          4,
+          9,
+          5,
+          7,
+          6
+        ],
+        "cur": 6,
+        "median_baseline": 2.5,
+        "expected": {
+          "min": 3.0,
+          "q25": 4.5,
+          "median": 6.0,
+          "q75": 7.5,
+          "iqr": 3.0,
+          "max": 9.0,
+          "latest": 6,
+          "pct": 57.142857142857146,
+          "zone": "Mid-High / Q3",
+          "q_label": "Q3",
+          "box_type": "Tall (Dispersion)",
+          "thai_box": "กล่องยาว (Dispersion)"
+        }
+      },
+      {
+        "name": "odd_5d_low_zone",
+        "arr": [
+          20,
+          25,
+          22,
+          30,
+          28
+        ],
+        "cur": 19,
+        "median_baseline": 30.7,
+        "expected": {
+          "min": 20.0,
+          "q25": 22.0,
+          "median": 25.0,
+          "q75": 28.0,
+          "iqr": 6.0,
+          "max": 30.0,
+          "latest": 19,
+          "pct": 0.0,
+          "zone": "Low Zone / Q1",
+          "q_label": "Q1",
+          "box_type": "Short (Squeeze)",
+          "thai_box": "กล่องสั้น (Squeeze)"
+        }
+      },
+      {
+        "name": "even_4d_iqr_equal_baseline",
+        "arr": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "cur": 2.5,
+        "median_baseline": 1.5,
+        "expected": {
+          "min": 1.0,
+          "q25": 1.75,
+          "median": 2.5,
+          "q75": 3.25,
+          "iqr": 1.5,
+          "max": 4.0,
+          "latest": 2.5,
+          "pct": 50.0,
+          "zone": "Mid-High / Q3",
+          "q_label": "Q3",
+          "box_type": "Short (Squeeze)",
+          "thai_box": "กล่องสั้น (Squeeze)"
+        }
+      },
+      {
+        "name": "even_6d_no_baseline",
+        "arr": [
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "cur": 12.0,
+        "median_baseline": null,
+        "expected": {
+          "min": 10.0,
+          "q25": 11.25,
+          "median": 12.5,
+          "q75": 13.75,
+          "iqr": 2.5,
+          "max": 15.0,
+          "latest": 12.0,
+          "pct": 50.0,
+          "zone": "Mid-Low / Q2",
+          "q_label": "Q2"
+        }
+      },
+      {
+        "name": "odd_3d_pct_ties",
+        "arr": [
+          10,
+          20,
+          20,
+          30,
+          30
+        ],
+        "cur": 30,
+        "median_baseline": 37.8,
+        "expected": {
+          "min": 10.0,
+          "q25": 20.0,
+          "median": 20.0,
+          "q75": 30.0,
+          "iqr": 10.0,
+          "max": 30.0,
+          "latest": 30,
+          "pct": 100.0,
+          "zone": "Max Zone / Q4",
+          "q_label": "Q4",
+          "box_type": "Short (Squeeze)",
+          "thai_box": "กล่องสั้น (Squeeze)"
+        }
+      },
+      {
+        "name": "decimal_3d_midpoint_lerp",
+        "arr": [
+          3.67,
+          -2.934029,
+          0.3
+        ],
+        "cur": 0.3,
+        "median_baseline": 1.0,
+        "expected": {
+          "min": -2.934029,
+          "q25": -1.3170145,
+          "median": 0.3,
+          "q75": 1.9849999999999999,
+          "iqr": 3.3020145,
+          "max": 3.67,
+          "latest": 0.3,
+          "pct": 66.66666666666667,
+          "zone": "Mid-High / Q3",
+          "q_label": "Q3",
+          "box_type": "Tall (Dispersion)",
+          "thai_box": "กล่องยาว (Dispersion)"
+        },
+        "why_non_binary_exact": "single-arm lerp yields q25=-1.3170145000000002; numpy/reference q25=-1.3170145"
+      },
+      {
+        "name": "decimal_4d_q25_upper_arm",
+        "arr": [
+          -8.671256,
+          74.1959,
+          90.377244,
+          36.11502
+        ],
+        "cur": 36.11502,
+        "median_baseline": null,
+        "expected": {
+          "min": -8.671256,
+          "q25": 24.918451,
+          "median": 55.15546,
+          "q75": 78.241236,
+          "iqr": 53.322784999999996,
+          "max": 90.377244,
+          "latest": 36.11502,
+          "pct": 50.0,
+          "zone": "Mid-Low / Q2",
+          "q_label": "Q2"
+        },
+        "why_non_binary_exact": "single-arm lerp yields q25=24.918451000000005; numpy/reference q25=24.918451"
+      },
+      {
+        "name": "decimal_6d_q75_upper_arm",
+        "arr": [
+          76.645563,
+          -88.635486,
+          -61.738774,
+          -91.560221,
+          -80.450945,
+          -9.564815
+        ],
+        "cur": -9.564815,
+        "median_baseline": 20.0,
+        "expected": {
+          "min": -91.560221,
+          "q25": -86.58935075,
+          "median": -71.0948595,
+          "q75": -22.60830475,
+          "iqr": 63.98104599999999,
+          "max": 76.645563,
+          "latest": -9.564815,
+          "pct": 83.33333333333334,
+          "zone": "Max Zone / Q4",
+          "q_label": "Q4",
+          "box_type": "Tall (Dispersion)",
+          "thai_box": "กล่องยาว (Dispersion)"
+        },
+        "why_non_binary_exact": "single-arm lerp yields q75=-22.608304750000002; numpy/reference q75=-22.60830475"
+      },
+      {
+        "name": "decimal_11d_q25_upper_arm",
+        "arr": [
+          -45.615908,
+          81.179738,
+          -63.689722,
+          51.15531,
+          63.955454,
+          69.917565,
+          35.194728,
+          89.200312,
+          -18.810434,
+          7.319778,
+          2.956524
+        ],
+        "cur": 2.956524,
+        "median_baseline": null,
+        "expected": {
+          "min": -63.689722,
+          "q25": -7.926955000000001,
+          "median": 35.194728,
+          "q75": 66.9365095,
+          "iqr": 74.8634645,
+          "max": 89.200312,
+          "latest": 2.956524,
+          "pct": 36.36363636363637,
+          "zone": "Mid-Low / Q2",
+          "q_label": "Q2"
+        },
+        "why_non_binary_exact": "single-arm lerp yields q25=-7.9269549999999995; numpy/reference q25=-7.926955000000001"
+      },
+      {
+        "name": "decimal_20d_q25_upper_arm",
+        "arr": [
+          44.140949,
+          62.927864,
+          -70.747308,
+          33.207558,
+          66.139814,
+          59.051364,
+          -17.342704,
+          99.227746,
+          51.977586,
+          29.921505,
+          55.969338,
+          -6.119675,
+          56.718693,
+          -53.909213,
+          40.840065,
+          37.4903,
+          96.578213,
+          35.763723,
+          -3.686203,
+          61.087314
+        ],
+        "cur": 61.087314,
+        "median_baseline": 45.5,
+        "expected": {
+          "min": -70.747308,
+          "q25": 21.519578,
+          "median": 42.490507,
+          "q75": 59.560351499999996,
+          "iqr": 38.0407735,
+          "max": 99.227746,
+          "latest": 61.087314,
+          "pct": 80.0,
+          "zone": "Max Zone / Q4",
+          "q_label": "Q4",
+          "box_type": "Short (Squeeze)",
+          "thai_box": "กล่องสั้น (Squeeze)"
+        },
+        "why_non_binary_exact": "single-arm lerp yields q25=21.519578000000003; numpy/reference q25=21.519578"
+      }
+    ]
+  }
+}

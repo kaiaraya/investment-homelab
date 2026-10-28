@@ -1,0 +1,264 @@
+{
+  "card": "3.2 \u2014 Regime & Wave Thrust Engine",
+  "forensics": {
+    "cross_events": 34,
+    "digest": "87e53e8f6360f755da8876669d76b43c579905d051d1b65566786b42e28fe664",
+    "row_count": 901,
+    "samples": [
+      {
+        "above_075": 1,
+        "cross_075": 0,
+        "date": "2023-01-03",
+        "market_sqn": 1.005311031059939,
+        "sqn_crosses_10d": 0.0,
+        "sqn_vel_5d": 0.0
+      },
+      {
+        "above_075": 0,
+        "cross_075": 1,
+        "date": "2023-01-04",
+        "market_sqn": 0.6941509504445375,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": 0.0
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-05",
+        "market_sqn": 0.6558500145127768,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": 0.0
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-06",
+        "market_sqn": 0.7487453694230727,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": 0.0
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-09",
+        "market_sqn": 0.709386405317304,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": 0.0
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-10",
+        "market_sqn": 0.7289371296169986,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": -0.2763739014429403
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-11",
+        "market_sqn": 0.5944791830415931,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": -0.09967176740294437
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-12",
+        "market_sqn": 0.5753068870791038,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": -0.08054312743367298
+      },
+      {
+        "above_075": 0,
+        "cross_075": 0,
+        "date": "2023-01-13",
+        "market_sqn": 0.5776335249750146,
+        "sqn_crosses_10d": 1.0,
+        "sqn_vel_5d": -0.17111184444805805
+      },
+      {
+        "above_075": 1,
+        "cross_075": 1,
+        "date": "2023-01-16",
+        "market_sqn": 0.7572717929903461,
+        "sqn_crosses_10d": 2.0,
+        "sqn_vel_5d": 0.04788538767304207
+      },
+      {
+        "above_075": 0,
+        "cross_075": 1,
+        "date": "2023-01-17",
+        "market_sqn": 0.5685961494728007,
+        "sqn_crosses_10d": 3.0,
+        "sqn_vel_5d": -0.16034098014419795
+      },
+      {
+        "above_075": 1,
+        "cross_075": 0,
+        "date": "2026-10-08",
+        "market_sqn": 0.8572,
+        "sqn_crosses_10d": 0.0,
+        "sqn_vel_5d": 0.10619006099877693
+      }
+    ]
+  },
+  "generated_by": "independent notebook transliteration (csv/json + itertools.groupby)",
+  "regime": {
+    "baseline_vol": 0.855,
+    "counts": {
+      "Bearish Quiet": 197,
+      "Bearish Volatile": 9,
+      "Bullish Quiet": 200,
+      "Bullish Volatile": 100,
+      "Neutral Quiet": 298,
+      "Neutral Volatile": 15,
+      "Very Bearish Quiet": 109,
+      "Very Bearish Volatile": 88,
+      "Very Bullish Quiet": 81,
+      "Very Bullish Volatile": 102
+    },
+    "first_date": "2021-10-28",
+    "first_label_examples": {
+      "Bearish Quiet": "2021-11-30",
+      "Bearish Volatile": "2023-06-30",
+      "Bullish Quiet": "2021-11-22",
+      "Bullish Volatile": "2024-12-23",
+      "Neutral Quiet": "2021-10-28",
+      "Neutral Volatile": "2025-07-18",
+      "Very Bearish Quiet": "2022-07-11",
+      "Very Bearish Volatile": "2025-02-26",
+      "Very Bullish Quiet": "2022-01-04",
+      "Very Bullish Volatile": "2025-09-09"
+    },
+    "label_digest": "4195aac86732aee20463ce9d7ae9dca5d98987b1a62c2a48d5c0428aa9916ca9",
+    "last_date": "2026-10-08",
+    "row_count": 1199,
+    "samples": [
+      {
+        "date": "2021-10-28",
+        "label": "Neutral Quiet",
+        "sqn": 0.1505,
+        "sqn_v3": 0.0,
+        "vol_100d": 0.6063
+      },
+      {
+        "date": "2023-01-03",
+        "label": "Bullish Quiet",
+        "sqn": 1.0053,
+        "sqn_v3": 0.05576666666666671,
+        "vol_100d": 0.5371
+      },
+      {
+        "date": "2023-06-30",
+        "label": "Bearish Volatile",
+        "sqn": -0.4319,
+        "sqn_v3": 0.06526666666666668,
+        "vol_100d": 0.86
+      },
+      {
+        "date": "2024-12-23",
+        "label": "Bullish Volatile",
+        "sqn": 1.2349,
+        "sqn_v3": -0.03473333333333328,
+        "vol_100d": 0.8644
+      },
+      {
+        "date": "2026-02-09",
+        "label": "Very Bullish Volatile",
+        "sqn": 1.5312,
+        "sqn_v3": 0.07046666666666661,
+        "vol_100d": 0.8926
+      },
+      {
+        "date": "2026-10-08",
+        "label": "Bullish Quiet",
+        "sqn": 0.87,
+        "sqn_v3": -0.02410000000000001,
+        "vol_100d": 0.7016
+      }
+    ]
+  },
+  "sources": {
+    "18_model_era4_grandmaster_v6_chandelierbooster_forwardtest.py": "5d50f77b2253acf9930fd48fc849d26dc865f60b5543b813b85f62451b6bc028",
+    "kinematic_wave_zones_daily.csv": "ae22b47fff2f9595ab71a49ae26726b2ce9f924ccb003dde0af1240b16929bc4",
+    "mcp_historical_sqn_data.json": "ca22d431b75ed2e88d9d517490650516c0d89807a91530ded3ae0ab87b6e22c0",
+    "wave_forensics_context_daily.csv": "d702ad08e6d0889001df16a88234cc703909c31de6c6153bb8b8f14f515e50c9"
+  },
+  "wave_thrust": {
+    "delta_net_delta_mismatches": 0,
+    "digest": "a28c1f1315989a5b25ecd1fd94f8b996102b12b5edc66dc2b78e1e1cb5a36692",
+    "first_wave": [
+      "2023-01-03",
+      "2023-02-01",
+      22,
+      1
+    ],
+    "first_waves": [
+      [
+        "2023-01-03",
+        "2023-02-01",
+        22,
+        1
+      ],
+      [
+        "2023-02-02",
+        "2023-03-29",
+        39,
+        -1
+      ],
+      [
+        "2023-03-30",
+        "2023-05-02",
+        20,
+        1
+      ],
+      [
+        "2023-05-03",
+        "2023-05-08",
+        2,
+        -1
+      ],
+      [
+        "2023-05-09",
+        "2023-06-21",
+        31,
+        1
+      ]
+    ],
+    "row_count": 902,
+    "samples": [
+      {
+        "date": "2023-01-03",
+        "days_in_wave": 1,
+        "delta_prog": 0.0
+      },
+      {
+        "date": "2023-01-04",
+        "days_in_wave": 2,
+        "delta_prog": 45.0
+      },
+      {
+        "date": "2023-02-02",
+        "days_in_wave": 1,
+        "delta_prog": 0.0
+      },
+      {
+        "date": "2026-04-30",
+        "days_in_wave": 12,
+        "delta_prog": 29.0
+      },
+      {
+        "date": "2026-05-05",
+        "days_in_wave": 13,
+        "delta_prog": 28.0
+      },
+      {
+        "date": "2026-10-09",
+        "days_in_wave": 7,
+        "delta_prog": 170.0
+      }
+    ],
+    "wave_count": 38
+  }
+}
