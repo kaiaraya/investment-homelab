@@ -77,7 +77,9 @@ self-contained — never "see the planning chat".
 - Commit format: `TASK-<slug>: <type>(<scope>): <summary>`.
 - Stage only that card's files — the tree routinely carries other workstreams; never `git add -A`.
 - Before any push/merge: no `.env`, `*session*.json`, `*.db`, `data/screenshots/*.png` in the index.
-- `main` is human-owned; workers leave a clean uncommitted diff or a card branch.
+- `main` is human-owned. A worker commits its finished work to its card branch (`task/<slug>` or
+  `wt/<card-id>`) **before** marking the card `done` — `done` always means versioned on a branch,
+  never a dirty working tree. The human squashes to `main` after review (merge gate, §4).
 
 ## 6. Tooling quick reference
 
