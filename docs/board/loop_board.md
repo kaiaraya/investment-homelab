@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-28 19:29.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-30 15:59.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-28 19:29
-- **Counts:** running 1 · ready 0 · todo 3 · scheduled 0 · blocked 2 · triage 1 · review 0 · done 12 · archived 79
+- **Generated:** 2026-10-30 15:59
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 0 · triage 2 · review 0 · done 27 · archived 79
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -27,28 +27,23 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_ccaf8647` | **running** | `homelab-build` | 🟡 T1 · LINE CLI · retire /login /logout /quicktrade /halt → RustDesk |
-| `t_53b32b72` | **todo** | `homelab-build` | 🟡 T1 · LINE CLI · add /sync portfolio|orders|borrow|balance |
-| `t_ee9bd654` | **todo** | `homelab-build` | 🟡 T1 · LINE CLI · add /nego all (ต่อราคาทั้ง 2 โบรกเกอร์) |
-| `t_4458dea1` | **todo** | `homelab-build` | 🟢 T0 · LINE CLI · update /help text + board snapshot |
-| `t_b6749a20` | **blocked** | `default` | Witness live value BUY order flow via LINE to broker |
-| `t_99cc85d7` | **blocked** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
-| `t_1e4a05eb` | **triage** | `default` | 🔔 เปิดตลาด · 🔴 T2 · 2.8 Witness — SBL borrow → short → return (kss MARGIN 3024959 · ยุบ 2.5 แล้ว) |
+| `t_1e4a05eb` | **triage** | `default` | Witness live SBL borrow, short, and return cycle on KSS Margin 3024959 |
+| `t_99cc85d7` | **triage** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
 | id | completed | title |
 |---|---|---|
-| `t_5b35b939` | 2026-10-28 18:02 | 🟢 T0 · SNAP.2: wire cron 09:15 Mon-Fri → run pre_market_snapshot.py (no-agent) + |
-| `t_f6ade9d5` | 2026-10-28 17:58 | 🟢 T0 · SNAP.1: scripts/pre_market_snapshot.py — อ่าน KSS+LIB (balance+portfolio+ |
-| `t_e4cc1add` | 2026-10-28 10:59 | 🔍 0a · SNAP.0a: Verify broker read-only REST endpoints (KSS+LIB) via CDP daemon  |
-| `t_4e823047` | 2026-10-28 09:01 | 3.2 Port Regime & Wave Thrust Engine |
-| `t_d326ce5f` | 2026-10-28 08:29 | 3.1 Port Compass Engine & Setup Scoring |
-| `t_49794e8b` | 2026-10-28 08:00 | 3.0a STEP 0a Probe: Model 19 Code Map & Golden Snapshot |
-| `t_ee3c1ac6` | 2026-10-27 08:45 | ⏰ ปิดตลาด (fix+DRY) · 🟠 HITL · 2.11 XD hard-block on /borrow + /short |
-| `t_b558906e` | 2026-10-26 20:32 | [ตลาดปิด] 🟡 T1 · N4: ส่ง target_price ลง negotiate_order_price (KSS) |
-| `t_e7a85d71` | 2026-10-26 20:31 | [ตลาดปิด] 🟢 T0 · N5: เปลี่ยน rich menu ช่อง 4 เป็น ⚡ ต่อราคา (action=nego_menu) |
-| `t_0c99d89c` | 2026-10-23 12:59 | ⏰ ปิดตลาด · 🟡 T1 · 2.6 Value sizing edge cases (tick/board-lot/budget/G6) |
+| `t_3e7d781e` | 2026-10-30 15:48 | 🟡 T0 · LINE CLI · Kept tree red after commit bc8c778: 6 pre-existing test failur |
+| `t_85a65a8a` | 2026-10-30 15:15 | 🟢 T0 · LINE CLI · Add handler round-trip tests for portfolio action buttons (car |
+| `t_c08412d2` | 2026-10-30 14:58 | 🟢 T0 · LINE CLI · พัฒนา Interactive Portfolio Card รวม 2 โบรกเกอร์ พร้อมปุ่มส่งค |
+| `t_eff62798` | 2026-10-30 10:00 | 🟢 T0 · LINE CLI · เพิ่มคำสั่ง /size <sym> คำนวณจำนวนหุ้นงบ 50k/75k/100k จากราคาต |
+| `t_53b40213` | 2026-10-29 16:48 | 🟢 T0 · LINE CLI · Default omitted trade price to passive 'lure' price (never cro |
+| `t_6c73d316` | 2026-10-29 16:05 | 🟡 T1 · LINE CLI · Purge TradeMan & QuickTrade fallbacks → 100% CDP :9333 alignme |
+| `t_4b6ed556` | 2026-10-29 15:33 | 🟢 T0 · Fix — Wire KSS LINE amend/nego to Streaming CDP change_order_native |
+| `t_6d68fc2f` | 2026-10-29 12:57 | 🟢 T0 · SIDE-QUEST: OrderStatus enum ขาด UNCONFIRMED → /api/v1/orders 500 |
+| `t_f22dbda2` | 2026-10-29 11:57 | 🏗️ Architecture: Order State Synchronization & DB Design (Broker vs Local DB) |
+| `t_b6749a20` | 2026-10-29 10:52 | Witness live value BUY order flow via LINE to broker |
 
 ---
 
