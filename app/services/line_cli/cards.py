@@ -179,6 +179,7 @@ def status_card(
 # /port
 # --------------------------------------------------------------------------- #
 PORT_ROWS_PER_BUBBLE = 12
+_BROKER_LABEL = {"kss": "KSS", "lib": "LIB"}
 
 
 def _port_header_row() -> Dict[str, Any]:
@@ -190,12 +191,8 @@ def _port_header_row() -> Dict[str, Any]:
     ])
 
 
-def _port_row(r: Dict[str, Any]) -> Dict[str, Any]:
-    """One holding line. Side tag ``(S)``/``(B)``; unreadable %P/L renders ``—``.
-
-    RCA-012: the symbol cell wraps (``flex=4``) instead of being clipped, so a long
-    name plus its side suffix such as ``DOHOME (S)`` stays readable in full.
-    """
+def _port_row(r: Dict[str, Any], broker: Optional[str] = None, actionable: bool = True) -> Dict[str, Any]:
+    """One holding line with optional broker badge and optional actionable negotiation buttons."""
     ptype = str(r.get("position_type") or "LONG").upper()
     tag = " (S)" if ptype == "SHORT" else (" (B)" if ptype == "BORROWED" else "")
     pnl_pct = r.get("pnl_pct")
@@ -203,14 +200,84 @@ def _port_row(r: Dict[str, Any]) -> Dict[str, Any]:
         pnl_cell = _cell("—", MUTED, flex=2, align="end")
     else:
         pc = float(pnl_pct)
-        pnl_cell = _cell(f"{pc:+.2f}", UP if pc >= 0 else DOWN, flex=2, align="end")
-    return _row([
-        _cell(f"{r.get('symbol', '')}{tag}", FG, flex=4, weight="bold", wrap=True),
-        _cell(f"{int(r.get('volume', 0)):,}", FG, flex=2, align="end"),
+        pnl_cell = _cell(f"{pc:+.2f}%", UP if pc >= 0 else DOWN, flex=2, align="end")
+
+    sym = str(r.get("symbol", "")).upper()
+    vol = int(r.get("volume", 0) or 0)
+    has_explicit_broker = bool(r.get("broker"))
+    b_code = str(r.get("broker") or broker or ("kss" if ptype in ("SHORT", "BORROWED") else "lib")).lower()
+    broker_badge = _BROKER_LABEL.get(b_code, b_code.upper())
+    sym_label = f"[{broker_badge}] {sym}{tag}" if has_explicit_broker else f"{sym}{tag}"
+
+    row_box = _row([
+        _cell(sym_label, FG, flex=4, weight="bold", wrap=True),
+        _cell(f"{vol:,}", FG, flex=2, align="end"),
         _cell(f"{float(r.get('cost', 0.0)):.2f}", FG, flex=2, align="end"),
         _cell(f"{float(r.get('last', 0.0)):.2f}", FG, flex=2, align="end"),
         pnl_cell,
     ])
+    if not actionable:
+        return row_box
+
+    buttons: List[Dict[str, Any]] = []
+    if ptype == "SHORT":
+        buttons.append(_msg_button("🔵 Cover (ต่อราคา)", f"/cover {b_code} {sym} {vol}", color="#1e40af"))
+    elif ptype == "BORROWED":
+        buttons.append(_msg_button("🟣 Short (ต่อราคา)", f"/short {b_code} {sym} {vol}", color="#581c87"))
+        buttons.append(_msg_button("🔄 คืนหุ้น", f"/return {sym} all", color="#334155"))
+    else:
+        buttons.append(_msg_button("🔴 ขาย (ต่อราคา)", f"/sell {b_code} {sym} {vol}", color="#991b1b"))
+
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "md",
+        "spacing": "xs",
+        "contents": [
+            row_box,
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "margin": "xs",
+                "contents": buttons,
+            },
+        ],
+    }
+
+
+def _borrowed_row(b: Dict[str, Any], broker: Optional[str] = None, actionable: bool = True) -> Dict[str, Any]:
+    """One borrowed SBL lot with broker badge and Short + Return buttons."""
+    sym = str(b.get("symbol", "")).upper()
+    vol = int(b.get("volume", 0) or 0)
+    has_explicit_broker = bool(b.get("broker"))
+    b_code = str(b.get("broker") or broker or "kss").lower()
+    broker_badge = _BROKER_LABEL.get(b_code, b_code.upper())
+    sym_label = f"[{broker_badge}] {sym}" if has_explicit_broker else sym
+
+    if not actionable:
+        return _kv(sym_label, f"{vol:,} หุ้น")
+
+    buttons = [
+        _msg_button("🟣 Short (ต่อราคา)", f"/short {b_code} {sym} {vol}", color="#581c87"),
+        _msg_button("🔄 คืนหุ้น", f"/return {sym} all", color="#334155"),
+    ]
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "sm",
+        "spacing": "xs",
+        "contents": [
+            _kv(sym_label, f"{vol:,} หุ้น"),
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "margin": "xs",
+                "contents": buttons,
+            },
+        ],
+    }
 
 
 def port_card(
@@ -226,6 +293,8 @@ def port_card(
     live: bool,
     borrowed: Optional[List[Dict[str, Any]]] = None,
     is_test: bool = False,
+    rows_per_bubble: int = PORT_ROWS_PER_BUBBLE,
+    actionable: bool = True,
 ) -> Dict[str, Any]:
     """``rows`` = normalised holdings **minus the (B) loans** (``handlers._split_borrowed``).
 
@@ -248,7 +317,30 @@ def port_card(
     ]
     if loans:
         summary.append(_cell("หุ้นยืมคงเหลือ (B)", MUTED, weight="bold"))
-        summary.extend(_kv(b["symbol"], f"{int(b.get('volume', 0)):,} หุ้น") for b in loans)
+        for b in loans:
+            sym = str(b.get("symbol", "")).upper()
+            vol = int(b.get("volume", 0) or 0)
+            has_explicit_broker = bool(b.get("broker"))
+            b_code = str(b.get("broker") or broker or "kss").lower()
+            broker_badge = _BROKER_LABEL.get(b_code, b_code.upper())
+            sym_label = f"[{broker_badge}] {sym}" if has_explicit_broker else sym
+            summary.append(_kv(sym_label, f"{vol:,} หุ้น"))
+            if actionable:
+                buttons = [
+                    _msg_button("🟣 Short (ต่อราคา)", f"/short {b_code} {sym} {vol}", color="#581c87"),
+                    _msg_button("🔄 คืนหุ้น", f"/return {sym} all", color="#334155"),
+                ]
+                summary.append({
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "xs",
+                    "contents": [{
+                        "type": "box",
+                        "layout": "horizontal",
+                        "spacing": "sm",
+                        "contents": buttons,
+                    }],
+                })
     summary.append({"type": "separator", "margin": "md", "color": "#334155"})
     header = _port_header_row()
     badge = "TEST" if is_test else None
@@ -258,23 +350,138 @@ def port_card(
     prefix = "🟢 live " if live else "🕒 snapshot "
     status = _cell(f"{prefix}{snapshot_label}" + ("  ⚠️ ข้อมูลเก่า" if stale else ""), ts_color)
 
-    pages = [rows[i:i + PORT_ROWS_PER_BUBBLE] for i in range(0, len(rows), PORT_ROWS_PER_BUBBLE)] or [[]]
+    pages = [rows[i:i + rows_per_bubble] for i in range(0, len(rows), rows_per_bubble)] or [[]]
     bubbles: List[Dict[str, Any]] = []
     for idx, page in enumerate(pages):
         if idx == 0:
             body: List[Dict[str, Any]] = list(summary) + [header]
             if not rows:
                 body.append(_cell("ℹ️ ยังไม่มีหุ้นในพอร์ต", MUTED))
-            body.extend(_port_row(r) for r in page)
+            for r in page:
+                pbox = _port_row(r, broker=r.get("broker") or broker, actionable=actionable)
+                body.append(pbox)
             body.append({"type": "separator", "margin": "md", "color": "#334155"})
             body.append(status)
             bubbles.append(_bubble(title=f"📊 {broker.upper()} · {account}", badge=badge,
                                    badge_bg=TEST_COLOR, body=body, footer=footer))
         else:
-            body = [header] + [_port_row(r) for r in page]
+            body = [header]
+            for r in page:
+                pbox = _port_row(r, broker=r.get("broker") or broker, actionable=actionable)
+                body.append(pbox)
             bubbles.append(_bubble(title=f"📊 {broker.upper()} · ต่อ {idx + 1}/{len(pages)}", body=body))
 
     alt = f"📊 {broker} พอร์ต Amount {_money(amount)} ({len(rows)} ตัว)"
+    if len(bubbles) == 1:
+        return _flex(alt, bubbles[0])
+    return carousel(bubbles, alt)
+
+
+def portfolio_multi_broker_card(
+    *,
+    brokers_data: Optional[List[Dict[str, Any]]] = None,
+    rows: Optional[List[Dict[str, Any]]] = None,
+    borrowed: Optional[List[Dict[str, Any]]] = None,
+    amount: Optional[float] = None,
+    pnl_value: float = 0.0,
+    pnl_pct: float = 0.0,
+    snapshot_label: str = "",
+    stale: bool = False,
+    live: bool = False,
+    is_test: bool = False,
+    rows_per_bubble: int = PORT_ROWS_PER_BUBBLE,
+) -> Dict[str, Any]:
+    """Interactive multi-broker portfolio card (LIB Cash vs KSS Margin).
+
+    Sends context `broker` down to `_port_row` and `_borrowed_row`.
+    """
+    badge = "TEST" if is_test else None
+    ts_color = WARN if stale else (UP if live else MUTED)
+    prefix = "🟢 live " if live else "🕒 snapshot "
+    status = _cell(f"{prefix}{snapshot_label}" + ("  ⚠️ ข้อมูลเก่า" if stale else ""), ts_color)
+
+    if brokers_data:
+        bubbles: List[Dict[str, Any]] = []
+        for bdata in brokers_data:
+            b_name = str(bdata.get("broker", "kss")).lower()
+            b_label = _BROKER_LABEL.get(b_name, b_name.upper())
+            b_acct = bdata.get("account", "MARGIN" if b_name == "kss" else "CASH")
+            b_amount = bdata.get("amount")
+            b_pnl_val = float(bdata.get("pnl_value", 0.0) or 0.0)
+            b_pnl_pct = float(bdata.get("pnl_pct", 0.0) or 0.0)
+            b_rows = bdata.get("rows", [])
+            b_borrowed = bdata.get("borrowed", [])
+            b_actionable = bool(bdata.get("actionable", True) and b_name in ("kss", "lib"))
+            if b_actionable:
+                b_footer = [_msg_button(f"🔄 /port {b_name} sync", f"/port {b_name} sync", color="#0ea5e9"),
+                            _msg_button(f"📋 /orders {b_name}", f"/orders {b_name}")]
+            else:
+                b_footer = None
+
+            pnl_col = UP if b_pnl_val >= 0 else DOWN
+            b_summary: List[Dict[str, Any]] = [
+                _kv("Amount", _money(b_amount)),
+                _kv("Unrealized P/L", f"{b_pnl_val:+,.2f} ({b_pnl_pct:+.2f}%)", pnl_col),
+            ]
+            if b_borrowed:
+                b_summary.append(_cell("หุ้นยืมคงเหลือ (B)", MUTED, weight="bold"))
+                b_summary.extend(_borrowed_row(b, broker=b.get("broker") or b_name, actionable=b_actionable) for b in b_borrowed)
+            b_summary.append({"type": "separator", "margin": "md", "color": "#334155"})
+            header = _port_header_row()
+
+            pages = [b_rows[i:i + rows_per_bubble] for i in range(0, len(b_rows), rows_per_bubble)] or [[]]
+            for idx, page in enumerate(pages):
+                if idx == 0:
+                    body: List[Dict[str, Any]] = list(b_summary) + [header]
+                    if not b_rows:
+                        body.append(_cell("ℹ️ ยังไม่มีหุ้นในพอร์ต", MUTED))
+                    body.extend(_port_row(r, broker=r.get("broker") or b_name, actionable=b_actionable) for r in page)
+                    body.append({"type": "separator", "margin": "md", "color": "#334155"})
+                    body.append(status)
+                    bubbles.append(_bubble(title=f"📊 {b_label} · {b_acct}", badge=badge,
+                                           badge_bg=TEST_COLOR, body=body, footer=b_footer))
+                else:
+                    body = [header] + [_port_row(r, broker=r.get("broker") or b_name, actionable=b_actionable) for r in page]
+                    bubbles.append(_bubble(title=f"📊 {b_label} · ต่อ {idx + 1}/{len(pages)}", body=body))
+
+        alt = f"📊 Multi-Broker Portfolio ({len(brokers_data)} โบรกเกอร์)"
+        if len(bubbles) == 1:
+            return _flex(alt, bubbles[0])
+        return carousel(bubbles, alt)
+
+    # Combined rows representation
+    rows = rows or []
+    loans = borrowed or []
+    pnl_color = UP if pnl_value >= 0 else DOWN
+    summary: List[Dict[str, Any]] = [
+        _kv("Amount", _money(amount)),
+        _kv("Unrealized P/L", f"{pnl_value:+,.2f} ({pnl_pct:+.2f}%)", pnl_color),
+    ]
+    if loans:
+        summary.append(_cell("หุ้นยืมคงเหลือ (B)", MUTED, weight="bold"))
+        summary.extend(_borrowed_row(b, broker=b.get("broker") or "kss") for b in loans)
+    summary.append({"type": "separator", "margin": "md", "color": "#334155"})
+    header = _port_header_row()
+    footer = [_msg_button("🔄 /port all sync", "/port all sync", color="#0ea5e9"),
+              _msg_button("📋 /orders all", "/orders all")]
+
+    pages = [rows[i:i + rows_per_bubble] for i in range(0, len(rows), rows_per_bubble)] or [[]]
+    bubbles = []
+    for idx, page in enumerate(pages):
+        if idx == 0:
+            body = list(summary) + [header]
+            if not rows:
+                body.append(_cell("ℹ️ ยังไม่มีหุ้นในพอร์ต", MUTED))
+            body.extend(_port_row(r, broker=r.get("broker")) for r in page)
+            body.append({"type": "separator", "margin": "md", "color": "#334155"})
+            body.append(status)
+            bubbles.append(_bubble(title="📊 MULTI-BROKER PORTFOLIO", badge=badge,
+                                   badge_bg=TEST_COLOR, body=body, footer=footer))
+        else:
+            body = [header] + [_port_row(r, broker=r.get("broker")) for r in page]
+            bubbles.append(_bubble(title=f"📊 MULTI-BROKER · ต่อ {idx + 1}/{len(pages)}", body=body))
+
+    alt = f"📊 พอร์ต Multi-Broker Amount {_money(amount)} ({len(rows)} ตัว)"
     if len(bubbles) == 1:
         return _flex(alt, bubbles[0])
     return carousel(bubbles, alt)
@@ -857,6 +1064,60 @@ def nego_draft_card(
     )
 
 
+def size_calc_card(
+    *,
+    symbol: str,
+    price: float,
+    price_source: str = "quote",
+    tiers: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Flex Card for /size <sym> calculation results.
+
+    tiers = [
+        {"budget_label": "50k", "budget": 50000.0, "shares": 1400, "actual_cost": 48300.0},
+        ...
+    ]
+    """
+    body: List[Dict[str, Any]] = [
+        _kv("หุ้น", symbol),
+        _kv("ราคาอ้างอิง", f"฿{float(price):.2f}", UP),
+        _kv("แหล่งราคา", price_source),
+        {"type": "separator", "margin": "md", "color": "#334155"},
+    ]
+    quick_replies: List[str] = []
+    for t in tiers:
+        b_lbl = t.get("budget_label", "")
+        shares = int(t.get("shares", 0))
+        cost = float(t.get("actual_cost", 0.0))
+        body.append(
+            _kv(f"งบ {b_lbl}", f"{shares:,} หุ้น (฿{cost:,.2f})")
+        )
+        quick_replies.append(f"/buy {symbol} {b_lbl}")
+
+    body.extend([
+        {"type": "separator", "margin": "md", "color": "#334155"},
+        _cell("💡 ปัดเศษลงตาม Board Lot (100 หุ้น) · กดปุ่มด้านล่างเพื่อส่งคำสั่งซื้อ", MUTED, wrap=True),
+    ])
+
+    footer_buttons = [
+        _msg_button(f"ซื้อ {t.get('budget_label')}", f"/buy {symbol} {t.get('budget_label')}")
+        for t in tiers
+    ]
+    footer = _footer(footer_buttons) if footer_buttons else None
+
+    return _flex(
+        f"คำนวณขนาดซื้อ {symbol} @ ฿{float(price):.2f}",
+        _bubble(
+            title=f"🧮 คำนวณขนาด {symbol}",
+            badge=f"฿{float(price):.2f}",
+            badge_bg="#2563EB",
+            body=body,
+            footer=footer.get("contents") if footer else None,
+        ),
+        quick=quick_replies,
+    )
+
+
 __all__ = [
     "quick_reply",
     "status_card",
@@ -874,6 +1135,7 @@ __all__ = [
     "quick_trade_selector_card",
     "nego_menu_card",
     "nego_draft_card",
+    "size_calc_card",
     "carousel",
 ]
 

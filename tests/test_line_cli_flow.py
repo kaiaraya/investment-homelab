@@ -633,9 +633,10 @@ async def test_logout_reports_a_real_logout_from_probe_truth(service, db_session
 # --------------------------------------------------------------------------- #
 # /port /orders /cash
 # --------------------------------------------------------------------------- #
-async def _seed_position(db, symbol="PTT", volume=1000, avg_cost=13.20, current_price=13.50):
-    from app.db.models import Position
-    db.add(Position(symbol=symbol, position_type="LONG", volume=volume, avg_cost=avg_cost,
+async def _seed_position(db, symbol="PTT", volume=1000, avg_cost=13.20, current_price=13.50, account_no="3024959", broker="kss"):
+    from app.db.models import Position, BrokerAccount
+    db.add(BrokerAccount(account_no=account_no, broker=broker))
+    db.add(Position(symbol=symbol, account_no=account_no, position_type="LONG", volume=volume, avg_cost=avg_cost,
                     current_price=current_price, unrealized_pnl=(current_price - avg_cost) * volume))
     await db.commit()
 
@@ -877,16 +878,16 @@ async def test_nego_duplicate_is_busy(service, db_session):
 
 
 # --------------------------------------------------------------------------- #
-# /nego kss LIVE -> Quick Trade in-place only (TASK-loop1-2, D1/D4)
+# /nego kss LIVE -> Streaming CDP in-place (100% CDP :9333 alignment)
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
-async def test_broker_open_orders_kss_reads_the_quicktrade_ledger(monkeypatch):
-    """The order numbers we amend must come from the platform we amend on."""
-    import app.brokers.krungsri.quicktrade_driver as qtd
+async def test_broker_open_orders_kss_reads_the_cdp_ledger(monkeypatch):
+    """The order numbers we amend must come from CDP :9333 Streaming order ledger."""
+    from app.services.broker_cdp import sync_service
 
     monkeypatch.setattr(handlers, "_broker_open_orders", REAL_BROKER_OPEN_ORDERS)
-    monkeypatch.setattr(qtd.quicktrade_driver, "list_open_orders", AsyncMock(return_value={
-        "success": True, "account_no": "3024959", "orders": [{"order_no": "1", "balance": 100}],
+    monkeypatch.setattr(sync_service, "scrape_orders_from_cdp", AsyncMock(return_value={
+        "broker": "KRUNGSRI", "account_no": "3024959", "orders": [{"broker_order_no": "1", "balance": 100, "status": "OPEN"}],
     }))
 
     orders = await handlers._broker_open_orders("kss")
@@ -896,41 +897,42 @@ async def test_broker_open_orders_kss_reads_the_quicktrade_ledger(monkeypatch):
 @pytest.mark.asyncio
 async def test_broker_open_orders_kss_fails_closed_when_the_ledger_is_unreadable(monkeypatch):
     """Anti-Mock: an unreadable ledger must never look like an empty order book."""
-    import app.brokers.krungsri.quicktrade_driver as qtd
+    from app.services.broker_cdp import sync_service
 
     monkeypatch.setattr(handlers, "_broker_open_orders", REAL_BROKER_OPEN_ORDERS)
-    monkeypatch.setattr(qtd.quicktrade_driver, "list_open_orders", AsyncMock(return_value={
-        "success": False, "orders": [], "error": "Session file not found",
-    }))
+    monkeypatch.setattr(sync_service, "scrape_orders_from_cdp", AsyncMock(side_effect=RuntimeError("CDP daemon down")))
 
     with pytest.raises(RuntimeError):
         await handlers._broker_open_orders("kss")
 
 
 @pytest.mark.asyncio
-async def test_broker_modify_kss_live_uses_quicktrade_in_place(monkeypatch):
-    """D1: the LIVE kss route never cancel+replaces - it goes through the service."""
-    import app.browser.trademan_driver as tm
-    import app.services.quicktrade_negotiation_service as qt
+async def test_broker_modify_kss_live_uses_streaming_cdp_in_place(monkeypatch):
+    """D1: the LIVE kss route calls streaming_driver.change_order_native via CDP."""
+    import app.browser.streaming_driver as sd
     from app.services.trade_dispatcher import trade_dispatcher
 
     monkeypatch.setattr(handlers, "_broker_modify", REAL_BROKER_MODIFY)
     monkeypatch.setattr(type(trade_dispatcher), "is_live", property(lambda self: True))
-    service = AsyncMock(return_value={
-        "success": True, "outcome": "OK", "submitted": True,
-        "current_price": 34.00, "target_price": 34.25,
+    mock_change = AsyncMock(return_value={
+        "success": True, "status": "MODIFIED_IN_PLACE", "stage": "verified",
+        "broker_order_no": "12345", "new_price": 34.25,
     })
-    monkeypatch.setattr(qt, "negotiate_order_price", service)
-    cancel_replace = AsyncMock()
-    monkeypatch.setattr(tm.trademan_driver, "modify_order_price", cancel_replace)
+    monkeypatch.setattr(sd.streaming_driver, "change_order_native", mock_change)
 
     res = await handlers._broker_modify("kss", order_no="12345", new_price=34.25,
                                         symbol="PTT", side="BUY", volume=1000)
 
-    assert res["path"] == "QUICKTRADE_INPLACE"
-    assert service.await_args.args[0] == "12345"
-    assert service.await_args.kwargs["balance"] == 1000
-    cancel_replace.assert_not_awaited()          # cancel+replace is off the LIVE path
+    assert res["path"] == "STREAMING_CDP"
+    assert res["success"] is True
+    mock_change.assert_awaited_once_with(
+        broker_order_no="12345",
+        new_price=34.25,
+        new_volume=1000,
+        pin=handlers.settings.KRUNGSRI_PIN,
+        symbol="PTT",
+        side="BUY",
+    )
 
 
 def test_quicktrade_refusal_is_a_skip_not_an_ok():
@@ -1334,7 +1336,7 @@ def test_split_borrowed_moves_borrowed_out_and_drops_zero_volume():
     main, borrowed = _split_borrowed(rows)
 
     assert [r["symbol"] for r in main] == ["S2", "S1"]      # (B) gone, vol×last order kept
-    assert borrowed == [{"symbol": "MTC", "volume": 1700}]  # BCPG (0) dropped
+    assert borrowed == [{"symbol": "MTC", "volume": 1700, "broker": "kss"}]  # BCPG (0) dropped
 
 
 def test_split_borrowed_is_empty_without_borrowed_rows():
@@ -1360,7 +1362,15 @@ def test_port_card_keeps_long_symbol_with_suffix_unclipped():
                            snapshot_label="10:00", stale=False, live=True)
 
     body = card["contents"]["body"]["contents"]
-    boxes = [c for c in body if c.get("type") == "box" and c.get("layout") == "horizontal"]
+    boxes = []
+    for c in body:
+        if c.get("type") == "box":
+            if c.get("layout") == "horizontal":
+                boxes.append(c)
+            elif c.get("layout") == "vertical" and c.get("contents"):
+                for inner in c["contents"]:
+                    if inner.get("type") == "box" and inner.get("layout") == "horizontal":
+                        boxes.append(inner)
     header_row = next(c for c in boxes if c["contents"][0].get("text") == "หุ้น")
     symbol_cell = next(c for c in boxes if c["contents"][0].get("text") == "DOHOME (S)")
 

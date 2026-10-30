@@ -44,6 +44,8 @@ def plan_price(
     """
     s = (side or "").strip().upper()
     m = (mode or "").strip().lower()
+    if m == "passive":
+        m = "lure"
     bid = _f(bid)
     offer = _f(offer)
     last = _f(last)

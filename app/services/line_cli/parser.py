@@ -116,7 +116,15 @@ class SblReturnOrder:
     broker: str = "kss"
 
 
-ParseResult = Union[CliCommand, TradeOrder, SblCommand, SblBorrowOrder, SblReturnOrder, CliError]
+@dataclass(frozen=True)
+class SizeCommand:
+    """A sizing/budget calculation command: ``/size <symbol>`` (alias /calc)."""
+
+    symbol: str
+    cmd: str = "size"
+
+
+ParseResult = Union[CliCommand, TradeOrder, SblCommand, SblBorrowOrder, SblReturnOrder, SizeCommand, CliError]
 
 
 # --------------------------------------------------------------------------- #
@@ -145,6 +153,8 @@ COMMAND_ALIASES: Dict[str, str] = {
     # Loop 2 — Rich Menu Quick Trade & Emergency Halt
     "quicktrade": "quicktrade", "trade": "quicktrade", "เมนูเทรด": "quicktrade",
     "halt": "halt", "หยุด": "halt",
+    # Loop 2 — Sizing & Budget Calculation
+    "size": "size", "calc": "size", "คำนวณ": "size",
 }
 
 #: canonical broker -> accepted aliases (lower-cased)
@@ -488,9 +498,7 @@ def _parse_trade(side: str, rest: List[str]) -> ParseResult:
         if price <= 0:
             return _bad_price(side, price_tok)
     else:
-        # Price omitted: allowed for value-based orders (calculated from live quote)
-        if mode == "volume":
-            return _trade_missing(side)
+        # Price omitted: allowed for both value-based and share-count orders (calculated from live quote / nego pricer)
         price = None
 
     vol = int(val) if mode == "volume" else 0
@@ -558,6 +566,10 @@ def parse(text: str) -> Optional[ParseResult]:
         return _parse_borrow(rest)
     if canonical == "return":
         return _parse_return(rest)
+
+    # Loop 2 Sizing command
+    if canonical == "size":
+        return _parse_size(rest)
 
     broker: Optional[str] = None
     target: Optional[str] = None
@@ -753,6 +765,21 @@ def _parse_return(rest: List[str]) -> ParseResult:
     return SblReturnOrder(cmd="return", symbol=sym_tok, volume=vol, broker="kss")
 
 
+def _parse_size(rest: List[str]) -> ParseResult:
+    """Parse ``/size <symbol>`` (alias /calc)."""
+    if not rest:
+        return CliError(
+            code=E_MISSING_ARG,
+            message="❓ คำสั่ง /size ต้องการระบุชื่อหุ้น",
+            hint="ตัวอย่าง: /size PTT · /calc BCPG",
+            quick_reply=["/help size", "/size PTT"],
+        )
+    sym_tok = rest[0].upper()
+    if not _SYMBOL_RE.match(sym_tok):
+        return _bad_symbol("size", rest[0])
+    return SizeCommand(cmd="size", symbol=sym_tok)
+
+
 __all__ = [
     "CliCommand",
     "CliError",
@@ -760,6 +787,7 @@ __all__ = [
     "SblCommand",
     "SblBorrowOrder",
     "SblReturnOrder",
+    "SizeCommand",
     "ParseResult",
     "parse",
     "is_command",

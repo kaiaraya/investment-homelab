@@ -32,6 +32,7 @@ from app.services.line_cli.parser import (
     SblCommand,
     SblBorrowOrder,
     SblReturnOrder,
+    SizeCommand,
 )
 
 logger = logging.getLogger(__name__)
@@ -369,7 +370,8 @@ async def _broker_quote(broker: str, symbol: str) -> Dict[str, Any]:
     """Live Bid1/Offer1/last for ``symbol`` from *this* broker only.
 
     Calls getQuote JS snippet via persistent CDP daemon session first (P.1/P.4b),
-    falling back to trademan_driver.get_market_bid_offer / liberator_plugin.get_market_bid_offer.
+    falling back to liberator_plugin.get_market_bid_offer for Liberator.
+    KSS fails closed without TradeMan fallback (100% CDP :9333 alignment).
     """
     clean_sym = (symbol or "").strip().upper()
     broker_norm = "lib" if broker in ("lib", "liberator") else "kss"
@@ -387,10 +389,15 @@ async def _broker_quote(broker: str, symbol: str) -> Dict[str, Any]:
     except Exception as e:
         logger.debug(f"_broker_quote JS snippet failed for {broker_norm}:{clean_sym}: {e}")
 
-    # 2. Fallback to broker driver APIs
+    # 2. Fallback to broker driver APIs (Liberator only; KSS fails closed on CDP :9333)
     if broker_norm == "kss":
-        from app.browser.trademan_driver import trademan_driver
-        return await trademan_driver.get_market_bid_offer(clean_sym)
+        return {
+            "symbol": clean_sym,
+            "success": False,
+            "status": "QUOTE_UNAVAILABLE",
+            "source": "unavailable",
+            "error": f"อ่านราคา {clean_sym} จาก Streaming CDP :9333 ไม่ได้ (fail-closed)",
+        }
     from app.brokers import liberator_plugin
     return await liberator_plugin.get_market_bid_offer(clean_sym)
 
@@ -398,21 +405,16 @@ async def _broker_quote(broker: str, symbol: str) -> Dict[str, Any]:
 async def _broker_open_orders(broker: str) -> List[Dict[str, Any]]:
     """Unmatched/open orders for ``broker`` only.
 
-    ``kss`` uses the TradeMan ledger when KSS_AMEND_MODE=trademan_cancel_replace
-    (the platform the amend actually runs on); otherwise the Quick Trade ledger
-    (in-place path). Anti-Mock: a failed ledger read raises, so the command
-    reports an error instead of "no pending orders".
+    ``kss`` routes strictly through CDP :9333 (Streaming order ledger).
+    Anti-Mock: a failed ledger read raises, so the command reports an error
+    instead of "no pending orders".
     """
     if broker == "kss":
-        if str(getattr(settings, "KSS_AMEND_MODE", "quicktrade")).lower() == "trademan_cancel_replace":
-            from app.browser.trademan_driver import trademan_driver
-            orders = await trademan_driver.scrape_unmatched_orders()
-        else:
-            from app.brokers.krungsri.quicktrade_driver import quicktrade_driver
-            res = await quicktrade_driver.list_open_orders()
-            if not res.get("success"):
-                raise RuntimeError(str(res.get("error") or "อ่านตารางออเดอร์ QuickTrade ไม่ได้"))
-            orders = list(res.get("orders") or [])
+        from app.services.broker_cdp.sync_service import scrape_orders_from_cdp
+        snap = await scrape_orders_from_cdp("kss")
+        if not snap or "orders" not in snap:
+            raise RuntimeError("อ่านตารางออเดอร์ CDP Streaming ไม่ได้")
+        orders = list(snap.get("orders") or [])
     else:
         from app.brokers import liberator_plugin
         orders = await liberator_plugin.get_open_orders()
@@ -421,6 +423,8 @@ async def _broker_open_orders(broker: str) -> List[Dict[str, Any]]:
         balance = int(o.get("balance", 0) or 0)
         status = str(o.get("status", "")).upper()
         if balance > 0 and "CANCEL" not in status and "MATCH" not in status.split():
+            if "order_no" not in o and "broker_order_no" in o:
+                o["order_no"] = o["broker_order_no"]
             out.append(o)
     return out
 
@@ -484,14 +488,19 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
             broker_order_no=order_no, new_price=new_price, symbol=symbol, side=side, volume=volume
         )
     if broker == "kss":
-        from app.services.quicktrade_negotiation_service import negotiate_order_price
-        # ``new_price`` is the caller's computed target (N2/N4). Pass it through so
-        # the service does NOT re-choose a passive price; ``<= 0`` means "no explicit
-        # price" (the /nego batch path) and falls back to the passive policy.
-        res = await negotiate_order_price(
-            order_no, symbol=symbol, side=side, balance=int(volume) or None,
-            target_price=(float(new_price) if new_price and float(new_price) > 0 else None))
-        res["path"] = "QUICKTRADE_INPLACE"
+        from app.browser.streaming_driver import streaming_driver
+        from app.core.config import settings
+        res = await streaming_driver.change_order_native(
+            broker_order_no=str(order_no),
+            new_price=float(new_price),
+            new_volume=int(volume or 0),
+            pin=settings.KRUNGSRI_PIN,
+            symbol=symbol,
+            side=side,
+        )
+        res["path"] = "STREAMING_CDP"
+        if res.get("success") and "submitted" not in res:
+            res["submitted"] = not getattr(settings, "DRY_RUN_MODE", False)
         return res
     # ── LIB (LIVE) ───────────────────────────────────────────────────────────────
     # Fail-closed second gate (Loop 1 D3): the quote may have died between planning and the
@@ -571,11 +580,22 @@ _HELP_NEGOTIATE = (
 )
 
 
+_HELP_SIZE = (
+    "🧮 /size — คำนวณจำนวนหุ้นงบ 50k / 75k / 100k จากราคาตลาดสด\n"
+    "รูปแบบ: /size <symbol>   เช่น /size PTT (alias /calc)\n"
+    "• ดึงราคาตลาดล่าสุด (Offer1/Last) จาก Liberator / Krungsri CDP\n"
+    "• ปัดเศษลงตาม Board Lot (100 หุ้น) พร้อมคำนวณมูลค่าจริง\n"
+    "• มีปุ่ม Quick Reply ให้กดส่งคำสั่งซื้อ /buy ได้ทันที\n"
+)
+
+
 async def _handle_help(parsed: CliCommand, service: Any, reply_token: Optional[str]) -> Dict[str, Any]:
     if parsed.target == "nego":
         await service._send_reply(reply_token, _text(_HELP_NEGO))
     elif parsed.target == "negotiate":
         await service._send_reply(reply_token, _text(_HELP_NEGOTIATE))
+    elif parsed.target in ("size", "calc"):
+        await service._send_reply(reply_token, _text(_HELP_SIZE))
     else:
         await service._send_reply(reply_token, _text(_HELP_TEXT, quick=["/status", "/port", "/orders"]))
     return {"status": "CLI_HELP"}
@@ -875,17 +895,24 @@ async def _handle_logout(parsed: CliCommand, service: Any, reply_token: Optional
 # --------------------------------------------------------------------------- #
 async def _read_db_positions(db: Any) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """Local ``positions`` snapshot (broker-agnostic homelab ledger)."""
-    from app.db.models import Position
-    res = await db.execute(select(Position).where(Position.volume > 0))
+    from app.db.models import Position, BrokerAccount
+    res = await db.execute(
+        select(Position, BrokerAccount.broker)
+        .outerjoin(BrokerAccount, Position.account_no == BrokerAccount.account_no)
+        .where(Position.volume > 0)
+    )
     rows: List[Dict[str, Any]] = []
     latest = None
-    for p in res.scalars().all():
+    for p, b_broker in res.all():
         cost = float(p.avg_cost or 0.0)
         last = float(p.current_price if p.current_price is not None else cost)
         ptype = _position_type(getattr(p, "position_type", None))
+        resolved_broker = str(b_broker or getattr(p, "broker", None) or "").strip().lower()
+        if not resolved_broker and ptype in ("SHORT", "BORROWED"):
+            resolved_broker = "kss"
         rows.append({"symbol": p.symbol, "position_type": ptype, "volume": int(p.volume or 0),
                      "cost": cost, "last": last, "pnl_pct": _holding_pnl_pct(ptype, cost, last),
-                     "unrealized_pnl": None, "market_value": None})
+                     "unrealized_pnl": None, "market_value": None, "broker": resolved_broker})
         if p.updated_at and (latest is None or p.updated_at > latest):
             latest = p.updated_at
     rows.sort(key=lambda r: r["volume"] * r["last"], reverse=True)
@@ -961,11 +988,15 @@ def _normalise_holdings(holdings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         ptype = _position_type(h.get("position_type"))
         unreal = h.get("unrealized_pnl")
         mval = h.get("market_value")
-        out.append({"symbol": str(h.get("symbol", "")).upper(), "position_type": ptype,
-                    "volume": int(h.get("volume", 0) or 0), "cost": cost, "last": last,
-                    "pnl_pct": _holding_pnl_pct(ptype, cost, last),
-                    "unrealized_pnl": float(unreal) if unreal is not None else None,
-                    "market_value": float(mval) if mval is not None else None})
+        broker = str(h.get("broker") or "").lower()
+        row = {"symbol": str(h.get("symbol", "")).upper(), "position_type": ptype,
+               "volume": int(h.get("volume", 0) or 0), "cost": cost, "last": last,
+               "pnl_pct": _holding_pnl_pct(ptype, cost, last),
+               "unrealized_pnl": float(unreal) if unreal is not None else None,
+               "market_value": float(mval) if mval is not None else None}
+        if broker:
+            row["broker"] = broker
+        out.append(row)
     out.sort(key=lambda r: r["volume"] * r["last"], reverse=True)
     return out
 
@@ -1027,7 +1058,8 @@ def _split_borrowed(rows: List[Dict[str, Any]]
 
     main = [r for r in src if not _is_borrowed(r)]
     borrowed = sorted(
-        ({"symbol": str(r.get("symbol", "")), "volume": int(r.get("volume", 0) or 0)}
+        ({"symbol": str(r.get("symbol", "")), "volume": int(r.get("volume", 0) or 0),
+          "broker": str(r.get("broker", "kss")).lower()}
          for r in src if _is_borrowed(r) and int(r.get("volume", 0) or 0) > 0),
         key=lambda b: b["symbol"],
     )
@@ -1191,7 +1223,7 @@ async def _handle_read(
 ) -> Dict[str, Any]:
     """``/port`` / ``/cash`` / ``/orders`` — DB snapshot by default, ``sync`` = live."""
     kind = parsed.cmd
-    brokers = ["kss", "lib"] if parsed.broker == "all" else [parsed.broker]
+    brokers: List[str] = ["kss", "lib"] if parsed.broker == "all" else ([str(parsed.broker)] if parsed.broker else ["kss"])
     label = _broker_label(parsed.broker)
 
     if not parsed.has("sync"):
@@ -1200,18 +1232,75 @@ async def _handle_read(
             if not rows:
                 await service._send_reply(reply_token, _text(f"ℹ️ ยังไม่มี snapshot — ใช้ /port {parsed.broker} sync"))
                 return {"status": "CLI_NO_DATA"}
-            total, pnl = _portfolio_totals(rows)
+            if parsed.broker == "all":
+                brokers_data = []
+                for b in ("kss", "lib"):
+                    b_rows = [r for r in rows if (r.get("broker") or "").lower() == b]
+                    b_main, b_borrowed = _split_borrowed(b_rows)
+                    if b != "kss":
+                        b_borrowed = []
+                    b_tot, b_pnl = _portfolio_totals(b_rows)
+                    b_base = b_tot - b_pnl
+                    b_pct = (b_pnl / b_base * 100.0) if b_base else 0.0
+                    b_amt = _portfolio_amount(b_rows)
+                    acct = "MARGIN" if b == "kss" else "CASH"
+                    brokers_data.append({
+                        "broker": b,
+                        "account": f"DB snapshot · {acct}",
+                        "amount": b_amt,
+                        "pnl_value": b_pnl,
+                        "pnl_pct": b_pct,
+                        "rows": b_main,
+                        "borrowed": b_borrowed,
+                    })
+                unresolved_rows = [r for r in rows if (r.get("broker") or "").lower() not in ("kss", "lib")]
+                if unresolved_rows:
+                    u_main, u_borrowed = _split_borrowed(unresolved_rows)
+                    u_tot, u_pnl = _portfolio_totals(unresolved_rows)
+                    u_base = u_tot - u_pnl
+                    u_pct = (u_pnl / u_base * 100.0) if u_base else 0.0
+                    u_amt = _portfolio_amount(unresolved_rows)
+                    brokers_data.append({
+                        "broker": "unresolved",
+                        "account": "DB snapshot · ไม่ระบุโบรกเกอร์",
+                        "amount": u_amt,
+                        "pnl_value": u_pnl,
+                        "pnl_pct": u_pct,
+                        "rows": u_main,
+                        "borrowed": u_borrowed,
+                        "actionable": False,
+                    })
+                card = cards.portfolio_multi_broker_card(
+                    brokers_data=brokers_data,
+                    snapshot_label=_fmt_hhmm(ts),
+                    stale=_is_stale(ts),
+                    live=False,
+                )
+                await service._send_reply(reply_token, card)
+                return {"status": "CLI_PORT", "count": len(rows)}
+            target_b = str(parsed.broker or "").lower()
+            if target_b in ("kss", "lib"):
+                b_rows = [r for r in rows if str(r.get("broker") or "").lower() == target_b]
+                is_actionable = True
+            elif target_b == "unresolved":
+                b_rows = [r for r in rows if str(r.get("broker") or "").lower() not in ("kss", "lib")]
+                is_actionable = False
+            else:
+                b_rows = [r for r in rows if str(r.get("broker") or "").lower() == target_b]
+                is_actionable = False
+            total, pnl = _portfolio_totals(b_rows)
             base = total - pnl
-            main_rows, borrowed = _split_borrowed(rows)
+            main_rows, borrowed = _split_borrowed(b_rows)
             if _broker_platform(parsed.broker) not in ("KRUNGSRI", "TRADEMAN"):
                 borrowed = []          # broker isolation: LIB has no (B) section
             card = cards.port_card(broker=label, account="DB snapshot",
-                                   amount=_portfolio_amount(rows), pnl_value=pnl,
+                                   amount=_portfolio_amount(b_rows), pnl_value=pnl,
                                    pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=main_rows,
                                    borrowed=borrowed,
-                                   snapshot_label=_fmt_hhmm(ts), stale=_is_stale(ts), live=False)
+                                   snapshot_label=_fmt_hhmm(ts), stale=_is_stale(ts), live=False,
+                                   actionable=is_actionable)
             await service._send_reply(reply_token, card)
-            return {"status": "CLI_PORT", "count": len(rows)}
+            return {"status": "CLI_PORT", "count": len(b_rows)}
         if kind == "orders":
             rows, open_count, total, ts = await _read_db_orders(db)
             if not rows:
@@ -1241,16 +1330,51 @@ async def _handle_read(
                         f"🔴 {BROKER_LABEL[b]} session หลุด — /login {b} ก่อน แล้วค่อย sync"))
                     return {"status": "CLI_SESSION_DOWN", "broker": b}
             await service._send_reply(reply_token, _text(f"🔄 กำลังดึงข้อมูลสด {label}…"))
-            for b in brokers:
-                # B.3/B.7: persist balance + holdings from the CDP tab before pushing the
-                # live card (best-effort — a missing daemon/tab never fails the read; the
-                # card still renders). `/orders sync` additionally diffs the order ledger so
-                # a trade the human placed manually is recorded (source='manual_sync').
-                if kind in ("port", "cash"):
+            if kind == "port" and parsed.broker == "all":
+                brokers_data = []
+                for b in brokers:
                     await _broker_sync_cdp(b)
-                elif kind == "orders":
-                    await _broker_sync_orders_cdp(b)
-                await service.push_message(await _live_card(kind, b), to_user_id=push_target)
+                    from app.services.broker_cdp.sync_service import scrape_portfolio_from_cdp
+                    try:
+                        snap = await scrape_portfolio_from_cdp(b)
+                        rows = _normalise_holdings(snap.get("holdings", []))
+                        for r in rows:
+                            r["broker"] = b
+                        main_rows, borrowed = _split_borrowed(rows)
+                        if _broker_platform(b) not in ("KRUNGSRI", "TRADEMAN"):
+                            borrowed = []
+                        total, pnl = _portfolio_totals(rows)
+                        amount = _portfolio_amount(rows)
+                        cost_base = total - pnl
+                        pnl_pct = (pnl / cost_base * 100.0) if cost_base else 0.0
+                        acct_no = str(snap.get("account_no") or ("MARGIN" if b == "kss" else "CASH"))
+                        brokers_data.append({
+                            "broker": b,
+                            "account": acct_no,
+                            "amount": amount,
+                            "pnl_value": pnl,
+                            "pnl_pct": pnl_pct,
+                            "rows": main_rows,
+                            "borrowed": borrowed,
+                        })
+                    except Exception as e:
+                        logger.warning("CDP portfolio scrape failed for %s during port all sync: %s", b, e)
+                if brokers_data:
+                    card = cards.portfolio_multi_broker_card(
+                        brokers_data=brokers_data,
+                        snapshot_label=_now_bkk().strftime("%H:%M"),
+                        live=True,
+                    )
+                    await service.push_message(card, to_user_id=push_target)
+                else:
+                    await service.push_message(cards.unavailable_card(broker=label, login_cmd="/login all"), to_user_id=push_target)
+            else:
+                for b in brokers:
+                    if kind in ("port", "cash"):
+                        await _broker_sync_cdp(b)
+                    elif kind == "orders":
+                        await _broker_sync_orders_cdp(b)
+                    await service.push_message(await _live_card(kind, b), to_user_id=push_target)
         except Exception as e:
             logger.exception(f"LINE CLI /{kind} {parsed.broker} sync failed")
             await service.push_message(
@@ -1391,44 +1515,16 @@ def _apply_cancel_replace_result(row: Dict[str, Any], res: Dict[str, Any]) -> No
 
 
 async def _quote_via_gateway_browser(symbol: str) -> Dict[str, Any]:
-    """Read Quick Trade bid/offer by opening a TAB in the gateway's live browser.
-
-    The cloned storage_state loses the Settrade SSO session (``#accInv`` timeout),
-    so the quote must share the browser that just logged in. TradeMan exposes no
-    depth at all (probe 2026-10-19), hence QuickTrade stays as the quote source only.
-    """
-    from app.browser.trademan_driver import trademan_driver
-    from app.brokers.krungsri.quicktrade_driver import quicktrade_driver, QUICKTRADE_SSO_URL
-
-    page = getattr(trademan_driver, "page", None)
-    if not page or page.is_closed():
-        return {"success": False, "error": "gateway browser ไม่พร้อม"}
-    qp = await page.context.new_page()
-    try:
-        await qp.goto(QUICKTRADE_SSO_URL, wait_until="domcontentloaded", timeout=45000)
-        for _ in range(15):
-            if "fastorder" in (qp.url or ""):
-                break
-            await qp.wait_for_timeout(1000)
-        q = await quicktrade_driver._fetch_quote(qp, symbol)
-        return {"success": True, **q}
-    except Exception as e:
-        return {"success": False, "error": f"{type(e).__name__}: {str(e)[:100]}"}
-    finally:
-        try:
-            await qp.close()
-        except Exception:
-            pass
+    """Read quote via Streaming CDP :9333 (100% CDP alignment)."""
+    return await _broker_quote("kss", symbol)
 
 
 async def _kss_cancel_replace(*, order_no: str, symbol: str, side: str, volume: int,
                               old_price: float) -> Dict[str, Any]:
-    """KSS amend via TradeMan cancel + re-submit (KSS_AMEND_MODE=trademan_cancel_replace).
+    """Redirect to CDP in-place amend (zero TradeMan/QuickTrade dependency).
 
-    Guardrails: C2 (never amend a partially filled order) is enforced by the caller
-    filtering ``matched_volume == 0``; C3/C4 (verify cancel, retry old price on a
-    failed re-submit) live here. DRY_RUN returns a plan only — cancel is irreversible,
-    so it can never be "staged".
+    Retained for backward compatibility with KSS_AMEND_MODE=trademan_cancel_replace tests.
+    DRY_RUN returns a staged plan; LIVE performs an in-place amend via CDP :9333.
     """
     from app.services.quicktrade_negotiation_service import OrderSnapshot, Quote, plan_negotiation
 
@@ -1436,13 +1532,13 @@ async def _kss_cancel_replace(*, order_no: str, symbol: str, side: str, volume: 
             "current_price": old_price}
 
     q = await _quote_via_gateway_browser(symbol)
-    if not q.get("success"):
+    if not q.get("success") and not (q.get("bid_1") or q.get("offer_1") or q.get("last")):
         return {"success": False, "status": "QUOTE_UNAVAILABLE", "outcome": "NO_QUOTE",
                 "reason": str(q.get("error") or "อ่านราคาตลาดไม่ได้ (fail-closed)"), **base}
 
     decision = plan_negotiation(
         OrderSnapshot(order_no=order_no, symbol=symbol, side=side, price=old_price, balance=volume),
-        Quote(symbol=symbol, best_bid=q.get("best_bid"), best_offer=q.get("best_offer"), last=q.get("last")),
+        Quote(symbol=symbol, best_bid=q.get("best_bid") or q.get("bid_1"), best_offer=q.get("best_offer") or q.get("offer_1"), last=q.get("last")),
         max_ticks=int(getattr(settings, "LINE_NEGO_MAX_TICKS", 3)),
     )
     base.update(target_price=decision.target_price, outcome=decision.outcome.value, reason=decision.reason)
@@ -1456,34 +1552,13 @@ async def _kss_cancel_replace(*, order_no: str, symbol: str, side: str, volume: 
         return {"success": True, "submitted": False, "dry_run": True, **base,
                 "reason": f"DRY-RUN plan: ยกเลิก #{order_no} แล้วส่งใหม่ {target:.2f}"}
 
-    from app.browser.trademan_driver import trademan_driver
-
-    cancel = await trademan_driver.cancel_order(order_no, symbol=symbol)
-    if not cancel.get("success"):
-        return {"success": False, "status": "CANCEL_FAILED", **base,
-                "reason": f"cancel failed: {str(cancel.get('error'))[:80]}"}
-
-    await asyncio.sleep(1.5)
-    ledger = await trademan_driver.scrape_unmatched_orders()
-    if any(str(o.get("broker_order_no") or o.get("order_no")) == str(order_no) for o in ledger):
-        return {"success": False, "status": "CANCEL_UNVERIFIED", **base,
-                "reason": "ออเดอร์เดิมยังอยู่ใน ledger หลัง cancel — หยุด"}
-
-    resub = await trademan_driver.execute_order(
-        symbol=symbol, side=side, volume=volume, price=target,
-        last_trade_price=q.get("last"))
-    if not resub.get("success"):
-        # C4: never leave the exposure cancelled — restore at the old price once.
-        retry = await trademan_driver.execute_order(
-            symbol=symbol, side=side, volume=volume, price=old_price,
-            last_trade_price=q.get("last"))
-        return {"success": False, "status": "RESUBMIT_FAILED", **base,
-                "reason": ("re-submit failed; retry@old=" +
-                           ("ok" if retry.get("success") else "FAILED — ตรวจพอร์ตด้วยมือ"))}
-
-    new_no = str(resub.get("broker_order_no") or resub.get("order_id") or "")
-    return {"success": True, "submitted": bool(resub.get("submitted", True)),
-            "new_order_no": new_no, **base}
+    res = await _broker_modify("kss", order_no=order_no, new_price=target, symbol=symbol, side=side, volume=volume)
+    return {
+        "success": bool(res.get("success")),
+        "submitted": bool(res.get("submitted", not getattr(settings, "DRY_RUN_MODE", False))),
+        "new_order_no": order_no,
+        **base,
+    }
 
 
 async def _handle_nego(
@@ -1558,11 +1633,7 @@ async def _handle_nego(
                 f"⚡ [{mode}] กำลังต่อราคา {BROKER_LABEL[broker]} · {len(orders)} ออเดอร์ค้าง…"))
 
             for o in orders:
-                if broker == "kss":
-                    # SQ-6 (2026-10-19): kss never pre-plans against the TradeMan REST
-                    # quote (it carries no bid/offer). QuickTrade resolves order + quote
-                    # + G4-G6 itself; trademan_cancel_replace plans with the QuickTrade
-                    # quote and then cancels/re-submits on TradeMan (C1-C7).
+                if broker == "kss" and str(getattr(settings, "KSS_AMEND_MODE", "cdp")).lower() == "trademan_cancel_replace":
                     row = {
                         "order_no": str(o.get("broker_order_no") or o.get("order_no") or ""),
                         "symbol": str(o.get("symbol", "")).upper(),
@@ -1570,21 +1641,14 @@ async def _handle_nego(
                         "old_price": float(o.get("price", 0.0) or 0.0),
                         "volume": int(o.get("balance") or o.get("volume") or 0),
                     }
-                    amend_mode = str(getattr(settings, "KSS_AMEND_MODE", "quicktrade")).lower()
-                    if amend_mode == "trademan_cancel_replace":
-                        if int(o.get("matched") or 0) > 0:
-                            row.update(status="skip", reason="มี matched แล้ว — ห้าม cancel+replace (C2)")
-                            res = {}
-                        else:
-                            res = await _kss_cancel_replace(
-                                order_no=row["order_no"], symbol=row["symbol"],
-                                side=row["side"], volume=row["volume"], old_price=row["old_price"])
-                            _apply_cancel_replace_result(row, res)
+                    if int(o.get("matched") or 0) > 0:
+                        row.update(status="skip", reason="มี matched แล้ว — ห้าม cancel+replace (C2)")
+                        res = {}
                     else:
-                        res = await _broker_modify(broker, order_no=row["order_no"], new_price=0.0,
-                                                   symbol=row["symbol"], side=row["side"],
-                                                   volume=row["volume"])
-                        _apply_quicktrade_result(row, res)
+                        res = await _kss_cancel_replace(
+                            order_no=row["order_no"], symbol=row["symbol"],
+                            side=row["side"], volume=row["volume"], old_price=row["old_price"])
+                        _apply_cancel_replace_result(row, res)
                     row.setdefault("submitted", res.get("submitted"))
                 else:
                     row = await _plan_nego(broker, o, max_ticks)
@@ -1782,10 +1846,22 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
         if quote.get("success") is False or quote.get("source") == "unavailable":
             return {"ok": False, "code": "E_NO_QUOTE",
                     "message": f"อ่านราคาตลาดของ {symbol} จาก {BROKER_LABEL.get(order.broker, order.broker)} ไม่ได้ — ระบุราคาเอง เช่น /{order.cmd} {symbol} 100 12.50"}
-        if side in ("buy", "cover"):
-            price = float(quote.get("offer_1") or quote.get("last") or 0.0)
-        else:
-            price = float(quote.get("bid_1") or quote.get("last") or 0.0)
+        from app.services.nego_pricer import plan_price
+        planned = plan_price(
+            side=side,
+            mode="lure",
+            bid=quote.get("bid_1"),
+            offer=quote.get("offer_1"),
+            last=quote.get("last"),
+            old_price=None,
+        )
+        if not planned.get("ok"):
+            return {
+                "ok": False,
+                "code": "E_NO_QUOTE",
+                "message": f"อ่านราคาตลาดของ {symbol} จาก {BROKER_LABEL.get(order.broker, order.broker)} ไม่ได้ ({planned.get('reason')}) — ระบุราคาเอง เช่น /{order.cmd} {symbol} 100 12.50",
+            }
+        price = float(planned.get("price") or 0.0)
         if price <= 0.0:
             return {"ok": False, "code": "E_NO_QUOTE",
                     "message": f"ราคาตลาดสดของ {symbol} ว่างเปล่า — กรุณาระบุราคาเอง"}
@@ -2343,8 +2419,9 @@ async def _handle_sbl(
                 if existing:
                     existing.remaining_qty = int(item.get("remaining_qty") or existing.remaining_qty)
                 else:
+                    clean_tx = tx_id.replace('/', '_') if tx_id else str(int(time.time()))
                     new_lot = SBLBorrowLot(
-                        lot_id=f"SBL-{sym}-{int(time.time())}",
+                        lot_id=f"SBL-{sym}-{clean_tx}",
                         broker_tx_id=tx_id or None,
                         symbol=sym,
                         borrow_qty=int(item.get("borrow_qty") or 0),
@@ -2511,6 +2588,56 @@ async def _handle_sbl_return(
     return {"status": "CLI_SBL_RETURN_DRAFTED", "draft_id": draft_id}
 
 
+async def _handle_size(
+    cmd: SizeCommand, service: Any, reply_token: Optional[str],
+    push_target: Optional[str], db: Any,
+) -> Dict[str, Any]:
+    """``/size <symbol>`` (alias /calc) — calculate shares for 50k/75k/100k budgets."""
+    symbol = cmd.symbol
+
+    # Quote resolution: try primary broker (lib) then fallback to kss
+    quote = await _broker_quote("lib", symbol)
+    source = "Liberator (CDP/Quote)"
+    if quote.get("success") is False or (quote.get("offer_1") is None and quote.get("last") is None):
+        quote = await _broker_quote("kss", symbol)
+        source = "Krungsri (Streaming CDP)"
+
+    price = None
+    if quote.get("success") is not False:
+        # For buying calculation, prefer offer_1 (Ask), else last, else bid_1
+        for k in ("offer_1", "last", "bid_1"):
+            val = quote.get(k)
+            if val is not None and float(val) > 0:
+                price = float(val)
+                break
+
+    if price is None or price <= 0:
+        err_msg = f"❌ ไม่สามารถดึงราคาตลาดของ {symbol} จากทั้งสองโบรกเกอร์ได้ในขณะนี้"
+        await service._send_reply(reply_token, _text(err_msg, quick=["/help size", f"/buy {symbol} 100"]))
+        return {"status": "CLI_QUOTE_UNAVAILABLE", "symbol": symbol}
+
+    budgets = [("50k", 50000.0), ("75k", 75000.0), ("100k", 100000.0)]
+    tiers = []
+    for lbl, b_val in budgets:
+        shares = int(((b_val / price) + 1e-9) // 100) * 100
+        actual_cost = float(shares * price)
+        tiers.append({
+            "budget_label": lbl,
+            "budget": b_val,
+            "shares": shares,
+            "actual_cost": actual_cost,
+        })
+
+    card = cards.size_calc_card(
+        symbol=symbol,
+        price=price,
+        price_source=source,
+        tiers=tiers,
+    )
+    await service._send_reply(reply_token, card)
+    return {"status": "CLI_SIZE_CALCULATED", "symbol": symbol, "price": price, "tiers": tiers}
+
+
 # --------------------------------------------------------------------------- #
 # Entrypoint (called by line_service)
 # --------------------------------------------------------------------------- #
@@ -2549,6 +2676,9 @@ async def handle(parsed: Any, *, db: Any, raw_event: Dict[str, Any], service: An
 
     if isinstance(parsed, SblReturnOrder):
         return await _handle_sbl_return(parsed, service, reply_token, push_target, db)
+
+    if isinstance(parsed, SizeCommand):
+        return await _handle_size(parsed, service, reply_token, push_target, db)
 
     cmd = parsed.cmd
     if cmd == "help":
