@@ -57,6 +57,9 @@ class LineMessagingService:
                     text = msg.get("text", "").strip()
                     res = await self._handle_text_message(db, text, event)
                     results.append(res)
+                elif msg.get("type") == "image":
+                    res = await self._handle_image_message(db, msg, event)
+                    results.append(res)
 
             elif event_type == "postback":
                 postback = event.get("postback", {})
@@ -65,6 +68,80 @@ class LineMessagingService:
                 results.append(res)
 
         return results
+
+    async def _handle_image_message(
+        self,
+        db: AsyncSession,
+        msg: Dict[str, Any],
+        raw_event: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Save an inbound LINE image to data/screenshots/inbox and log it as evidence.
+
+        Phase 1 (2026-10-30): archive only — no AI vision (aux vision cannot read
+        images; see docs/agent/kanban_operating_model.md §7/§10). The file is served
+        read-only at /screenshots/inbox/<name>; attach it to a card with
+        `hermes kanban attach <id> <file>`.
+        """
+        import json as _json
+        import datetime as _dt
+        from pathlib import Path as _Path
+
+        reply_token = raw_event.get("replyToken")
+        message_id = msg.get("id")
+        source = (raw_event or {}).get("source") or {}
+        inbox = _Path(__file__).resolve().parents[2] / "data" / "screenshots" / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        fname = f"{ts}-{message_id}.jpg"
+        path = inbox / fname
+        saved = False
+        token = settings.LINE_CHANNEL_ACCESS_TOKEN
+
+        if token and token != "mock_line_channel_token" and not settings.LINE_SIMULATION_MODE:
+            url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    path.write_bytes(resp.content)
+                    saved = True
+                else:
+                    logger.error(f"[LINE IMAGE] download failed HTTP {resp.status_code}: {resp.text[:200]}")
+            except Exception as e:  # never crash the webhook because of a bad image
+                logger.error(f"[LINE IMAGE] download error: {e}")
+        else:
+            logger.info("[LINE IMAGE] simulation/mock token — image not downloaded")
+
+        try:
+            from app.db.session import AsyncSessionLocal
+            async with AsyncSessionLocal() as log_db:
+                log_db.add(SessionLog(
+                    event_type="LINE_IMAGE_RECEIVED",
+                    details=_json.dumps({
+                        "saved": saved,
+                        "file": str(path) if saved else None,
+                        "filename": fname if saved else None,
+                        "message_id": message_id,
+                        "source_type": source.get("type"),
+                    }, ensure_ascii=False),
+                ))
+                await log_db.commit()
+        except Exception as e:
+            logger.warning(f"[LINE IMAGE] could not log event: {e}")
+
+        if reply_token:
+            if saved:
+                reply = f"📸 รับภาพแล้ว: {fname}\n/screenshots/inbox/{fname}"
+            else:
+                reply = "⚠️ ได้ event รูป แต่ดาวน์โหลดไม่สำเร็จ (ดู gateway log)"
+            try:
+                await self._send_reply(reply_token, reply)
+            except Exception as e:
+                logger.warning(f"[LINE IMAGE] reply failed: {e}")
+
+        return {"status": "IMAGE_RECEIVED" if saved else "IMAGE_FAILED",
+                "filename": fname if saved else None}
 
     async def _handle_text_message(
         self,
