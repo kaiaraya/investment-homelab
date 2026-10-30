@@ -115,3 +115,14 @@ paths as evidence, and never claim an image was inspected.
 The retired 4-agent hybrid loop (Argon / Flash 3.8 / Jules Cloud VM / Cline plugin), its STEP 0–5 tables,
 `jules_bridge.py` workflow, and the branch handoff mechanics are preserved verbatim in
 `docs/agent/full/` and `scripts/legacy/`. Read them only to explain history — never to run work.
+
+## 10. Intake & evidence conventions (2026-10-30)
+
+- **New requirement → always `--triage`.** `hermes kanban --board investment-homelab create "<title>" --body-file <md> --assignee <lane> --triage`.
+  A human never hand-writes a half card; the specifier expands the body from the idea.
+- **Mobile screenshots (phase 1 = archive as evidence, not AI-read).** Send the image to the LINE OA with the target card ref in the text (`#t_xxxx`).
+  Ingestion card must save to `data/screenshots/inbox/` and `hermes kanban attach <id> <file>`. Today `process_webhook_events` handles only
+  `text` + `postback`, so images are dropped until that card lands.
+- **Vision is a separate concern.** AI cannot read images yet (§7). Do not claim a screenshot was inspected; store the path/attachment and let
+  the human read it. Fix `auxiliary.vision` (GEMINI_API_KEY + provider `gemini`) as its own card.
+- **End of day = one command:** `scripts/daily_close.sh` (full suite → board snapshot → code-committed check → backup). Run after 16:30.
