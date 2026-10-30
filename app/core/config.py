@@ -113,6 +113,14 @@ class Settings(BaseSettings):
 
     # Phase 3 & Policy Engine Configuration (4 Centers & Forward-Compatible Safety)
     DRY_RUN_MODE: bool = True  # Safety mode: prepares and fills orders but does not submit final PIN
+    # PIN safety (2026-10-29 lockout on account 3024959): every submit carries the trading
+    # PIN and the broker locks the account after a few wrong entries. The guard counts
+    # broker PIN rejections per broker and fail-closes the next submit; it never counts a
+    # pre-submit refusal (no PIN typed) and clears itself only on a broker-accepted order.
+    PIN_GUARD_ENABLED: bool = True
+    PIN_GUARD_MAX_FAILURES: int = 1
+    PIN_GUARD_LOCK_MINUTES: int = 240
+    PIN_GUARD_STATE_PATH: str = "data/pin_guard.json"
     TRADING_MODE: str = "TEST"  # "TEST" (Virtual TradeMan Simulator) or "LIVE" (TradeMan Real Orders)
     # KSS price amendment path: "quicktrade" (in-place) or "trademan_cancel_replace"
     # (TradeMan has no native Change — KSS-RCA-016; requires guardrails C1–C7).

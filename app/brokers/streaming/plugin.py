@@ -130,7 +130,7 @@ class StreamingBrokerPlugin(BaseBrokerPlugin):
         )
 
     async def cancel_order(self, order_id: str, symbol: Optional[str] = None) -> bool:
-        res = await streaming_driver.cancel_order(order_id, symbol=symbol)
+        res = await streaming_driver.cancel_order(order_id, symbol=symbol, auto_launch=True)
         return res.get("success", False)
 
     async def modify_order_price(
@@ -160,6 +160,7 @@ class StreamingBrokerPlugin(BaseBrokerPlugin):
             remaining_volume=remaining_volume,
             pin=pin or settings.KRUNGSRI_PIN or None,
             prefer_native=prefer_native,
+            auto_launch=True,
         )
         return OrderResult(
             success=res.get("success", False),

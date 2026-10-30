@@ -932,6 +932,7 @@ async def test_broker_modify_kss_live_uses_streaming_cdp_in_place(monkeypatch):
         pin=handlers.settings.KRUNGSRI_PIN,
         symbol="PTT",
         side="BUY",
+        auto_launch=True,
     )
 
 

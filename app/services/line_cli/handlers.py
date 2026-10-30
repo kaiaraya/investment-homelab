@@ -497,6 +497,7 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
             pin=settings.KRUNGSRI_PIN,
             symbol=symbol,
             side=side,
+            auto_launch=True,
         )
         res["path"] = "STREAMING_CDP"
         if res.get("success") and "submitted" not in res:

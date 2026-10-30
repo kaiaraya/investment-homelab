@@ -219,3 +219,37 @@ def _default_kss_amend_mode(monkeypatch):
     """
     from app.core.config import settings
     monkeypatch.setattr(settings, "KSS_AMEND_MODE", "quicktrade")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_pin_guard(monkeypatch, tmp_path):
+    """Keep the PIN-attempt guard out of the repo's ``data/`` and out of other tests.
+
+    The guard is fail-closed for real money, so a leftover failure recorded by one test
+    would silently block the next one; each test gets a private state file instead.
+    """
+    monkeypatch.setattr(settings, "PIN_GUARD_ENABLED", True)
+    monkeypatch.setattr(settings, "PIN_GUARD_MAX_FAILURES", 1)
+    monkeypatch.setattr(settings, "PIN_GUARD_LOCK_MINUTES", 240)
+    monkeypatch.setattr(settings, "PIN_GUARD_STATE_PATH", str(tmp_path / "pin_guard.json"))
+
+
+@pytest.fixture(autouse=True)
+def _never_touch_a_real_browser(monkeypatch):
+    """Forbid the unit suite from reaching the live CDP daemon (port 9333/9334).
+
+    ``order_executor`` tries the direct-API JS snippet *before* the DOM fallback, and that
+    snippet POSTs a real order carrying the trading PIN. With the gateway's Chrome open,
+    a plain ``pytest`` run therefore hit ``apigw.settrade.com`` for real (2026-10-29: the
+    broker answered "pin is suspended"). Tests that mean to exercise the JS path patch
+    ``run_snippet`` themselves and still work.
+    """
+    try:
+        from scripts.broker_cdp import js_runner
+    except Exception:                                  # scripts/ not importable — fine
+        return
+
+    async def _blocked(*_a, **_kw):
+        raise RuntimeError("run_snippet is disabled in tests: never POST to a live broker")
+
+    monkeypatch.setattr(js_runner, "run_snippet", _blocked)

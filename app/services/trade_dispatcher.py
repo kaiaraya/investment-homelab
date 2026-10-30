@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from app.browser.trademan_driver import trademan_driver
 from app.browser.broker_factory import get_broker_driver
 from app.browser.trademan_simulator import virtual_simulator
 from app.core.config import settings
@@ -207,7 +206,8 @@ class TradeExecutionDispatcher:
     ) -> Dict[str, Any]:
         """Dispatches SBL share return request."""
         if self.is_live:
-            res = await trademan_driver.return_sbl_shares(lot_id=lot_id, return_qty=return_qty)
+            from app.brokers.krungsri.sbl_realtime_driver import krungsri_sbl_driver
+            res = await krungsri_sbl_driver.return_sbl_shares(lot_id=lot_id, return_qty=return_qty or 0)
             res["mode"] = "LIVE"
             return res
 

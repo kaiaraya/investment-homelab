@@ -58,7 +58,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db import session as db_session
-from app.db.models import Order, SBLBorrowLot
+from app.db.models import Order, SBLBorrowLot, SessionLog
+from app.services import pin_guard
 from app.services.broker_cdp import sync_service
 from app.services.broker_cdp.manager import get_tab
 from app.services.validator import validator
@@ -190,6 +191,12 @@ E_ANTI_DW = "E_ANTI_DW"
 E_SUBMIT_FAILED = "E_SUBMIT_FAILED"
 E_CONFIRM_FAILED = "E_CONFIRM_FAILED"
 E_ORDER_NO_UNREADABLE = "E_ORDER_NO_UNREADABLE"
+#: The broker refused the trading PIN (wrong PIN or a suspended PIN). Recorded, counted by
+#: ``app.services.pin_guard`` and never returned as a silent failure (2026-10-29 lockout).
+E_PIN_REJECTED = "E_PIN_REJECTED"
+E_PIN_SUSPENDED = "E_PIN_SUSPENDED"
+#: The guard refuses to type a PIN at all — the broker is quarantined until a human resets.
+E_PIN_GUARD = "E_PIN_GUARD"
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,20}$")
 
@@ -292,6 +299,76 @@ def _result_fail(code: str, message: str, *, status: str = "REJECTED",
         payload["broker"] = broker
     payload.update(extra)
     return payload
+
+
+# --------------------------------------------------------------------------- #
+# Broker message capture — a JS alert() proves what the app said; the ledger cannot
+# --------------------------------------------------------------------------- #
+class _DialogCapture:
+    """Collect JS ``alert``/``confirm`` texts raised on a page while we act on it.
+
+    Playwright auto-dismisses an unhandled dialog, which is exactly how
+    "Your pin is suspended" vanished without a trace on 2026-10-29. Attaching a handler
+    both records the text and stops a later ``evaluate`` from hanging on the blocked page.
+    """
+
+    def __init__(self) -> None:
+        self.messages: List[str] = []
+        self.attached = False
+
+    def _handler(self, dialog: Any) -> None:      # pragma: no cover - live browser only
+        try:
+            self.messages.append(str(getattr(dialog, "message", "") or ""))
+        except Exception:
+            pass
+        try:
+            asyncio.get_event_loop().create_task(dialog.dismiss())
+        except Exception as exc:
+            logger.debug("dialog dismiss failed: %s: %s", type(exc).__name__, exc)
+
+    @property
+    def text(self) -> str:
+        return " | ".join(m for m in self.messages if m)
+
+    @property
+    def pin_error(self) -> Optional[str]:
+        """The first captured message that means "wrong/suspended PIN", if any."""
+        for msg in self.messages:
+            if pin_guard.is_pin_error(msg):
+                return msg
+        return None
+
+
+def _install_dialog_capture(page: Any) -> _DialogCapture:
+    cap = _DialogCapture()
+    try:
+        page.on("dialog", cap._handler)
+        cap.attached = True
+    except Exception as exc:
+        logger.debug("dialog capture unavailable (%s: %s)", type(exc).__name__, exc)
+    return cap
+
+
+def _detach_dialog_capture(page: Any, cap: Optional[_DialogCapture]) -> None:
+    if cap is None or not cap.attached:
+        return
+    for meth in ("remove_listener", "off"):
+        fn = getattr(page, meth, None)
+        if callable(fn):
+            try:
+                fn("dialog", cap._handler)
+                return
+            except Exception:
+                continue
+
+
+async def _log_session_event(db: AsyncSession, event_type: str, details: str) -> None:
+    """Best-effort ``session_logs`` row — a logging failure never eats the order result."""
+    try:
+        db.add(SessionLog(event_type=str(event_type)[:64], details=str(details)[:1000]))
+        await db.commit()
+    except Exception as exc:
+        logger.warning("session_logs insert failed (%s): %s", event_type, exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -504,6 +581,16 @@ async def _lib_preflight(
     account_no: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Read-only preflight for Liberator in DRY_RUN — tries JS pre-place preview first, falls back to DOM."""
+    # 0. PIN safety: a preflight hits the same API as a real place, so never call it with a
+    #    guessed PIN (the previous default "123456" was a live wrong-PIN attempt) and never
+    #    call it while the broker is quarantined.
+    if not pin_guard.check("LIBERATOR").get("allowed", True):
+        return {"ok": None, "mode": "skipped",
+                "note": "PIN guard ปิดอยู่ — ข้าม preflight (ไม่ยิง API ที่ต้องใช้ PIN)"}
+    pin_str = str(pin or getattr(settings, "LIBERATOR_PIN", "") or "").strip()
+    if not pin_str:
+        return {"ok": None, "mode": "skipped",
+                "note": "ไม่มี PIN ตั้งค่าไว้ — ข้าม JS preflight เพราะห้ามยิง PIN ปลอม"}
     # 1. JS direct-API preflight (witness-proven contract)
     try:
         from scripts.broker_cdp.js_runner import run_snippet
@@ -515,7 +602,7 @@ async def _lib_preflight(
             "side": "Buy" if normalise_side(side) in ("BUY", "B") else "Sell",
             "volume": int(volume or 100),
             "price": float(price or 1.0),
-            "pin": str(pin or getattr(settings, "LIBERATOR_PIN", "") or "123456"),
+            "pin": pin_str,
             "dryRun": True,
             "accountNo": acc_8,
         }
@@ -1190,7 +1277,7 @@ async def _record_order(
         if existing:
             return existing
     order_id = (f"CDP-{broker}-{broker_order_no}" if broker_order_no
-                else f"CDP-{broker}-UNCONFIRMED-{int(time.time() * 1000)}")
+                else f"CDP-{broker}-{status}-{int(time.time() * 1000)}")
     db.add(Order(
         order_id=order_id,
         broker_order_no=broker_order_no,
@@ -1270,6 +1357,15 @@ async def execute_order_via_cdp(
     if kill_switch_service.is_active():
         return _result_fail(E_KILL_SWITCH, "KILL-SWITCH ACTIVE — ระงับการส่งคำสั่งทั้งหมด",
                             broker=db_broker)
+
+    # G0 — PIN guard: refuse before any PIN can be typed into the ticket. Checked before
+    # the validator on purpose: a refused call must not consume the idempotency slot and
+    # block the legitimate re-send after the guard is reset.
+    guard = pin_guard.check(db_broker)
+    if not guard.get("allowed", True):
+        logger.error("PIN guard refused %s %s %s: %s", db_broker, side_c, sym, guard.get("reason"))
+        return _result_fail(E_PIN_GUARD, guard.get("reason") or "PIN guard ปิดการส่งคำสั่ง",
+                            broker=db_broker, symbol=sym, side=side_c, pin_guard=guard)
 
     dry = bool(settings.DRY_RUN_MODE) if dry_run is None else bool(dry_run)
 
@@ -1360,7 +1456,9 @@ async def execute_order_via_cdp(
         if pin_val is None:  # bypass_dry_run with a dry run requested and no PIN configured
             return _result_fail(E_NO_PIN, f"ไม่มี PIN 6 หลัก ({meta['pin_key']}) — ไม่สามารถส่งได้",
                                 broker=db_broker, symbol=sym, side=side_c)
+        # ---- PIN guard already cleared above (G0): nothing here can type a PIN ----
         result: Dict[str, Any]
+        dialog_cap: Optional[_DialogCapture] = None
         try:
             async with get_tab(meta["cdp"], meta["target"]) as page:
                 readable, known, note = await _ledger_snapshot(page, meta["cdp"])
@@ -1371,20 +1469,45 @@ async def execute_order_via_cdp(
                         broker=db_broker, symbol=sym, side=side_c,
                     )
                 logger.info("%s ledger snapshot: %s", db_broker, note)
-                if meta["cdp"] == "kss":
-                    result = await _kss_execute(
-                        page, side=side_c, symbol=sym, volume=vol, price=px, pin=pin_val,
-                        expected_account=expected_account or "", known=known,
-                    )
-                else:
-                    result = await _lib_execute(
-                        page, side=side_c, symbol=sym, volume=vol, price=px, pin=pin_val,
-                        known=known, account_no=expected_account,
-                    )
+                dialog_cap = _install_dialog_capture(page)
+                try:
+                    if meta["cdp"] == "kss":
+                        result = await _kss_execute(
+                            page, side=side_c, symbol=sym, volume=vol, price=px, pin=pin_val,
+                            expected_account=expected_account or "", known=known,
+                        )
+                    else:
+                        result = await _lib_execute(
+                            page, side=side_c, symbol=sym, volume=vol, price=px, pin=pin_val,
+                            known=known, account_no=expected_account,
+                        )
+                finally:
+                    _detach_dialog_capture(page, dialog_cap)
         except Exception as exc:
             logger.exception("execute_order_via_cdp(%s) failed inside the tab", db_broker)
             return _result_fail("E_EXECUTION", f"{type(exc).__name__}: {exc}",
                                 status="FAILED", broker=db_broker, symbol=sym, side=side_c)
+
+        # ---- PIN rejection: the broker's own words outrank every guess ---------------
+        # The message can come from a JS alert the app raised (DOM ticket) or from the
+        # direct-API snippet's error payload (POST /orders refused). Either way it is a
+        # real PIN attempt: count it, quarantine the broker, and keep the evidence.
+        pin_msg = (dialog_cap.pin_error if dialog_cap else None) or (
+            result.get("error") if pin_guard.is_pin_error(result.get("error") or "") else None)
+        if pin_msg:
+            code = pin_guard.classify_pin_error(pin_msg) or E_PIN_REJECTED
+            guard_state = pin_guard.record_failure(db_broker, pin_msg, code=code)
+            logger.error("PIN REJECTED by %s for %s %s: %s", db_broker, side_c, sym, pin_msg)
+            result = _result_fail(
+                code,
+                f"โบรกปฏิเสธ PIN — {pin_msg} (ห้ามลองซ้ำเอง: PIN guard ปิดการส่งแล้ว)",
+                status="REJECTED", broker=db_broker, symbol=sym, side=side_c,
+                submitted=True, account_no=result.get("account_no"),
+                pin_guard=guard_state, dialog_text=(dialog_cap.text if dialog_cap else None),
+            )
+        elif result.get("status") == "SUBMITTED":
+            # A real order proves the PIN was accepted — clear any earlier quarantine.
+            pin_guard.record_success(db_broker)
 
         result.update({
             "broker": db_broker, "side": side_c, "symbol": sym,
@@ -1394,7 +1517,27 @@ async def execute_order_via_cdp(
             "warnings": warnings,
         })
         if result.get("status") not in ("SUBMITTED", "UNCONFIRMED"):
-            return result                                   # refused before submit
+            # A refused *submit* is still an attempt and must leave a row behind — the
+            # 2026-10-29 lockout was invisible precisely because this branch returned
+            # silently. Pre-submit refusals (nothing typed, nothing sent) stay unlogged.
+            if record and result.get("submitted"):
+                try:
+                    result["order_id"] = await _record_order(
+                        session, broker=db_broker, symbol=sym, side=side_c, volume=vol, price=px,
+                        account_no=result.get("account_no"),
+                        broker_order_no=result.get("broker_order_no"),
+                        status="REJECTED",
+                        error_message=(str(result.get("error") or "")[:500] or None),
+                    )
+                except Exception as exc:
+                    logger.exception("orders row insert failed for refused %s", sym)
+                    result["order_audit_error"] = f"{type(exc).__name__}: {exc}"
+                await _log_session_event(
+                    session, "CDP_ORDER_REJECTED",
+                    f"{db_broker} {side_c} {vol} {sym} @ {px:.2f} "
+                    f"{result.get('error_code') or 'E_UNKNOWN'} — {str(result.get('error') or '')[:300]}",
+                )
+            return result
 
         # ---- Record + sync (outside the tab lock: sync takes the same lock) ------
         order_id: Optional[str] = None
@@ -1454,9 +1597,16 @@ async def execute_confirmed_order(draft: Dict[str, Any], **kwargs: Any) -> Dict[
     )
 
 
+async def change_order_native(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Forward native amend to streaming_driver.change_order_native."""
+    from app.browser.streaming_driver import streaming_driver
+    return await streaming_driver.change_order_native(*args, **kwargs)
+
+
 __all__ = [
     "execute_order_via_cdp",
     "execute_confirmed_order",
+    "change_order_native",
     "match_new_order_no",
     "normalise_side",
     "resolve_broker",

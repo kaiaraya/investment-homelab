@@ -96,6 +96,29 @@ class FakePage:
         self.clicked = []
         self.filled = []
         self.evaluated = []
+        #: JS alert text emitted on submit (simulates Settrade's "pin suspended" alert).
+        self.dialog_on_submit = None
+        self.dialog_handlers = []
+
+    # --- playwright event surface (dialog capture) ---------------------------
+    def on(self, event, handler):
+        if event == "dialog":
+            self.dialog_handlers.append(handler)
+
+    def remove_listener(self, event, handler):
+        if event == "dialog" and handler in self.dialog_handlers:
+            self.dialog_handlers.remove(handler)
+
+    def emit_dialog(self, message):
+        class _Dialog:
+            def __init__(self, msg):
+                self.message = msg
+
+            async def dismiss(self):
+                return None
+
+        for handler in list(self.dialog_handlers):
+            handler(_Dialog(message))
 
     # --- playwright surface used by the executor -----------------------------
     async def query_selector(self, selector):
@@ -126,6 +149,8 @@ class FakePage:
             self.account = selector.split("'")[1]
         if selector in KSS_SUBMIT_SELECTORS or selector in oe.LIB_SUBMIT:
             self.submitted = True
+            if self.dialog_on_submit:
+                self.emit_dialog(self.dialog_on_submit)
 
 
 KSS_TICKET = {
@@ -604,3 +629,86 @@ async def test_confirmed_draft_adapter_maps_cmd_to_side(fake_tab, no_sync, live_
     assert res["status"] == "SUBMITTED"
     assert res["side"] == "BUY"
     assert res["broker_order_no"] == "11010099"
+
+
+# ── PIN safety (2026-10-29 lockout) ────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_pin_rejection_dialog_is_recorded_and_quarantines_the_broker(
+        fake_tab, no_sync, live_dry_run):
+    """The Settrade alert "pin is suspended" must be read, recorded and stop the next send.
+
+    2026-10-29 regression: the alert was auto-dismissed, nothing was written to ``orders``
+    and the next call typed the PIN again until the broker locked account 3024959.
+    """
+    from app.services import pin_guard
+    from tests.conftest import TestingSessionLocal
+
+    page = FakePage(elements=KSS_TICKET,
+                    ledger={"account_no": "3024959", "rows": [KSS_LEDGER_OLD]},
+                    submit_adds_row=None)
+    page.dialog_on_submit = ("Place Order: Error : Your pin is suspended. "
+                             "The number of incorrect PIN entries exceeds the maximum.")
+    fake_tab(page)
+
+    res = await oe.execute_order_via_cdp("kss", "BUY", "TU", 100, 12.70)
+
+    assert res["success"] is False
+    assert res["status"] == "REJECTED"
+    assert res["error_code"] == "E_PIN_SUSPENDED"
+    assert res["submitted"] is True                      # a submit DID reach the broker
+    assert "suspended" in (res["error"] or "").lower()
+
+    # The attempt leaves a row behind instead of vanishing.
+    async with TestingSessionLocal() as db:
+        rows = (await db.execute(select(Order))).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].status == "REJECTED"
+        assert rows[0].source == "bot_cdp"
+        assert "pin" in (rows[0].error_message or "").lower()
+
+    # And the guard now refuses before anything else is typed.
+    assert pin_guard.check("KRUNGSRI")["allowed"] is False
+
+    page2 = FakePage(elements=KSS_TICKET, ledger={"rows": []})
+    fake_tab(page2)
+    res2 = await oe.execute_order_via_cdp("kss", "BUY", "TU", 100, 12.70)
+    assert res2["error_code"] == "E_PIN_GUARD"
+    assert res2["submitted"] is False
+    assert getattr(page2, "submitted", False) is False      # nothing was typed or clicked
+    assert page2.clicked == []
+
+
+@pytest.mark.asyncio
+async def test_pre_submit_refusal_writes_no_order_row(fake_tab, no_sync, live_dry_run):
+    """A refusal before submit (nothing typed, nothing sent) must stay out of ``orders``."""
+    from tests.conftest import TestingSessionLocal
+
+    page = FakePage(elements={**KSS_TICKET, "input#equity-place-order-buy-radio-button": ("", False)},
+                    ledger={"account_no": "3024959", "rows": [KSS_LEDGER_OLD]})
+    fake_tab(page)
+    res = await oe.execute_order_via_cdp("kss", "BUY", "TU", 100, 12.70)
+
+    assert res["success"] is False
+    assert res["submitted"] is False
+    async with TestingSessionLocal() as db:
+        assert (await db.execute(select(Order))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_successful_submit_clears_an_earlier_pin_quarantine(fake_tab, no_sync, live_dry_run):
+    """A broker-accepted order proves the PIN; the guard must not stay closed forever."""
+    from app.services import pin_guard
+
+    pin_guard.record_failure("KRUNGSRI", "invalid pin", code="E_PIN_REJECTED")
+    pin_guard.reset("KRUNGSRI", reason="operator confirmed the PIN")   # human unlock
+
+    page = FakePage(elements=KSS_TICKET,
+                    ledger={"account_no": "3024959", "rows": [KSS_LEDGER_OLD]},
+                    submit_adds_row=("11010088", "TU", "Buy", 12.70, 100))
+    fake_tab(page)
+    res = await oe.execute_order_via_cdp("kss", "BUY", "TU", 100, 12.70)
+
+    assert res["status"] == "SUBMITTED"
+    state = pin_guard.status("KRUNGSRI")["state"]
+    assert state["failures"] == 0
+    assert state["locked_until"] is None

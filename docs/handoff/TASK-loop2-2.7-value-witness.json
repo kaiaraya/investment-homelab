@@ -1,0 +1,51 @@
+{
+  "task_id": "t_b6749a20",
+  "card": "2.7 Witness live value BUY order flow via LINE to broker",
+  "witnessed_at": "2026-10-29T10:42:00+07:00",
+  "market_window": "open (SET morning session 09:55-12:30)",
+  "broker": "LIBERATOR (LIB · CASH 7055938)",
+  "order": {
+    "draft_id": "DRAFT-7DDB35F3",
+    "order_id": "CDP-LIBERATOR-15797",
+    "broker_order_no": "15797",
+    "symbol": "BCPG",
+    "side": "BUY",
+    "volume": 7400,
+    "price": 6.70,
+    "gross_value": 49580.00,
+    "status": "SUBMITTED",
+    "source": "bot_cdp"
+  },
+  "flow": {
+    "input": "/buy BCPG 50k",
+    "line_user": "U93d33881eec9f35fd05e61f033004bd2",
+    "queue_job": "4e64ec8e",
+    "board_lot_floor": "7400 shares (50,000 / 6.70 = 7462.69 -> floor to 7400 multiple of 100)"
+  },
+  "acceptance": {
+    "confirm_card_budget_volume": true,
+    "dry_run_receipt": "bypassed — DRY_RUN_MODE=false in .env; flow went straight to live order (prior pre-flight had planned DRY_RUN staging)",
+    "real_order_matches_broker_ui": true,
+    "broker_order_no_matches_db": true,
+    "db_source_bot_cdp": true,
+    "no_duplicate_line_replies": true,
+    "evidence_saved": true,
+    "human_signoff": "pending (witness screenshot provided by user)"
+  },
+  "gateway_log_evidence": [
+    "10:42:24 [LINE] Received 1 event(s) message /buy BCPG 50k",
+    "10:42:24 [AsyncCommandQueue] Enqueued job 4e64ec8e (/buy BCPG 50k)",
+    "10:42:26 [LINE API] Push sent (confirmation card) HTTP 200",
+    "10:42:40 [LINE] Received postback (user tapped confirm)",
+    "10:42:40 [LINE API] Reply sent (receipt DRAFT-7DDB35F3) HTTP 200",
+    "10:42:40 broker_cdp_order_executor: LIBERATOR ledger snapshot before submit",
+    "10:42:43 broker_cdp_order_executor: LIVE ORDER LIBERATOR BUY 7400 BCPG @ 6.7 -> 15797 (SUBMITTED)",
+    "10:42:45 [LINE API] Push sent (success message #15797) HTTP 200"
+  ],
+  "db_evidence": {
+    "table": "orders",
+    "query": "SELECT order_id, broker_order_no, symbol, side, volume, price, status, source FROM orders WHERE order_id='CDP-LIBERATOR-15797'",
+    "result": "CDP-LIBERATOR-15797 | 15797 | BCPG | BUY | 7400 | 6.7 | SUBMITTED | bot_cdp"
+  },
+  "screenshot": "docs/handoff/evidence/loop2/2.7-value-witness-confirm.jpg"
+}

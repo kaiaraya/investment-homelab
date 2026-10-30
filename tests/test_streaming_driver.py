@@ -12,7 +12,7 @@ No real navigation / login / order is performed.
 """
 import pytest
 import re
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.core.config import settings
 
@@ -629,6 +629,45 @@ async def test_change_order_native_fails_closed_without_browser(monkeypatch):
     assert res["status"] == "FAILED"
     assert res["stage"] == "no_page"
     assert res["fallback_ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_change_order_native_auto_connects_cdp_when_page_none(monkeypatch):
+    """When page is None, change_order_native should attempt connect_cdp (auto_launch=True)."""
+    d = StreamingDriver()
+    d._log_event = AsyncMock()
+
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://wma1.settrade.com/realtime/streaming7/StreamingPage.jsp"
+
+    connect_called = []
+
+    async def fake_connect(target="streaming"):
+        connect_called.append(target)
+        d.page_override = mock_page
+        d._cdp_connected = True
+        return True
+
+    d.connect_cdp = fake_connect
+
+    monkeypatch.setattr(d, "_find_order_row", AsyncMock(return_value={"balance": 100}))
+    mock_page.evaluate = AsyncMock(side_effect=[
+        {"ok": True, "account": "3024959"},
+        [{"orderNo": "11014863", "price": 6.70, "balance": 100}],
+    ])
+
+    res = await d.change_order_native(
+        broker_order_no="11014863",
+        new_price=6.70,
+        new_volume=100,
+        pin="515286",
+        bypass_dry_run=True,
+        auto_launch=True,
+    )
+    assert len(connect_called) == 1
+    assert res["success"] is True
+    assert res["status"] == "MODIFIED_IN_PLACE"
 
 
 # --- plugin wiring (app/brokers/streaming/plugin.py) -----------------------

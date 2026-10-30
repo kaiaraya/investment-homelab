@@ -24,6 +24,8 @@ class OrderStatus(str, Enum):
     OPEN = "OPEN"
     SUBMITTING = "SUBMITTING"
     SUBMITTED = "SUBMITTED"
+    UNCONFIRMED = "UNCONFIRMED"          # sent, order number not readable (Anti-Mock)
+    SIMULATED_SUCCESS = "SIMULATED_SUCCESS"  # DRY_RUN fill-only result
     FILLED = "FILLED"
     MATCHED = "MATCHED"
     REJECTED = "REJECTED"

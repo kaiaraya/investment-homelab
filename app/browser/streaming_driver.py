@@ -33,6 +33,7 @@ import app.db.session as _db_session
 from app.browser.popup_manager import popup_manager
 from app.browser.streaming_auth_driver import streaming_auth_driver
 from app.core.config import settings
+from app.services import pin_guard
 from app.db.models import SessionLog
 from app.services.validator import validator
 
@@ -543,6 +544,19 @@ class StreamingDriver:
                         except (ValueError, TypeError):
                             pass
 
+            # 4b. PIN guard — the PIN is typed below, so a quarantined account must be
+            #     refused BEFORE the field is filled (2026-10-29 lockout).
+            guard = pin_guard.check("KRUNGSRI")
+            if not guard.get("allowed", True):
+                await self._log_event("STREAMING_ORDER_PIN_GUARD", guard.get("reason") or "pin guard")
+                return {
+                    "success": False,
+                    "status": "REJECTED",
+                    "error_code": guard.get("error_code") or "E_PIN_GUARD",
+                    "error": guard.get("reason") or "PIN guard ปิดการส่งคำสั่ง",
+                    "symbol": sym, "side": side_clean, "volume": volume, "price": price,
+                }
+
             # 5. PIN (if editable)
             if pin_val:
                 pin_el = page.locator(PIN_INPUT_SELECTOR).first
@@ -597,6 +611,28 @@ class StreamingDriver:
             if not submit_btn:
                 return {"success": False, "status": "FAILED", "error": "Submit button not found on Streaming order ticket"}
 
+            # A JS alert from the Settrade app is the broker's own verdict — Playwright
+            # auto-dismisses an unhandled dialog, which is how "pin suspended" used to
+            # vanish while the caller was told SUBMITTED.
+            dialog_msgs: List[str] = []
+
+            def _on_dialog(d) -> None:            # pragma: no cover - live browser only
+                try:
+                    dialog_msgs.append(str(getattr(d, "message", "") or ""))
+                except Exception:
+                    pass
+                try:
+                    asyncio.ensure_future(d.dismiss())
+                except Exception:
+                    pass
+
+            dialog_hooked = False
+            try:
+                page.on("dialog", _on_dialog)
+                dialog_hooked = True
+            except Exception as exc:
+                logger.debug(f"dialog capture unavailable: {exc}")
+
             await submit_btn.click(force=True)
             await page.wait_for_timeout(1000)
 
@@ -611,7 +647,55 @@ class StreamingDriver:
                 except Exception:
                     continue
 
-            broker_order_no = await self._scrape_order_no(page) or f"STM-{int(datetime.now(timezone.utc).timestamp())}"
+            if dialog_hooked:
+                for meth in ("remove_listener", "off"):
+                    fn = getattr(page, meth, None)
+                    if callable(fn):
+                        try:
+                            fn("dialog", _on_dialog)
+                            break
+                        except Exception:
+                            continue
+
+            dialog_text = " | ".join(m for m in dialog_msgs if m)
+            pin_msg = next((m for m in dialog_msgs if pin_guard.is_pin_error(m)), "")
+            if pin_msg:
+                state = pin_guard.record_failure("KRUNGSRI", pin_msg)
+                await self._log_event(
+                    "STREAMING_PIN_REJECTED",
+                    f"{side_clean} {volume} {sym} @ ฿{price:.2f} — {pin_msg[:200]}",
+                )
+                return {
+                    "success": False,
+                    "status": "REJECTED",
+                    "error_code": state.get("error_code") or "E_PIN_REJECTED",
+                    "error": f"โบรกปฏิเสธ PIN — {pin_msg}",
+                    "broker_order_no": None,
+                    "symbol": sym, "side": side_clean, "volume": volume, "price": price,
+                    "account_no": self.active_account_no, "account_type": "EQUITY",
+                }
+
+            broker_order_no = await self._scrape_order_no(page)
+            if not broker_order_no:
+                # Never invent STM-<epoch>: an unread order number is an UNCONFIRMED submit
+                # and the human has to look at the screen (Anti-Mock).
+                await self._log_event(
+                    "STREAMING_ORDER_UNCONFIRMED",
+                    f"{side_clean} {volume} {sym} @ ฿{price:.2f} — ส่งแล้วแต่อ่านเลขออเดอร์ไม่ได้"
+                    + (f" · dialog: {dialog_text[:150]}" if dialog_text else ""),
+                )
+                return {
+                    "success": False,
+                    "status": "UNCONFIRMED",
+                    "error_code": "E_ORDER_NO_UNREADABLE",
+                    "error": ("ส่งคำสั่งแล้วแต่อ่านเลขออเดอร์จากหน้า View Order ไม่ได้ — "
+                              "ตรวจหน้าจอด้วยตา ห้ามถือว่าสำเร็จ"),
+                    "broker_order_no": None,
+                    "symbol": sym, "side": side_clean, "volume": volume, "price": price,
+                    "account_no": self.active_account_no, "account_type": "EQUITY",
+                }
+
+            pin_guard.record_success("KRUNGSRI")
             await self._log_event(
                 "STREAMING_ORDER_SUBMITTED",
                 f"{side_clean} {volume} {sym} @ ฿{price:.2f} ({broker_order_no})",
@@ -717,9 +801,10 @@ class StreamingDriver:
         symbol: Optional[str] = None,
         bypass_dry_run: bool = False,
         pin: Optional[str] = None,
+        auto_launch: bool = False,
     ) -> Dict[str, Any]:
         """Cancel an open order on Streaming (JS-first + DOM fallback, anti-mock re-read fail-closed)."""
-        page = await self._ensure_streaming_page()
+        page = await self._ensure_streaming_page(auto_launch=auto_launch)
         if not page or page.is_closed():
             return {
                 "success": False,
@@ -736,6 +821,19 @@ class StreamingDriver:
                 "status": "SIMULATED_SUCCESS",
                 "broker_order_no": broker_order_no,
                 "message": "Cancel simulated (DRY_RUN_MODE)",
+            }
+
+        # PIN guard — a cancel carries the same trading PIN, so a quarantined account stops
+        # here just like a place (2026-10-29 lockout: cancel+replace burned two PINs each).
+        guard = pin_guard.check("KRUNGSRI")
+        if not guard.get("allowed", True):
+            await self._log_event("STREAMING_CANCEL_PIN_GUARD", guard.get("reason") or "pin guard")
+            return {
+                "success": False,
+                "status": "REJECTED",
+                "broker_order_no": broker_order_no,
+                "error_code": guard.get("error_code") or "E_PIN_GUARD",
+                "error": guard.get("reason") or "PIN guard ปิดการส่งคำสั่ง",
             }
 
         effective_pin = pin or settings.KRUNGSRI_PIN
@@ -888,6 +986,9 @@ class StreamingDriver:
         side: str = "BUY",
         trade_date: Optional[str] = None,
         bypass_dry_run: bool = False,
+        volume: int = 0,
+        auto_launch: bool = False,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """SQ-7: amend an open order IN PLACE via ``PATCH .../orders/{orderNo}/change``.
 
@@ -914,7 +1015,7 @@ class StreamingDriver:
             "native_change": True,
         }
 
-        page = await self._ensure_streaming_page()
+        page = await self._ensure_streaming_page(auto_launch=auto_launch)
         if not page or page.is_closed():
             return {
                 **base,
@@ -931,7 +1032,18 @@ class StreamingDriver:
         if not new_price or float(new_price) <= 0:
             return {**base, "success": False, "status": "REJECTED", "stage": "validate",
                     "fallback_ok": False, "error": "INVALID_PRICE"}
-        vol = int(new_volume or 0)
+        vol = int(new_volume or volume or kwargs.get("volume", 0) or 0)
+
+        # PIN guard — an amend sends the PIN; when the account is quarantined nothing is
+        # sent and the cancel+replace fallback is blocked too (it would burn another PIN).
+        guard = pin_guard.check("KRUNGSRI")
+        if not guard.get("allowed", True):
+            await self._log_event("STREAMING_CHANGE_PIN_GUARD", guard.get("reason") or "pin guard")
+            return {**base, "success": False, "status": "REJECTED", "stage": "pin_guard",
+                    "fallback_ok": False,
+                    "error_code": guard.get("error_code") or "E_PIN_GUARD",
+                    "error": guard.get("reason") or "PIN guard ปิดการส่งคำสั่ง"}
+
         effective_pin = pin or settings.KRUNGSRI_PIN
         if not effective_pin:
             # A cancel+replace would demand the same PIN, so do NOT touch the order.
@@ -1067,6 +1179,7 @@ class StreamingDriver:
         pin: Optional[str] = None,
         bypass_dry_run: bool = False,
         prefer_native: bool = True,
+        auto_launch: bool = False,
     ) -> Dict[str, Any]:
         """
         Amend an open order: native in-place change first, cancel+replace as fallback.
@@ -1082,7 +1195,7 @@ class StreamingDriver:
         """
         if not new_price or new_price <= 0:
             return await self.cancel_order(
-                broker_order_no=broker_order_no, symbol=symbol, bypass_dry_run=bypass_dry_run
+                broker_order_no=broker_order_no, symbol=symbol, bypass_dry_run=bypass_dry_run, auto_launch=auto_launch
             )
 
         if prefer_native:
@@ -1094,6 +1207,7 @@ class StreamingDriver:
                 symbol=symbol,
                 side=side,
                 bypass_dry_run=bypass_dry_run,
+                auto_launch=auto_launch,
             )
             if native.get("success"):
                 return native

@@ -1453,7 +1453,7 @@ class LiberatorDriver:
     LIB_CANCEL_ACTION = "Cancel"
     LIB_AMEND_OVERLAY = "div.overlay"
     LIB_CONFIRM_BUTTON = "#confirmDialogActiveButton"
-    LIB_AMENDABLE_STATUSES = ("open",)
+    LIB_AMENDABLE_STATUSES = ("open", "changed")
     LIB_PRICE_POPUP = "#popup_price"
     LIB_PRICE_STEPPER_MINUS = "#popup_price .bg-less-than, #popup_price button:has-text('-')"
     LIB_PRICE_STEPPER_PLUS = "#popup_price .bg-more-than, #popup_price button:has-text('+')"
@@ -1769,7 +1769,7 @@ class LiberatorDriver:
                 "order_no": order_no,
                 "status": status,
                 "error": (
-                    f"Order #{order_no} is '{status}' (not Open)"
+                    f"Order #{order_no} is '{status}' (not amendable)"
                     " - the Change control is not available."
                 ),
             }
