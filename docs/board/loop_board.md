@@ -1,6 +1,6 @@
 # Loop Board — LIVE SNAPSHOT
 
-> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-30 15:59.** The source of truth is the Hermes Kanban board:
+> ⚠️ **SNAPSHOT ONLY — regenerated 2026-10-30 16:16.** The source of truth is the Hermes Kanban board:
 > `hermes kanban --board investment-homelab list`. This file is a readable mirror; if the two
 > disagree, the Kanban board wins. Regenerate with `python scripts/board_snapshot.py` — never
 > hand-edit the live sections.
@@ -8,8 +8,8 @@
 > (`docs/handoff/TASK-hermes-only-migration.md`). SOP: `docs/agent/kanban_operating_model.md`.
 > Card content lives in `docs/handoff/TASK-<slug>.md`.
 
-- **Generated:** 2026-10-30 15:59
-- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 0 · triage 2 · review 0 · done 27 · archived 79
+- **Generated:** 2026-10-30 16:16
+- **Counts:** running 0 · ready 0 · todo 0 · scheduled 0 · blocked 0 · triage 4 · review 0 · done 27 · archived 79
 - **Directive:** `directive/master_directive_v2.md` · **Scorecard:** `directive/loop_acceptance_and_tasks.md`
 - **เปิด acceptance:** Loop 1 = native in-place `change_order` ทำงานได้ทั้ง Streaming + Liberator
 
@@ -29,6 +29,8 @@
 |---|---|---|---|
 | `t_1e4a05eb` | **triage** | `default` | Witness live SBL borrow, short, and return cycle on KSS Margin 3024959 |
 | `t_99cc85d7` | **triage** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
+| `t_0bd598ba` | **triage** | `homelab-build` | LINE image ingestion → data/screenshots/inbox + attach to referenced card |
+| `t_35e53825` | **triage** | `homelab-build` | Fix auxiliary.vision so the agent can read screenshots (GEMINI_API_KEY + provider gemini) |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
