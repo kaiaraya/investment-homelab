@@ -118,11 +118,19 @@ def test_bare_otp_is_not_routed_as_a_command():
 # --------------------------------------------------------------------------- #
 # invalid input — rejected cleanly, never a crash
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("text", ["/buy", "/buy PTT", "/buy PTT 100", "/short"])
+@pytest.mark.parametrize("text", ["/buy", "/buy PTT", "/short"])
 def test_trade_missing_args(text):
     err = p.parse(text)
     assert isinstance(err, p.CliError)
     assert err.code == p.E_MISSING_ARG
+
+
+def test_trade_omitted_price_parses():
+    order = p.parse("/buy PTT 100")
+    assert isinstance(order, p.TradeOrder)
+    assert order.symbol == "PTT"
+    assert order.volume == 100
+    assert order.price is None
 
 
 def test_trade_extra_args_rejected():
