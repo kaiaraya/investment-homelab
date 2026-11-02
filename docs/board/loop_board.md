@@ -27,7 +27,7 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_1e4a05eb` | **triage** | `default` | Witness live SBL borrow, short, and return cycle on KSS Margin 3024959 |
+| `t_1e4a05eb` | **done** | `default` | Witness live SBL borrow, short, and return cycle on KSS Margin 3024959 |
 | `t_99cc85d7` | **done** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
 | `t_0bd598ba` | **triage** | `homelab-build` | LINE image ingestion → data/screenshots/inbox + attach to referenced card |
 | `t_35e53825` | **done** | `homelab-build` | Fix auxiliary.vision so the agent can read screenshots (GEMINI_API_KEY + provider gemini) |
@@ -36,7 +36,7 @@
 
 | id | completed | title |
 |---|---|---|
-| `t_3e7d781e` | 2026-10-30 15:48 | 🟡 T0 · LINE CLI · Kept tree red after commit bc8c778: 6 pre-existing test failur |
+| `t_1e4a05eb` | 2026-11-02 14:40 | 🔴 T2 · Witness live SBL borrow & short cycle via LINE CLI |
 | `t_85a65a8a` | 2026-10-30 15:15 | 🟢 T0 · LINE CLI · Add handler round-trip tests for portfolio action buttons (car |
 | `t_c08412d2` | 2026-10-30 14:58 | 🟢 T0 · LINE CLI · พัฒนา Interactive Portfolio Card รวม 2 โบรกเกอร์ พร้อมปุ่มส่งค |
 | `t_eff62798` | 2026-10-30 10:00 | 🟢 T0 · LINE CLI · เพิ่มคำสั่ง /size <sym> คำนวณจำนวนหุ้นงบ 50k/75k/100k จากราคาต |
