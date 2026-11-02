@@ -15,7 +15,11 @@ from urllib.parse import urlparse
 from playwright.async_api import BrowserContext, Page
 
 from app.core.config import settings
-from scripts.broker_cdp.otp_relay import check_line_otp_once, request_line_otp
+from scripts.broker_cdp.otp_relay import (
+    check_line_otp_once,
+    latest_otp_row_id,
+    request_line_otp,
+)
 
 logger = logging.getLogger("broker_cdp_brokers")
 
@@ -203,6 +207,7 @@ async def kss_login(ctx: BrowserContext, page: Page, timeout_seconds: int = 300)
 
         waited = 0
         otp_requested = False
+        otp_since_id = 0
         while waited < timeout_seconds:
             body = await page.inner_text("body")
             if any(k in body for k in ["ยินดีต้อนรับ", "creditbalance"]) or "member" in page.url.lower():
@@ -213,12 +218,19 @@ async def kss_login(ctx: BrowserContext, page: Page, timeout_seconds: int = 300)
             is_otp, ref_code, otp_sel = await _detect_otp_prompt(page)
             if is_otp and not otp_requested:
                 otp_requested = True
-                logger.info(f"OTP prompt detected (ref={ref_code}). Requesting via LINE relay...")
+                otp_since_id = await latest_otp_row_id()
+                logger.info(
+                    f"OTP prompt detected (ref={ref_code}, watermark={otp_since_id}). "
+                    "Requesting via LINE relay..."
+                )
                 await request_line_otp("KRUNGSRI", ref=ref_code, timeout_seconds=timeout_seconds)
             elif is_otp:
-                otp_val = await check_line_otp_once("KRUNGSRI")
-                if otp_val and otp_sel:
-                    await _fill_otp_input(page, otp_sel, otp_val)
+                match = await check_line_otp_once("KRUNGSRI", since_id=otp_since_id)
+                if match and otp_sel:
+                    if await _fill_otp_input(page, otp_sel, match.otp):
+                        # Never replay a code: the broker counts every wrong
+                        # submission as a failed 2FA attempt.
+                        otp_since_id = match.row_id
 
             if waited % 15 == 0:
                 logger.info(f"Waiting for OTP confirmation... ({waited}s / {timeout_seconds}s) [URL: {page.url}]")
@@ -364,6 +376,7 @@ async def liberator_login(ctx: BrowserContext, page: Page, timeout_seconds: int 
 
     waited = 0
     otp_requested = False
+    otp_since_id = 0
     while waited < timeout_seconds:
         if _is_authenticated_landing(page.url):
             logger.info(f"Liberator Login successful! Landed on: {page.url}")
@@ -377,12 +390,17 @@ async def liberator_login(ctx: BrowserContext, page: Page, timeout_seconds: int 
         is_otp, ref_code, otp_sel = await _detect_otp_prompt(page)
         if is_otp and not otp_requested:
             otp_requested = True
-            logger.info(f"OTP prompt detected (ref={ref_code}). Requesting via LINE relay...")
+            otp_since_id = await latest_otp_row_id()
+            logger.info(
+                f"OTP prompt detected (ref={ref_code}, watermark={otp_since_id}). "
+                "Requesting via LINE relay..."
+            )
             await request_line_otp("LIBERATOR", ref=ref_code, timeout_seconds=timeout_seconds)
         elif is_otp:
-            otp_val = await check_line_otp_once("LIBERATOR")
-            if otp_val and otp_sel:
-                await _fill_otp_input(page, otp_sel, otp_val)
+            match = await check_line_otp_once("LIBERATOR", since_id=otp_since_id)
+            if match and otp_sel:
+                if await _fill_otp_input(page, otp_sel, match.otp):
+                    otp_since_id = match.row_id
 
         if waited % 15 == 0:
             logger.info(f"Waiting for Liberator OTP confirmation... ({waited}s / {timeout_seconds}s) [URL: {page.url}]")
