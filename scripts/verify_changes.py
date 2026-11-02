@@ -208,6 +208,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "scripts/broker_probe.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     "scripts/broker_cdp/client.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     "scripts/broker_cdp/brokers.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py", "tests/test_cdp_session_probe.py"],
+    "scripts/broker_cdp/otp_relay.py": ["tests/test_cdp_otp_relay.py"],
     "scripts/broker_cdp/session_daemon.py": ["tests/test_kss_probe.py", "tests/test_liberator_probe.py"],
     # B.2/B.3/B.7 — CDP gateway: tab manager + portfolio auto-sync + manual-order sync
     "app/services/broker_cdp/manager.py": ["tests/test_broker_cdp_routing.py"],

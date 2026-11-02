@@ -8,12 +8,14 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Optional
 from urllib.parse import urlparse
 
 from playwright.async_api import BrowserContext, Page
 
 from app.core.config import settings
+from scripts.broker_cdp.otp_relay import check_line_otp_once, request_line_otp
 
 logger = logging.getLogger("broker_cdp_brokers")
 
@@ -94,6 +96,75 @@ SSO_SBL_START_URL = "https://www.krungsrisecurities.com/th/SBL/start.aspx"
 SSO_SBL_DISCLAIMER_URL = "https://www.krungsrisecurities.com/th/disclaimer-sbl/Default.aspx?start=sbl"
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# OTP prompt detection / fill — shared by every CDP login flow
+# (selectors mirrored from app/browser/auth_driver.py::_detect_otp_prompt)
+# ────────────────────────────────────────────────────────────────────────────
+
+OTP_INPUT_SELECTORS = [
+    "input[placeholder*='OTP' i]",
+    "#otp",
+    "input#otp",
+    "input[name*='otp' i]",
+    "input[id*='otp' i]",
+    "#login_otp",
+    "input#login_otp",
+    "input[name='otp']",
+    "input[type='text'][maxlength='6']",
+    "input[type='tel'][maxlength='6']",
+    "input#txtOTP",
+    "input[name='txtOTP']",
+]
+
+
+async def _detect_otp_prompt(page: Page):
+    """Return (is_otp, ref_code, otp_sel) — same detection logic as auth_driver."""
+    otp_sel = None
+    for sel in OTP_INPUT_SELECTORS:
+        el = await page.query_selector(sel)
+        if el and await el.is_visible():
+            otp_sel = sel
+            break
+    body = await page.inner_text("body") if page else ""
+    has_otp_text = any(
+        k in body for k in ["รหัสอ้างอิง", "Ref", "OTP", "One Time Password", "SMS OTP"]
+    )
+    if not otp_sel and not has_otp_text:
+        return False, None, None
+    ref_code = None
+    ref_match = re.search(
+        r"(?:Ref(?:\.|erence)?|รหัสอ้างอิง)\s*[:：]?\s*([A-Za-z0-9]{3,8})", body, re.IGNORECASE
+    )
+    if ref_match:
+        ref_code = ref_match.group(1).strip()
+    return True, ref_code, otp_sel or "input[maxlength='6']"
+
+
+async def _fill_otp_input(page: Page, otp_sel: str, otp_val: str) -> bool:
+    """Fill the OTP input + best-effort submit. Never raises."""
+    try:
+        el = await page.query_selector(otp_sel)
+        if not el or not await el.is_visible():
+            return False
+        await el.fill(otp_val)
+        await asyncio.sleep(0.3)
+        for submit_sel in [
+            "button[type='submit']",
+            "button:has-text('ยืนยัน')",
+            "button:has-text('Confirm')",
+            "button:has-text('Submit')",
+        ]:
+            btn = await page.query_selector(submit_sel)
+            if btn and await btn.is_visible():
+                await btn.click()
+                logger.info("Clicked OTP submit button.")
+                break
+        return True
+    except Exception as e:
+        logger.warning(f"[CDP OTP] fill/submit failed: {e}")
+        return False
+
+
 async def kss_login(ctx: BrowserContext, page: Page, timeout_seconds: int = 300) -> bool:
     """Handle initial Krungsri SSO login and wait for OTP completion."""
     u, p = settings.KRUNGSRI_USERNAME, settings.KRUNGSRI_PASSWORD
@@ -131,11 +202,24 @@ async def kss_login(ctx: BrowserContext, page: Page, timeout_seconds: int = 300)
                     break
 
         waited = 0
+        otp_requested = False
         while waited < timeout_seconds:
             body = await page.inner_text("body")
             if any(k in body for k in ["ยินดีต้อนรับ", "creditbalance"]) or "member" in page.url.lower():
                 logger.info(f"Login successful! Landed on: {page.url}")
                 return True
+
+            # --- LINE OTP relay (แบบเดิม, non-blocking) ---
+            is_otp, ref_code, otp_sel = await _detect_otp_prompt(page)
+            if is_otp and not otp_requested:
+                otp_requested = True
+                logger.info(f"OTP prompt detected (ref={ref_code}). Requesting via LINE relay...")
+                await request_line_otp("KRUNGSRI", ref=ref_code, timeout_seconds=timeout_seconds)
+            elif is_otp:
+                otp_val = await check_line_otp_once("KRUNGSRI")
+                if otp_val and otp_sel:
+                    await _fill_otp_input(page, otp_sel, otp_val)
+
             if waited % 15 == 0:
                 logger.info(f"Waiting for OTP confirmation... ({waited}s / {timeout_seconds}s) [URL: {page.url}]")
             await page.wait_for_timeout(3000)
@@ -279,6 +363,7 @@ async def liberator_login(ctx: BrowserContext, page: Page, timeout_seconds: int 
             break
 
     waited = 0
+    otp_requested = False
     while waited < timeout_seconds:
         if _is_authenticated_landing(page.url):
             logger.info(f"Liberator Login successful! Landed on: {page.url}")
@@ -287,6 +372,17 @@ async def liberator_login(ctx: BrowserContext, page: Page, timeout_seconds: int 
                 json.dump({"cookies": cookies}, f, indent=2)
             logger.info(f"Persisted {len(cookies)} cookies to {LIBERATOR_SESSION_FILE}")
             return True
+
+        # --- LINE OTP relay (แบบเดิม, non-blocking) ---
+        is_otp, ref_code, otp_sel = await _detect_otp_prompt(page)
+        if is_otp and not otp_requested:
+            otp_requested = True
+            logger.info(f"OTP prompt detected (ref={ref_code}). Requesting via LINE relay...")
+            await request_line_otp("LIBERATOR", ref=ref_code, timeout_seconds=timeout_seconds)
+        elif is_otp:
+            otp_val = await check_line_otp_once("LIBERATOR")
+            if otp_val and otp_sel:
+                await _fill_otp_input(page, otp_sel, otp_val)
 
         if waited % 15 == 0:
             logger.info(f"Waiting for Liberator OTP confirmation... ({waited}s / {timeout_seconds}s) [URL: {page.url}]")
