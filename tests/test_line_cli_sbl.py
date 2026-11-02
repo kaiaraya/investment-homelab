@@ -64,9 +64,13 @@ def test_borrow_missing_args():
     assert isinstance(err, p.CliError)
     assert err.code == p.E_MISSING_ARG
 
-    err2 = p.parse("/borrow PTT")
-    assert isinstance(err2, p.CliError)
-    assert err2.code == p.E_MISSING_ARG
+
+def test_borrow_default_value_when_single_symbol():
+    order = p.parse("/borrow PTT")
+    assert isinstance(order, p.SblBorrowOrder)
+    assert order.symbol == "PTT"
+    assert order.amount_mode == "value"
+    assert order.target_value == 10000.0
 
 
 def test_borrow_bad_volume():
