@@ -537,22 +537,28 @@ async def _broker_modify(broker: str, *, order_no: str, new_price: float, symbol
 # /help
 # --------------------------------------------------------------------------- #
 _HELP_TEXT = (
-    "📖 คำสั่ง Homelab (KSS / LIB)\n"
-    "Pillar 1 · Session\n"
-    "  /status [kss|lib]        สถานะระบบ\n"
-    "  /login kss|lib|all [force]\n"
-    "    ไม่ใส่ force = เชื่อมกับแท็บที่เปิดอยู่ (zero-OTP)\n"
-    "    ใส่ force = เปิด browser ใหม่ + ขอ OTP\n"
-    "  /logout kss|lib|all      ตัดการเชื่อมต่อ (แท็บ daemon ยังเปิด)\n"
-    "Pillar 2 · Portfolio (Live CDP)\n"
-    "  /port [kss|lib|all]      หุ้นที่ถือ + P/L (สด)\n"
-    "  /cash [kss|lib|all]      เงินสด / กำลังซื้อ (สด)\n"
-    "  /orders [kss|lib|all]    ออเดอร์วันนี้ (สด)\n"
-    "Pillar 3 · Trade\n"
-    "  /nego kss|lib [SYM|เลขออเดอร์]  ต่อราคาไป Bid1/Offer1\n"
-    "  /negotiate <order_no>    ต่อราคา Quick Trade แก้ในที่ (ไม่ยกเลิก)\n"
+    "📖 คำสั่ง Homelab (15 คำสั่ง)\n"
+    "📱 Settrade Streaming (KSS) · พอร์ต & ต่อราคา\n"
+    "  /status [kss|lib|all]    สถานะระบบ & session\n"
+    "  /port [kss|lib|all]      หุ้นที่ถือ + P/L (สด CDP)\n"
+    "  /cash [kss|lib|all]      เงินสด / กำลังซื้อ (สด CDP)\n"
+    "  /orders [kss|lib|all]    ออเดอร์วันนี้ (สด CDP)\n"
+    "  /nego kss|lib|all [SYM|เลขออเดอร์]  ต่อราคาไป Bid1/Offer1 (รวม /nego all)\n"
+    "🔄 SBL Realtime (KSS) · ยืม/คืนหุ้น\n"
+    "  /sbl [sync]              รายการหุ้นยืม SBL ทั้งหมด\n"
+    "  /sbl pool <SYM>          ตรวจ pool หุ้นยืมที่พร้อมให้กู้\n"
+    "  /borrow <SYM> <VOL>      ขอยืมหุ้น SBL เข้าพอร์ต\n"
+    "  /return <SYM> [VOL|all]  คืนหุ้น SBL ที่ยืมไว้\n"
+    "📈 Liberator & ส่งคำสั่งเทรด\n"
+    "  /buy <SYM> <VOL> [PRICE]   ซื้อหุ้น (Lib Cash)\n"
+    "  /sell <SYM> <VOL> [PRICE]  ขายหุ้น (Lib Cash)\n"
+    "  /short <SYM> <VOL> [PRICE] ชอร์ตหุ้น (KSS Margin)\n"
+    "  /cover <SYM> <VOL> [PRICE] ซื้อคืนชอร์ต (KSS Margin)\n"
+    "🧮 เครื่องมือ & ความปลอดภัย\n"
+    "  /size <SYM>              คำนวณขนาดซื้อ 50k/75k/100k (alias /calc)\n"
+    "  /halt                    🚨 หยุดฉุกเฉิน (ยกเลิกทุกออเดอร์ + ปิดระบบเทรด)\n"
     "ฉุกเฉิน: PANIC · RESET · MODE\n"
-    "พิมพ์ /help nego เพื่อดูรายละเอียด"
+    "พิมพ์ /help nego หรือ /help size เพื่อดูวิธีใช้ละเอียด"
 )
 
 _HELP_NEGO = (
@@ -927,6 +933,9 @@ def _normalise_holdings(holdings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Broker-agnostic holding row — keeps the side plus the page's own P/L columns."""
     out = []
     for h in holdings or []:
+        vol = int(h.get("volume", 0) or 0)
+        if vol <= 0:
+            continue
         cost = float(h.get("avg_cost", 0.0) or 0.0)
         last = float(h.get("current_price") or h.get("market_price") or cost)
         ptype = _position_type(h.get("position_type"))

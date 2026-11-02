@@ -107,7 +107,69 @@ async def _run(service, text, *, db, **ev):
 async def test_help_lists_commands(service, db_session):
     res = await _run(service, "/help", db=db_session)
     assert res["status"] == "CLI_HELP"
-    assert "คำสั่ง Homelab" in service.last_text()
+    text = service.last_text()
+    assert "คำสั่ง Homelab" in text
+    # 15 active commands verified in help text
+    active_commands = [
+        "/status", "/port", "/cash", "/orders", "/nego",
+        "/sbl", "/borrow", "/return",
+        "/buy", "/sell", "/short", "/cover",
+        "/size", "/halt", "/help"
+    ]
+    for cmd in active_commands:
+        assert cmd in text, f"Missing {cmd} in _HELP_TEXT"
+
+    # Emergency halt warning
+    assert "ยกเลิกทุกออเดอร์" in text
+
+    # Retired / legacy commands omitted from help
+    assert "/login" not in text
+    assert "/logout" not in text
+    assert "/negotiate" not in text
+    assert "/quicktrade" not in text
+
+    # Verify documented invocations parse without CliError
+    from app.services.line_cli.parser import parse, CliError
+    documented_invocations = [
+        "/help", "/help nego", "/help size",
+        "/status", "/status kss", "/status lib", "/status all",
+        "/port", "/port kss", "/port lib", "/port all",
+        "/cash", "/cash kss", "/cash lib", "/cash all",
+        "/orders", "/orders kss", "/orders lib", "/orders all",
+        "/nego kss", "/nego lib", "/nego all",
+        "/nego kss PTT", "/nego lib PTT", "/nego all PTT",
+        "/sbl", "/sbl sync", "/sbl pool PTT",
+        "/borrow PTT 1000",
+        "/return PTT", "/return PTT 1000", "/return PTT all",
+        "/buy PTT 100", "/buy PTT 100 34.5",
+        "/sell PTT 100", "/sell PTT 100 35.0",
+        "/short PTT 100", "/short PTT 100 34.0",
+        "/cover PTT 100", "/cover PTT 100 33.5",
+        "/size PTT", "/calc PTT",
+        "/halt",
+    ]
+    for inv in documented_invocations:
+        p = parse(inv)
+        assert not isinstance(p, CliError), f"Documented invocation '{inv}' failed to parse: {p}"
+
+    # Regression: verify /nego requires broker
+    err = parse("/nego")
+    assert isinstance(err, CliError) and err.code == "E_BROKER_REQUIRED"
+    err_sym = parse("/nego PTT")
+    assert isinstance(err_sym, CliError) and err_sym.code == "E_BROKER_REQUIRED"
+
+
+def test_command_aliases_all_covered():
+    from app.services.line_cli.parser import COMMAND_ALIASES
+    active_canonical = {
+        "help", "status", "port", "cash", "orders", "nego",
+        "buy", "sell", "short", "cover",
+        "sbl", "borrow", "return", "size", "halt"
+    }
+    for alias, canonical in COMMAND_ALIASES.items():
+        if canonical in ("login", "logout", "negotiate", "quicktrade"):
+            continue
+        assert canonical in active_canonical, f"Unknown canonical {canonical} for alias {alias}"
 
 
 @pytest.mark.asyncio
@@ -1349,6 +1411,34 @@ def test_split_borrowed_is_empty_without_borrowed_rows():
 
     assert [r["symbol"] for r in main] == ["PTT"]
     assert borrowed == []
+
+
+def test_normalise_holdings_drops_zero_volume_non_borrowed():
+    """Verify non-BORROWED zero-volume holdings (e.g. Liberator sold position HUMAN) are dropped."""
+    from app.services.line_cli.handlers import (
+        _normalise_holdings,
+        _portfolio_amount,
+        _portfolio_totals,
+    )
+
+    raw_holdings = [
+        {"symbol": "BCPG", "volume": 7400, "avg_cost": 6.75, "current_price": 7.0},
+        {"symbol": "HUMAN", "volume": 0, "avg_cost": 10.0, "current_price": 9.5},
+        {"symbol": "MRDIYT", "volume": 5800, "avg_cost": 8.55, "current_price": 8.6},
+        {"symbol": "ZERO_NEG", "volume": -10, "avg_cost": 5.0, "current_price": 5.0},
+    ]
+    rows = _normalise_holdings(raw_holdings)
+    symbols = [r["symbol"] for r in rows]
+    assert symbols == ["BCPG", "MRDIYT"]
+    assert "HUMAN" not in symbols
+    assert "ZERO_NEG" not in symbols
+
+    # Assert _portfolio_amount and _portfolio_totals ignore the zero-volume rows
+    expected_amount = 7400 * 6.75 + 5800 * 8.55
+    expected_total = 7400 * 7.0 + 5800 * 8.6
+    assert _portfolio_amount(rows) == pytest.approx(expected_amount)
+    total, _ = _portfolio_totals(rows)
+    assert total == pytest.approx(expected_total)
 
 
 def test_port_card_keeps_long_symbol_with_suffix_unclipped():
