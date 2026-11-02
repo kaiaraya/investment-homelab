@@ -1048,3 +1048,119 @@ async def test_handle_sbl_pool_with_stale_cache_renders_hint(db_session):
         reply_card = service._send_reply.call_args[0][1]
         assert "ยังไม่มีข้อมูล — /sbl sync ก่อน" in reply_card.get("altText", "")
 
+
+
+# ── `all` volume resolve must never crash and never over-commit ────────────────
+
+
+def _ledger_patch(rows):
+    return patch(
+        "app.services.broker_cdp.sync_service.scrape_orders_from_cdp",
+        new_callable=AsyncMock,
+        return_value={"orders": rows},
+    )
+
+
+@pytest.mark.asyncio
+async def test_short_all_subtracts_volume_already_committed(db_session):
+    """`/short PTT all` = borrowed remaining − what is already on a SHORT order."""
+    from datetime import date
+    from app.db.models import BrokerAccount
+
+    db_session.add(BrokerAccount(
+        account_no="3024959", broker="KRUNGSRI", account_type="MARGIN",
+        line_available=500000.0, cash_balance=500000.0,
+    ))
+    db_session.add(SBLBorrowLot(
+        lot_id="SBL-ALL-1", broker_tx_id="TX_ALL_1", symbol="PTT",
+        borrow_qty=1000, remaining_qty=1000, borrow_price=34.0,
+        borrow_fee_rate=3.5, borrow_date=date.today(), status="ACTIVE",
+    ))
+    await db_session.commit()
+
+    order = parse("/short PTT all 34.00")
+    ledger = [{
+        "symbol": "PTT", "side": "Short", "volume": 400,
+        "matched_volume": 0, "status": "Queuing(O)",
+    }]
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk",
+               return_value={"is_blocked": False}), _ledger_patch(ledger):
+        chk = await _pre_trade_check(order, db_session)
+
+    assert chk["ok"] is True, chk
+    assert chk["resolved_volume"] == 600
+
+
+@pytest.mark.asyncio
+async def test_short_all_rejects_when_borrowed_shares_fully_committed(db_session):
+    """Second `/short all` must not double-short the same borrowed lot."""
+    from datetime import date
+    from app.db.models import BrokerAccount
+
+    db_session.add(BrokerAccount(
+        account_no="3024959", broker="KRUNGSRI", account_type="MARGIN",
+        line_available=500000.0, cash_balance=500000.0,
+    ))
+    db_session.add(SBLBorrowLot(
+        lot_id="SBL-ALL-2", broker_tx_id="TX_ALL_2", symbol="PTT",
+        borrow_qty=1000, remaining_qty=1000, borrow_price=34.0,
+        borrow_fee_rate=3.5, borrow_date=date.today(), status="ACTIVE",
+    ))
+    await db_session.commit()
+
+    order = parse("/short PTT all 34.00")
+    ledger = [{
+        "symbol": "PTT", "side": "Short", "volume": 1000,
+        "matched_volume": 0, "status": "Queuing(O)",
+    }]
+    with patch("app.brokers.krungsri.sbl_realtime_driver.krungsri_sbl_driver.check_symbol_risk",
+               return_value={"is_blocked": False}), _ledger_patch(ledger):
+        chk = await _pre_trade_check(order, db_session)
+
+    assert chk["ok"] is False
+    assert chk["code"] == "E_NO_UNSHORTED_SHARES"
+
+
+@pytest.mark.asyncio
+async def test_cover_all_reads_live_ledger_when_positions_table_is_stale(db_session):
+    """No Position row at all, but the broker ledger shows a filled short → allow."""
+    from app.db.models import BrokerAccount
+
+    db_session.add(BrokerAccount(
+        account_no="3024959", broker="KRUNGSRI", account_type="MARGIN",
+        line_available=500000.0, cash_balance=500000.0,
+    ))
+    await db_session.commit()
+
+    order = parse("/cover TIDLOR all 16.20")
+    ledger = [{
+        "symbol": "TIDLOR", "side": "Short", "volume": 3000,
+        "matched_volume": 3000, "status": "Matched(M)",
+    }]
+    with _ledger_patch(ledger):
+        chk = await _pre_trade_check(order, db_session)
+
+    assert chk["ok"] is True, chk
+    assert chk["resolved_volume"] == 3000
+
+
+@pytest.mark.asyncio
+async def test_cover_all_rejects_when_ledger_has_no_short(db_session):
+    from app.db.models import BrokerAccount
+
+    db_session.add(BrokerAccount(
+        account_no="3024959", broker="KRUNGSRI", account_type="MARGIN",
+        line_available=500000.0, cash_balance=500000.0,
+    ))
+    await db_session.commit()
+
+    order = parse("/cover BCPG all 6.70")
+    with _ledger_patch([]), patch(
+        "app.services.broker_cdp.sync_service.scrape_portfolio_from_cdp",
+        new_callable=AsyncMock,
+        return_value={"holdings": []},
+    ):
+        chk = await _pre_trade_check(order, db_session)
+
+    assert chk["ok"] is False
+    assert chk["code"] == "E_NO_SHORT_POSITION"

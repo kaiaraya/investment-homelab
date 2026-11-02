@@ -1668,6 +1668,74 @@ def _resolve_account_no(broker: str, account: str) -> Optional[str]:
     return None
 
 
+async def _kss_order_ledger() -> list:
+    """Live KSS order ledger straight from the Streaming CDP tab (fail-soft → []).
+
+    Used by the ``all`` volume resolve: the broker ledger is the only thing that
+    knows what has *actually* been filled, so ``all`` must be derived from it
+    rather than from our own draft rows.
+    """
+    try:
+        from app.services.broker_cdp.sync_service import scrape_orders_from_cdp
+
+        snap = await scrape_orders_from_cdp("kss")
+        return list(snap.get("orders") or [])
+    except Exception:
+        logger.warning("short-volume ledger read failed", exc_info=True)
+        return []
+
+
+async def _short_committed_volume(symbol: str) -> int:
+    """Shares of ``symbol`` already committed to SHORT orders (queued or filled)."""
+    total = 0
+    for row in await _kss_order_ledger():
+        if str(row.get("symbol") or "").upper() != symbol.upper():
+            continue
+        if "short" not in str(row.get("side") or "").lower():
+            continue
+        if "cancel" in str(row.get("status") or "").lower():
+            continue
+        total += int(row.get("volume") or 0)
+    return total
+
+
+async def _open_short_volume(broker: str, symbol: str) -> int:
+    """Net short position of ``symbol`` = filled SHORT − filled COVER (live ledger).
+
+    Falls back to the CDP portfolio scrape when the ledger is unreadable, so a
+    transient DOM hiccup degrades instead of silently reporting "no position".
+    """
+    ledger = await _kss_order_ledger()
+    if ledger:
+        short = cover = 0
+        for row in ledger:
+            if str(row.get("symbol") or "").upper() != symbol.upper():
+                continue
+            filled = int(row.get("matched_volume") or 0)
+            side = str(row.get("side") or "").lower()
+            if "short" in side:
+                short += filled
+            elif "cover" in side:
+                cover += filled
+        return max(short - cover, 0)
+
+    try:
+        from app.services.broker_cdp.sync_service import scrape_portfolio_from_cdp
+
+        snap = await scrape_portfolio_from_cdp(broker)
+        for pos in snap.get("holdings") or []:
+            if str(pos.get("symbol") or "").upper() != symbol.upper():
+                continue
+            qty = int(pos.get("volume") or pos.get("qty") or 0)
+            ptype = str(pos.get("position_type") or "").upper()
+            if ptype == "SHORT" or qty < 0:
+                return abs(qty)
+        return 0
+    except Exception:
+        logger.warning("short-position scrape failed for %s", symbol, exc_info=True)
+        return 0
+
+
 async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
     """Phase-B pre-trade guardrails — DB-backed, no live quote (code-only).
 
@@ -1727,10 +1795,20 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
     target_val = getattr(order, "target_value", None)
 
     if amount_mode == "all":
+        broker = order.broker
         if side == "short":
-            lots = sbl_repo.list_lots(symbol=symbol, broker=broker)
-            active_lots = [lot for lot in lots if lot.status in ("ACTIVE", "PARTIAL") and lot.remaining_qty > 0]
-            borrowed_vol = sum(lot.remaining_qty for lot in active_lots)
+            # Borrowed shares still sitting in the SBL box (DB) MINUS everything
+            # already committed to a SHORT order. Without the subtraction a second
+            # `/short <sym> all` would short the same borrowed lot twice.
+            res = await db.execute(
+                select(SBLBorrowLot).where(
+                    SBLBorrowLot.symbol == symbol,
+                    SBLBorrowLot.status.in_(("ACTIVE", "PARTIAL", "PARTIAL_RETURNED")),
+                    SBLBorrowLot.remaining_qty > 0,
+                )
+            )
+            active_lots = list(res.scalars().all())
+            borrowed_vol = sum(int(lot.remaining_qty or 0) for lot in active_lots)
             if borrowed_vol <= 0:
                 return {
                     "ok": False,
@@ -1738,18 +1816,25 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
                     "message": f"❌ ไม่พบหุ้นยืม SBL ของ {symbol} ที่สามารถ Short ได้ (มี 0 หุ้น) — กรุณายืมหุ้นก่อนด้วย /borrow {symbol} <จำนวน>",
                     "quick_reply": [f"/borrow {symbol} 1000", "/sbl"],
                 }
-            volume = borrowed_vol
+            committed = await _short_committed_volume(symbol)
+            volume = borrowed_vol - committed
+            if volume <= 0:
+                return {
+                    "ok": False,
+                    "code": "E_NO_UNSHORTED_SHARES",
+                    "message": (f"❌ หุ้นยืม {symbol} ถูกสั่ง Short ครบแล้ว "
+                                f"({committed:,}/{borrowed_vol:,} หุ้น) — ยกเลิกออเดอร์เดิมก่อน หรือยืมเพิ่ม"),
+                    "quick_reply": ["/orders kss sync", "/sbl"],
+                }
         elif side == "cover":
-            positions = await _scrape_positions(broker)
-            short_pos = next((p for p in positions if p.symbol.upper() == symbol and getattr(p, "position_type", "") == "SHORT"), None)
-            if not short_pos or short_pos.volume <= 0:
+            volume = await _open_short_volume(broker, symbol)
+            if volume <= 0:
                 return {
                     "ok": False,
                     "code": "E_NO_SHORT_POSITION",
                     "message": f"❌ ไม่พบสถานะ Short ของ {symbol} ในพอร์ต {broker.upper()} ที่จะ Cover ได้",
-                    "quick_reply": [f"/port {broker}"],
+                    "quick_reply": [f"/port {broker}", f"/orders {broker} sync"],
                 }
-            volume = short_pos.volume
         else:
             return {
                 "ok": False,
@@ -1817,6 +1902,11 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
         ))
         pos = res.scalar_one_or_none()
         held = int(getattr(pos, "volume", 0) or 0) if pos else 0
+        if held <= 0 and side == "cover":
+            # The positions table is a snapshot and can lag the broker by days.
+            # For covers the live order ledger outranks it: if the broker really
+            # has an open short, the DB being stale must not block the exit.
+            held = await _open_short_volume(order.broker, symbol)
         if held <= 0:
             return {"ok": False, "code": "E_NO_POSITION",
                     "message": f"ไม่พบ {symbol} ({wanted}) ในพอร์ตที่จะ{'ขาย' if side == 'sell' else 'ปิด short'}ได้"}
