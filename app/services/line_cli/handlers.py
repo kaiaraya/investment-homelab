@@ -2425,36 +2425,20 @@ async def _handle_sbl(
         await service._send_reply(reply_token, card)
         return {"status": "CLI_SBL_POOL", "symbol": parsed.symbol, "available_qty": avail_qty}
 
-    # /sbl (always sync live lots from SBL Real Time)
+    # /sbl — reconcile the local cache against the live MainSBL borrow ledger,
+    # then render. The old inline upsert silently died every time (it passed
+    # ``fee_rate=``/``borrow_date=str`` to a model that has neither), so the
+    # table had never once been synced and /sbl showed phantom lots.
     force_b = parsed.has("force_browser")
+    from app.services.sbl_ledger_service import reconcile_sbl_lots
     try:
-        scraped = await krungsri_sbl_driver.scrape_sbl_lots(force_refresh=True, force_browser=force_b)
-        for item in scraped or []:
-            sym = item.get("symbol")
-            if not sym:
-                continue
-            tx_id = str(item.get("broker_tx_id") or "")
-            res = await db.execute(select(SBLBorrowLot).where(SBLBorrowLot.symbol == sym, SBLBorrowLot.status == "ACTIVE"))
-            existing = res.scalars().first()
-            if existing:
-                existing.remaining_qty = int(item.get("remaining_qty") or existing.remaining_qty)
-            else:
-                clean_tx = tx_id.replace('/', '_') if tx_id else str(int(time.time()))
-                new_lot = SBLBorrowLot(
-                    lot_id=f"SBL-{sym}-{clean_tx}",
-                    broker_tx_id=tx_id or None,
-                    symbol=sym,
-                    borrow_qty=int(item.get("borrow_qty") or item.get("remaining_qty") or 0),
-                    remaining_qty=int(item.get("remaining_qty") or 0),
-                    fee_rate=float(item.get("fee_rate") or 3.50),
-                    borrow_date=str(item.get("borrow_date") or ""),
-                    status="ACTIVE"
-                )
-                db.add(new_lot)
-        await db.commit()
-        krungsri_sbl_driver.record_success()
+        reconcile = await reconcile_sbl_lots(db, force_browser=force_b)
+        if not reconcile.get("ok"):
+            logger.warning("SBL reconcile skipped: %s (%s)",
+                           reconcile.get("code"), reconcile.get("reason"))
     except Exception as e:
-        logger.error(f"Failed to sync SBL lots from CDP: {e}")
+        logger.error(f"Failed to reconcile SBL lots from broker ledger: {e}")
+        reconcile = {"ok": False, "code": "SBL_RECONCILE_ERROR"}
 
     # Read from DB
     res = await db.execute(
