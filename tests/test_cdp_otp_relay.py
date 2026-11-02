@@ -4,11 +4,14 @@ import asyncio
 
 import pytest
 
+from scripts.broker_cdp import otp_relay
 from scripts.broker_cdp.otp_relay import (
     OTP_SESSION_LOG_PATTERN,
     OtpMatch,
     check_line_otp_once,
 )
+
+VALID_UID = "U" + "a" * 32
 
 
 class _FakeRow:
@@ -96,3 +99,25 @@ def test_poll_is_watermarked_to_avoid_stale_otp(fake_session_factory):
     sql = str(captured["stmt"].compile(compile_kwargs={"literal_binds": True}))
     assert "session_logs.id > 4242" in sql, sql
     assert "LINE_OTP_RECEIVED" in sql
+
+
+def test_repair_line_uid_restores_malformed_value_from_env_file(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(f'LINE_ADMIN_USER_ID="{VALID_UID}"\n', encoding="utf-8")
+    monkeypatch.setattr(otp_relay, "_REPO_ROOT", str(tmp_path))
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "LINE_ADMIN_USER_ID", "U_OP", raising=False)
+    otp_relay._repair_line_uid()
+    assert settings.LINE_ADMIN_USER_ID == VALID_UID
+
+
+def test_repair_line_uid_leaves_valid_value_alone(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text('LINE_ADMIN_USER_ID="Udeadbeef"\n', encoding="utf-8")
+    monkeypatch.setattr(otp_relay, "_REPO_ROOT", str(tmp_path))
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "LINE_ADMIN_USER_ID", VALID_UID, raising=False)
+    otp_relay._repair_line_uid()
+    assert settings.LINE_ADMIN_USER_ID == VALID_UID

@@ -18,6 +18,7 @@ OTP form — the broker counts every wrong code as a failed attempt.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import Optional
@@ -33,6 +34,40 @@ logger = logging.getLogger(__name__)
 
 # Same single-source-of-truth regex as app/browser/auth_driver.py (LINE-RCA-002).
 OTP_SESSION_LOG_PATTERN = re.compile(r"Received[^:]*OTP[^:]*:\s*([0-9]{6})")
+
+# A real LINE userId is "U" + 32 hex chars. Anything else (e.g. the legacy
+# "U_OP" placeholder that keeps reappearing in shell snapshots) makes every
+# push fail with HTTP 400 and silently downgrades login to manual OTP.
+VALID_LINE_UID = re.compile(r"^U[0-9a-f]{32}$")
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _repair_line_uid() -> None:
+    """Self-heal a malformed LINE_ADMIN_USER_ID from <repo>/.env.
+
+    The env var beats .env in pydantic-settings, so one stale export disables
+    the relay for every process spawned afterwards — including the CDP daemon.
+    """
+    from app.core.config import settings
+
+    current = getattr(settings, "LINE_ADMIN_USER_ID", None) or ""
+    if VALID_LINE_UID.match(current):
+        return
+    candidate = ""
+    try:
+        from dotenv import dotenv_values
+
+        candidate = (dotenv_values(os.path.join(_REPO_ROOT, ".env")).get("LINE_ADMIN_USER_ID") or "").strip()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"[CDP OTP] could not read .env: {e}")
+    if VALID_LINE_UID.match(candidate):
+        os.environ["LINE_ADMIN_USER_ID"] = candidate
+        settings.LINE_ADMIN_USER_ID = candidate
+        logger.warning(
+            "[CDP OTP] LINE_ADMIN_USER_ID was malformed (len=%d) — restored the "
+            "valid id from .env; LINE relay re-enabled.",
+            len(current),
+        )
 
 
 @dataclass(frozen=True)
@@ -72,6 +107,7 @@ async def request_line_otp(
     simply keeps waiting for the manual (headed-browser) OTP.
     """
     try:
+        _repair_line_uid()
         from app.services.otp_relay_readiness import otp_relay_readiness
 
         readiness = await otp_relay_readiness.check()
