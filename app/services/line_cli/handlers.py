@@ -1723,6 +1723,9 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
                     "message": f"ราคาตลาดสดของ {symbol} ว่างเปล่า — กรุณาระบุราคาเอง"}
 
     # 0.2 Resolve effective volume (explicit shares or board-lot calculated from budget)
+    amount_mode = getattr(order, "amount_mode", "volume")
+    target_val = getattr(order, "target_value", None)
+
     if amount_mode == "all":
         if side == "short":
             lots = sbl_repo.list_lots(symbol=symbol, broker=broker)
@@ -2392,9 +2395,37 @@ async def _handle_sbl_borrow(
         await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
         return {"status": "CLI_KILL_SWITCH"}
 
-    if order.volume <= 0 or order.volume % 100 != 0:
-        await service._send_reply(reply_token, _text("❌ จำนวนหุ้นยืมต้องเป็นทวีคูณของ 100 หุ้น (Board Lot)"))
-        return {"status": "CLI_SBL_REJECTED", "reason": "bad_board_lot"}
+    amount_mode = getattr(order, "amount_mode", "volume")
+    target_val = getattr(order, "target_value", None)
+    volume = order.volume
+    quote_price: Optional[float] = None
+
+    if amount_mode == "value":
+        quote_price = await _broker_quote("kss", order.symbol)
+        if quote_price is None or quote_price <= 0:
+            await service._send_reply(
+                reply_token,
+                _text(f"❌ ไม่สามารถดึงราคาตลาดของ {order.symbol} จาก KSS เพื่อคำนวณจำนวนหุ้นที่ขอยืมได้"),
+                quick_reply=[f"/borrow {order.symbol} 1000", "/sbl"],
+            )
+            return {"status": "CLI_SBL_REJECTED", "reason": "no_quote"}
+        raw_shares = target_val / quote_price
+        volume = int(raw_shares // 100) * 100
+        if volume < 100:
+            min_thb = 100 * quote_price
+            await service._send_reply(
+                reply_token,
+                _text(
+                    f"❌ งบประมาณ ฿{target_val:,.2f} ไม่พอยืม {order.symbol} ขั้นต่ำ 1 board lot (100 หุ้น @ {quote_price:.2f} = ฿{min_thb:,.2f})"
+                ),
+                quick_reply=[f"/borrow {order.symbol} {int(min_thb + 99):,}b", "/sbl"],
+            )
+            return {"status": "CLI_SBL_REJECTED", "reason": "budget_too_low"}
+    else:
+        if volume <= 0 or volume % 100 != 0:
+            await service._send_reply(reply_token, _text("❌ จำนวนหุ้นยืมต้องเป็นทวีคูณของ 100 หุ้น (Board Lot)"))
+            return {"status": "CLI_SBL_REJECTED", "reason": "bad_board_lot"}
+        quote_price = await _broker_quote("kss", order.symbol)
 
     try:
         risk_res = await sbl_intelligence_service.check_xd_risk(order.symbol)
@@ -2414,20 +2445,24 @@ async def _handle_sbl_borrow(
         "draft_id": draft_id,
         "type": "sbl_borrow",
         "symbol": order.symbol,
-        "volume": order.volume,
+        "volume": volume,
         "fee_rate": 3.50,
         "broker": "kss",
         "account": "margin",
         "created_at": time.time(),
+        "budget_thb": target_val if amount_mode == "value" else None,
+        "last_price": quote_price,
     }
     _store_draft(draft)
 
     card = cards.sbl_borrow_confirm_card(
         draft_id=draft_id,
         symbol=order.symbol,
-        volume=order.volume,
+        volume=volume,
         fee_rate=3.50,
         xd_warning=None,
+        budget_thb=target_val if amount_mode == "value" else None,
+        last_price=quote_price,
     )
     await service._send_reply(reply_token, card)
     return {"status": "CLI_SBL_BORROW_DRAFTED", "draft_id": draft_id}

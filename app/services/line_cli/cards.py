@@ -902,15 +902,35 @@ def sbl_pool_card(
 
 
 def sbl_borrow_confirm_card(
-    *, draft_id: str, symbol: str, volume: int, fee_rate: float = 3.50, xd_warning: Optional[str] = None
+    *,
+    draft_id: str,
+    symbol: str,
+    volume: int,
+    fee_rate: float = 3.50,
+    xd_warning: Optional[str] = None,
+    budget_thb: Optional[float] = None,
+    last_price: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Confirmation card for SBL stock borrow."""
     body = [
         _kv("หุ้น", symbol),
         _kv("จำนวนขอยืม", f"{volume:,} หุ้น"),
-        _kv("อัตราดอกเบี้ย", f"{fee_rate:.2f}% ต่อปี", WARN),
-        _kv("บัญชี", "Krungsri MARGIN 3024959"),
     ]
+    if budget_thb is not None:
+        body.append(_kv("งบประมาณ", f"฿{float(budget_thb):,.2f}"))
+    if last_price is not None:
+        try:
+            last_price = float(last_price)
+        except (ValueError, TypeError):
+            last_price = None
+    if last_price is not None and last_price > 0:
+        est_val = volume * last_price
+        est_fee_day = (est_val * (fee_rate / 100.0)) / 365.0
+        body.append(_kv("มูลค่าหุ้นที่ยืม", f"฿{est_val:,.2f} (@{last_price:.2f})"))
+        body.append(_kv("อัตราดอกเบี้ย", f"{fee_rate:.2f}% ต่อปี (~฿{est_fee_day:.2f}/วัน)", WARN))
+    else:
+        body.append(_kv("อัตราดอกเบี้ย", f"{fee_rate:.2f}% ต่อปี", WARN))
+    body.append(_kv("บัญชี", "Krungsri MARGIN 3024959"))
     if xd_warning:
         body.append(_cell(f"⚠️ {xd_warning}", DOWN, wrap=True))
     body.append({"type": "separator", "margin": "md", "color": "#334155"},)
