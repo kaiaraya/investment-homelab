@@ -27,15 +27,20 @@
 
 | id | status | assignee | title |
 |---|---|---|---|
-| `t_1e4a05eb` | **done** | `default` | Witness live SBL borrow, short, and return cycle on KSS Margin 3024959 |
-| `t_99cc85d7` | **done** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
+| `t_69fed7ac` | **blocked** (T2 witness) | `default` | 🔴 T2 · ไม่มีคำสั่งยกเลิกออเดอร์ — เพิ่ม /cancel &lt;order_no&gt; (KSS + LIB) |
+| `t_fc086d6a` | **blocked** (T2 witness, depends `t_3046a05c`) | `default` | 🔴 T2 · SBL Realtime · /return live ยัง fail-closed |
+| `t_02c86227` | **blocked** (T2 witness) | `default` | 🔴 T2 · Streaming · /port kss ไม่เห็น Short position |
+| `t_effe2506` | **blocked** (T2 witness) | `default` | 🔴 T2 · Liberator · /sell + /nego lib ยังไม่เคย witness |
+| `t_7224ce87` | **ready** 🟢 T0 | `homelab-build` | รีเฟรช /help + sweep read-only /cash /port lib /size |
+| `t_f7e4c35a` | **ready** 🟢 T0 | `homelab-build` | vision_analyze อ่านภาพไม่ได้ (patch inlineData หาย) |
+| `t_3046a05c` | **done** | `default` | 🟡 T1 · SBL Realtime · กระทบยอด lot (broker ledger = truth) |
 | `t_0bd598ba` | **triage** | `homelab-build` | LINE image ingestion → data/screenshots/inbox + attach to referenced card |
-| `t_35e53825` | **done** | `homelab-build` | Fix auxiliary.vision so the agent can read screenshots (GEMINI_API_KEY + provider gemini) |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 
 | id | completed | title |
 |---|---|---|
+| `t_3046a05c` | 2026-11-02 15:20 | 🟡 T1 · SBL · reconcile lots กับ broker (created 4 / closed 4) |
 | `t_1e4a05eb` | 2026-11-02 14:40 | 🔴 T2 · Witness live SBL borrow & short cycle via LINE CLI |
 | `t_85a65a8a` | 2026-10-30 15:15 | 🟢 T0 · LINE CLI · Add handler round-trip tests for portfolio action buttons (car |
 | `t_c08412d2` | 2026-10-30 14:58 | 🟢 T0 · LINE CLI · พัฒนา Interactive Portfolio Card รวม 2 โบรกเกอร์ พร้อมปุ่มส่งค |
