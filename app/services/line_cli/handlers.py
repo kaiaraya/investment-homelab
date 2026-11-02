@@ -1757,7 +1757,17 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
                 "message": f"❌ คำสั่ง /{side} ไม่รองรับจำนวนแบบ 'all'",
             }
         if price is None:
-            quote_price = await _broker_quote(broker, symbol)
+            broker_key = "lib" if "lib" in (order.account or "").lower() else "kss"
+            quote_res = await _broker_quote(broker_key, symbol)
+            quote_price: Optional[float] = None
+            if isinstance(quote_res, dict) and quote_res.get("success"):
+                raw_p = quote_res.get("last") or quote_res.get("offer_1") or quote_res.get("bid_1")
+                try:
+                    quote_price = float(raw_p) if raw_p is not None else None
+                except (ValueError, TypeError):
+                    quote_price = None
+            elif isinstance(quote_res, (int, float)):
+                quote_price = float(quote_res)
             if quote_price is None or quote_price <= 0:
                 return {
                     "ok": False,
@@ -2400,8 +2410,17 @@ async def _handle_sbl_borrow(
     volume = order.volume
     quote_price: Optional[float] = None
 
+    quote_res = await _broker_quote("kss", order.symbol)
+    if isinstance(quote_res, dict) and quote_res.get("success"):
+        raw_p = quote_res.get("last") or quote_res.get("offer_1") or quote_res.get("bid_1")
+        try:
+            quote_price = float(raw_p) if raw_p is not None else None
+        except (ValueError, TypeError):
+            quote_price = None
+    elif isinstance(quote_res, (int, float)):
+        quote_price = float(quote_res)
+
     if amount_mode == "value":
-        quote_price = await _broker_quote("kss", order.symbol)
         if quote_price is None or quote_price <= 0:
             await service._send_reply(
                 reply_token,
@@ -2422,10 +2441,9 @@ async def _handle_sbl_borrow(
             )
             return {"status": "CLI_SBL_REJECTED", "reason": "budget_too_low"}
     else:
-        if volume <= 0 or volume % 100 != 0:
+        if not volume or volume <= 0 or volume % 100 != 0:
             await service._send_reply(reply_token, _text("❌ จำนวนหุ้นยืมต้องเป็นทวีคูณของ 100 หุ้น (Board Lot)"))
             return {"status": "CLI_SBL_REJECTED", "reason": "bad_board_lot"}
-        quote_price = await _broker_quote("kss", order.symbol)
 
     try:
         risk_res = await sbl_intelligence_service.check_xd_risk(order.symbol)
