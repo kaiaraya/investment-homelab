@@ -649,18 +649,19 @@ async def _seed_order(db, order_id="ORD-1", symbol="PTT", side="BUY", volume=100
 
 
 @pytest.mark.asyncio
-async def test_port_default_reads_db_snapshot(service, db_session):
-    await _seed_position(db_session, "PTT", volume=1000, avg_cost=13.20, current_price=13.50)
+async def test_port_default_always_syncs_live(service, db_session):
     res = await _run(service, "/port kss", db=db_session)
-    assert res["status"] == "CLI_PORT" and res["count"] == 1
-    assert service.replies[0]["type"] == "flex"
+    assert res["status"] == "CLI_SYNC"
+    assert "กำลังดึงข้อมูลสด" in service.last_text()
+    assert service.pushes and service.pushes[0][1] == "U_OP"
 
 
 @pytest.mark.asyncio
-async def test_port_without_snapshot_is_honest(service, db_session):
+async def test_port_refuses_when_session_down(service, db_session, monkeypatch):
+    monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
     res = await _run(service, "/port kss", db=db_session)
-    assert res["status"] == "CLI_NO_DATA"
-    assert "ยังไม่มี snapshot" in service.last_text()
+    assert res["status"] == "CLI_SESSION_DOWN"
+    assert "session หลุด" in service.last_text()          # Invariant 7 — no auto-login
 
 
 @pytest.mark.asyncio
@@ -698,19 +699,17 @@ async def test_orders_sync_does_not_persist_portfolio(service, db_session, monke
 
 
 @pytest.mark.asyncio
-async def test_orders_default_reads_db_ledger(service, db_session):
-    await _seed_order(db_session, "ORD-1", symbol="PTT", status="OPEN")
-    await _seed_order(db_session, "ORD-2", symbol="AOT", status="MATCHED")
+async def test_orders_default_always_syncs_live(service, db_session):
     res = await _run(service, "/orders kss", db=db_session)
-    assert res["status"] == "CLI_ORDERS" and res["count"] == 2
-    assert service.replies[0]["type"] == "flex"
+    assert res["status"] == "CLI_SYNC"
+    assert "กำลังดึงข้อมูลสด" in service.last_text()
 
 
 @pytest.mark.asyncio
-async def test_cash_without_snapshot_is_honest(service, db_session):
+async def test_cash_default_always_syncs_live(service, db_session):
     res = await _run(service, "/cash lib", db=db_session)
-    assert res["status"] == "CLI_NO_DATA"
-    assert "sync" in service.last_text()
+    assert res["status"] == "CLI_SYNC"
+    assert "กำลังดึงข้อมูลสด" in service.last_text()
 
 
 @pytest.mark.asyncio

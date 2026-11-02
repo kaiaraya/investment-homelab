@@ -992,7 +992,7 @@ def carousel(bubbles: List[Dict[str, Any]], alt: str) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # /nego menu (ต่อราคา — N3 postback flow)
 # --------------------------------------------------------------------------- #
-def nego_menu_card(*, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
+def nego_menu_card(*, orders: List[Dict[str, Any]], title: Optional[str] = None) -> Dict[str, Any]:
     """Carousel of unmatched open orders across both brokers; each bubble carries
     the 🎯 match / 🪤 lure mode buttons whose postback payloads identify the order."""
     bubbles: List[Dict[str, Any]] = []
@@ -1009,13 +1009,21 @@ def nego_menu_card(*, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
             _kv("ออเดอร์", f"#{order_no}"),
             _kv("ราคาเดิม", f"฿{float(o.get('price', 0.0) or 0.0):.2f}"),
             _kv("ค้าง", f"{int(o.get('balance', 0) or 0):,} / {int(o.get('volume', 0) or 0):,} หุ้น"),
-            _cell("🎯 match — ข้าม spread ชน best offer/bid ทันที", MUTED, size="xxs", wrap=True),
-            _cell("🪤 lure — ต่อท้ายคิวที่ราคาฝั่งตัวเอง (ไม่ match)", MUTED, size="xxs", wrap=True),
         ]
-        footer = [
-            _postback_button("🎯 Match", mode_match, f"🎯 ต่อราคา {side} {o.get('symbol','')} แบบ match", UP),
-            _postback_button("🪤 ล่อ", mode_lure, f"🪤 ต่อราคา {side} {o.get('symbol','')} แบบ lure", WARN),
-        ]
+        if side == "SHORT":
+            body.append(_cell("🪤 lure — ต่อท้ายคิวที่ราคาฝั่งตัวเอง (Short ต่อราคาแบบล่อเท่านั้น)", MUTED, size="xxs", wrap=True))
+            footer = [
+                _postback_button("🪤 ล่อ", mode_lure, f"🪤 ต่อราคา {side} {o.get('symbol','')} แบบ lure", WARN),
+            ]
+        else:
+            body.extend([
+                _cell("🎯 match — ข้าม spread ชน best offer/bid ทันที", MUTED, size="xxs", wrap=True),
+                _cell("🪤 lure — ต่อท้ายคิวที่ราคาฝั่งตัวเอง (ไม่ match)", MUTED, size="xxs", wrap=True),
+            ])
+            footer = [
+                _postback_button("🎯 Match", mode_match, f"🎯 ต่อราคา {side} {o.get('symbol','')} แบบ match", UP),
+                _postback_button("🪤 ล่อ", mode_lure, f"🪤 ต่อราคา {side} {o.get('symbol','')} แบบ lure", WARN),
+            ]
         bubbles.append(_bubble(
             title=f"{side} {o.get('symbol','')}",
             badge=f"{broker_label}",
@@ -1023,7 +1031,23 @@ def nego_menu_card(*, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
             body=body, footer=footer,
         ))
 
-    return carousel(bubbles, f"⚡ ต่อราคา — {len(orders)} ออเดอร์ค้าง")
+    alt = title or f"⚡ ต่อราคา — {len(orders)} ออเดอร์ค้าง"
+    return carousel(bubbles, alt)
+
+
+def nego_empty_card(*, broker: str) -> Dict[str, Any]:
+    """Single bubble indicating no open orders for a specific broker."""
+    broker_label = _BROKER_LABEL.get(broker.lower(), broker.upper())
+    bubble = _bubble(
+        title=f"⚡ ต่อราคา {broker_label}",
+        badge=broker_label,
+        badge_bg="#64748b",
+        body=[
+            _cell(f"ไม่มีออเดอร์ค้างใน {broker_label} ขณะนี้", MUTED, align="center", size="sm"),
+            _cell("คำสั่งจับคู่ครบแล้ว หรือไม่มีคำสั่งเปิดรออยู่", MUTED, align="center", size="xxs"),
+        ],
+    )
+    return _flex(f"⚡ ต่อราคา {broker_label} — ไม่มีออเดอร์ค้าง", bubble)
 
 
 def nego_draft_card(

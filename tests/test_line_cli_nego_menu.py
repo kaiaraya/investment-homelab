@@ -109,6 +109,8 @@ async def test_nego_mode_bad_postback(monkeypatch):
 @pytest.mark.asyncio
 async def test_nego_confirm_dry_run(monkeypatch):
     monkeypatch.setattr(mc, "is_nego_window", lambda now=None: True)
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "DRY_RUN_MODE", True)
     H._store_draft({
         "draft_id": "DRAFT-X", "created_at": time.time(),
         "broker": "kss", "order_no": "12345", "symbol": "PTT", "side": "BUY",
@@ -148,3 +150,41 @@ async def test_nego_cancel(monkeypatch):
     })
     assert (await _call("nego_cancel", draft_id="DRAFT-Z"))["status"] == "NEGO_CANCELLED"
     assert "DRAFT-Z" not in H._DRAFTS
+
+
+def test_short_order_card_only_has_lure_button():
+    from app.services.line_cli import cards
+    c = cards.nego_menu_card(orders=[{
+        "broker": "kss", "order_no": "11007385", "symbol": "PTT", "side": "SHORT",
+        "price": 42.0, "balance": 1000, "volume": 1000, "status": "OPEN",
+    }])
+    buttons = c["contents"]["contents"][0]["footer"]["contents"]
+    assert len(buttons) == 1
+    assert buttons[0]["action"]["label"] == "🪤 ล่อ"
+
+
+def test_buy_order_card_has_both_match_and_lure_buttons():
+    from app.services.line_cli import cards
+    c = cards.nego_menu_card(orders=[{
+        "broker": "kss", "order_no": "11007385", "symbol": "PTT", "side": "BUY",
+        "price": 42.0, "balance": 1000, "volume": 1000, "status": "OPEN",
+    }])
+    buttons = c["contents"]["contents"][0]["footer"]["contents"]
+    assert len(buttons) == 2
+    labels = [b["action"]["label"] for b in buttons]
+    assert "🎯 Match" in labels
+    assert "🪤 ล่อ" in labels
+
+
+@pytest.mark.asyncio
+async def test_short_nego_mode_match_refused_guard(monkeypatch):
+    monkeypatch.setattr(mc, "is_nego_window", lambda now=None: True)
+    monkeypatch.setattr(sync, "scrape_orders_from_cdp", AsyncMock(return_value={
+        "broker": "KRUNGSRI", "account_no": "3024959", "orders": [{
+            "broker_order_no": "11007385", "side": "SHORT", "symbol": "PTT",
+            "price": 42.0, "volume": 1000, "balance": 1000, "status": "OPEN",
+        }]
+    }))
+    res = await _call("nego_mode", broker="kss", order_no="11007385", mode="match")
+    assert res["status"] == "NEGO_SHORT_MATCH_NOT_ALLOWED"
+

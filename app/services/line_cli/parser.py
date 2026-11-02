@@ -104,6 +104,8 @@ class SblBorrowOrder:
     symbol: str = ""
     volume: int = 0
     broker: str = "kss"
+    amount_mode: str = "volume"  # 'volume' | 'value'
+    target_value: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -486,10 +488,14 @@ def _parse_trade(side: str, rest: List[str]) -> ParseResult:
     if not _SYMBOL_RE.match(symbol):
         return _bad_symbol(side, symbol_tok)
 
-    amt_parsed = _parse_amount(amount_tok)
-    if amt_parsed is None:
-        return _bad_volume(side, amount_tok)
-    mode, val = amt_parsed
+    amt_parsed = None
+    if amount_tok.lower() == "all" and side in ("short", "cover"):
+        mode, val = "all", 0.0
+    else:
+        amt_parsed = _parse_amount(amount_tok)
+        if amt_parsed is None:
+            return _bad_volume(side, amount_tok)
+        mode, val = amt_parsed
 
     if price_tok is not None:
         if not _PRICE_RE.match(price_tok):
@@ -671,12 +677,12 @@ def _parse_sbl(rest: List[str]) -> ParseResult:
 
 
 def _parse_borrow(rest: List[str]) -> ParseResult:
-    """Parse ``/borrow [broker] <symbol> <volume>``."""
+    """Parse ``/borrow [broker] <symbol> <volume|amount>``."""
     if not rest:
         return CliError(
             code=E_MISSING_ARG,
-            message="❓ คำสั่ง /borrow ต้องการระบุ: ชื่อหุ้น และ จำนวนหุ้นที่ต้องการยืม",
-            hint="ตัวอย่าง: /borrow PTT 1000",
+            message="❓ คำสั่ง /borrow ต้องการระบุ: ชื่อหุ้น และ จำนวนหุ้น/เงิน ที่ต้องการยืม",
+            hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
             quick_reply=["/sbl"],
         )
     b = BROKER_ALIASES.get(rest[0].lower())
@@ -684,35 +690,47 @@ def _parse_borrow(rest: List[str]) -> ParseResult:
         return CliError(
             code=E_BAD_BROKER,
             message="❌ บริการ SBL (ยืม/คืนหุ้น) รองรับเฉพาะโบรกเกอร์ Krungsri (บัญชี Credit Balance Margin 3024959) เท่านั้น",
-            hint="ตัวอย่าง: /borrow PTT 1000",
+            hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
             quick_reply=["/sbl"],
         )
     elif b == "kss":
         rest = rest[1:]
 
+    rest = _normalize_trade_tokens(rest)
     if len(rest) < 2:
         return CliError(
             code=E_MISSING_ARG,
-            message="❓ คำสั่ง /borrow ต้องการระบุ: ชื่อหุ้น และ จำนวนหุ้นที่ต้องการยืม",
-            hint="ตัวอย่าง: /borrow PTT 1000",
+            message="❓ คำสั่ง /borrow ต้องการระบุ: ชื่อหุ้น และ จำนวนหุ้น/เงิน ที่ต้องการยืม",
+            hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
             quick_reply=["/sbl"],
         )
-    sym_tok, vol_tok = rest[0].upper(), rest[1].replace(",", "").strip()
+    sym_tok, amount_tok = rest[0].upper(), rest[1].strip()
     if not _SYMBOL_RE.match(sym_tok):
         return CliError(
             code=E_BAD_SYMBOL,
             message=f'❓ ชื่อหุ้น "{rest[0]}" ไม่ถูกต้อง',
-            hint="ตัวอย่าง: /borrow PTT 1000",
+            hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
             quick_reply=["/sbl"],
         )
-    if not _VOLUME_RE.match(vol_tok) or int(vol_tok) <= 0:
+    amt_parsed = _parse_amount(amount_tok)
+    if amt_parsed is None:
         return CliError(
             code=E_BAD_VOLUME,
-            message=f'❓ จำนวนหุ้น "{rest[1]}" ต้องเป็นเลขจำนวนเต็มบวก',
-            hint="ตัวอย่าง: /borrow PTT 1000",
+            message=f'❓ จำนวนหุ้นหรือจำนวนเงิน "{rest[1]}" ไม่ถูกต้อง',
+            hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
             quick_reply=["/sbl"],
         )
-    return SblBorrowOrder(cmd="borrow", symbol=sym_tok, volume=int(vol_tok), broker="kss")
+    mode, val = amt_parsed
+    vol = int(val) if mode == "volume" else 0
+    target_val = val if mode == "value" else None
+    return SblBorrowOrder(
+        cmd="borrow",
+        symbol=sym_tok,
+        volume=vol,
+        broker="kss",
+        amount_mode=mode,
+        target_value=target_val,
+    )
 
 
 def _parse_return(rest: List[str]) -> ParseResult:

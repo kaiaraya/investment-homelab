@@ -28,9 +28,9 @@
 | id | status | assignee | title |
 |---|---|---|---|
 | `t_1e4a05eb` | **triage** | `default` | Witness live SBL borrow, short, and return cycle on KSS Margin 3024959 |
-| `t_99cc85d7` | **triage** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
+| `t_99cc85d7` | **done** | `default` | [ตลาดเปิด] 🔴 T2 · N6: HITL witness ต่อราคาผ่าน Rich Menu ในตลาด |
 | `t_0bd598ba` | **triage** | `homelab-build` | LINE image ingestion → data/screenshots/inbox + attach to referenced card |
-| `t_35e53825` | **triage** | `homelab-build` | Fix auxiliary.vision so the agent can read screenshots (GEMINI_API_KEY + provider gemini) |
+| `t_35e53825` | **done** | `homelab-build` | Fix auxiliary.vision so the agent can read screenshots (GEMINI_API_KEY + provider gemini) |
 
 ## ✅ ปิดล่าสุด 10 ใบ
 

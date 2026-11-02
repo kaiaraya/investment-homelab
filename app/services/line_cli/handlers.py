@@ -544,10 +544,10 @@ _HELP_TEXT = (
     "    ไม่ใส่ force = เชื่อมกับแท็บที่เปิดอยู่ (zero-OTP)\n"
     "    ใส่ force = เปิด browser ใหม่ + ขอ OTP\n"
     "  /logout kss|lib|all      ตัดการเชื่อมต่อ (แท็บ daemon ยังเปิด)\n"
-    "Pillar 2 · Portfolio\n"
-    "  /port [kss|lib] [sync]   หุ้นที่ถือ + P/L\n"
-    "  /cash [kss|lib] [sync]   เงินสด / กำลังซื้อ\n"
-    "  /orders [kss|lib] [sync] ออเดอร์วันนี้\n"
+    "Pillar 2 · Portfolio (Live CDP)\n"
+    "  /port [kss|lib|all]      หุ้นที่ถือ + P/L (สด)\n"
+    "  /cash [kss|lib|all]      เงินสด / กำลังซื้อ (สด)\n"
+    "  /orders [kss|lib|all]    ออเดอร์วันนี้ (สด)\n"
     "Pillar 3 · Trade\n"
     "  /nego kss|lib [SYM|เลขออเดอร์]  ต่อราคาไป Bid1/Offer1\n"
     "  /negotiate <order_no>    ต่อราคา Quick Trade แก้ในที่ (ไม่ยกเลิก)\n"
@@ -892,65 +892,8 @@ async def _handle_logout(parsed: CliCommand, service: Any, reply_token: Optional
 
 
 # --------------------------------------------------------------------------- #
-# Pillar 2 reads — DB snapshot (default) + live sync
+# Pillar 2 reads — live CDP sync
 # --------------------------------------------------------------------------- #
-async def _read_db_positions(db: Any) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    """Local ``positions`` snapshot (broker-agnostic homelab ledger)."""
-    from app.db.models import Position, BrokerAccount
-    res = await db.execute(
-        select(Position, BrokerAccount.broker)
-        .outerjoin(BrokerAccount, Position.account_no == BrokerAccount.account_no)
-        .where(Position.volume > 0)
-    )
-    rows: List[Dict[str, Any]] = []
-    latest = None
-    for p, b_broker in res.all():
-        cost = float(p.avg_cost or 0.0)
-        last = float(p.current_price if p.current_price is not None else cost)
-        ptype = _position_type(getattr(p, "position_type", None))
-        resolved_broker = str(b_broker or getattr(p, "broker", None) or "").strip().lower()
-        if not resolved_broker and ptype in ("SHORT", "BORROWED"):
-            resolved_broker = "kss"
-        rows.append({"symbol": p.symbol, "position_type": ptype, "volume": int(p.volume or 0),
-                     "cost": cost, "last": last, "pnl_pct": _holding_pnl_pct(ptype, cost, last),
-                     "unrealized_pnl": None, "market_value": None, "broker": resolved_broker})
-        if p.updated_at and (latest is None or p.updated_at > latest):
-            latest = p.updated_at
-    rows.sort(key=lambda r: r["volume"] * r["last"], reverse=True)
-    return rows, (latest.isoformat() if latest else None)
-
-
-async def _read_db_orders(db: Any) -> Tuple[List[Dict[str, Any]], int, int, Optional[str]]:
-    """Local ``orders`` ledger snapshot."""
-    from app.db.models import Order
-    res = await db.execute(select(Order).order_by(Order.created_at.desc()))
-    rows: List[Dict[str, Any]] = []
-    open_count = 0
-    latest = None
-    for o in res.scalars().all():
-        st = str(o.status or "").upper()
-        if any(k in st for k in ("MATCH", "FILL", "COMPLETE", "DONE")):
-            kind = "matched"
-        elif "CANCEL" in st:
-            kind = "cancelled"
-        elif any(k in st for k in ("REJECT", "FAIL", "ERROR")):
-            kind = "rejected"
-        elif "PARTIAL" in st:
-            kind = "partial"
-        elif any(k in st for k in ("OPEN", "QUEUE", "PENDING", "SENT", "NEW", "WORKING", "SUBMITTED")):
-            kind = "open"
-        else:
-            kind = "unknown"
-        if kind in ("open", "partial"):
-            open_count += 1
-        rows.append({"kind": kind, "side": str(o.side or "").upper(), "symbol": str(o.symbol or "").upper(),
-                     "volume": int(o.volume or 0), "price": float(o.price or 0.0),
-                     "balance": int(o.volume or 0) if kind in ("open", "partial") else 0, "status": st})
-        if o.updated_at and (latest is None or o.updated_at > latest):
-            latest = o.updated_at
-    return rows, open_count, len(rows), (latest.isoformat() if latest else None)
-
-
 _POSITION_TYPES = ("LONG", "SHORT", "BORROWED", "UNKNOWN")
 
 
@@ -1222,100 +1165,12 @@ async def _live_card(kind: str, broker: str) -> Dict[str, Any]:
 async def _handle_read(
     parsed: CliCommand, service: Any, reply_token: Optional[str], push_target: Optional[str], db: Any
 ) -> Dict[str, Any]:
-    """``/port`` / ``/cash`` / ``/orders`` — DB snapshot by default, ``sync`` = live."""
+    """``/port`` / ``/cash`` / ``/orders`` — always live scrape from broker CDP."""
     kind = parsed.cmd
     brokers: List[str] = ["kss", "lib"] if parsed.broker == "all" else ([str(parsed.broker)] if parsed.broker else ["kss"])
     label = _broker_label(parsed.broker)
 
-    if not parsed.has("sync"):
-        if kind == "port":
-            rows, ts = await _read_db_positions(db)
-            if not rows:
-                await service._send_reply(reply_token, _text(f"ℹ️ ยังไม่มี snapshot — ใช้ /port {parsed.broker} sync"))
-                return {"status": "CLI_NO_DATA"}
-            if parsed.broker == "all":
-                brokers_data = []
-                for b in ("kss", "lib"):
-                    b_rows = [r for r in rows if (r.get("broker") or "").lower() == b]
-                    b_main, b_borrowed = _split_borrowed(b_rows)
-                    if b != "kss":
-                        b_borrowed = []
-                    b_tot, b_pnl = _portfolio_totals(b_rows)
-                    b_base = b_tot - b_pnl
-                    b_pct = (b_pnl / b_base * 100.0) if b_base else 0.0
-                    b_amt = _portfolio_amount(b_rows)
-                    acct = "MARGIN" if b == "kss" else "CASH"
-                    brokers_data.append({
-                        "broker": b,
-                        "account": f"DB snapshot · {acct}",
-                        "amount": b_amt,
-                        "pnl_value": b_pnl,
-                        "pnl_pct": b_pct,
-                        "rows": b_main,
-                        "borrowed": b_borrowed,
-                    })
-                unresolved_rows = [r for r in rows if (r.get("broker") or "").lower() not in ("kss", "lib")]
-                if unresolved_rows:
-                    u_main, u_borrowed = _split_borrowed(unresolved_rows)
-                    u_tot, u_pnl = _portfolio_totals(unresolved_rows)
-                    u_base = u_tot - u_pnl
-                    u_pct = (u_pnl / u_base * 100.0) if u_base else 0.0
-                    u_amt = _portfolio_amount(unresolved_rows)
-                    brokers_data.append({
-                        "broker": "unresolved",
-                        "account": "DB snapshot · ไม่ระบุโบรกเกอร์",
-                        "amount": u_amt,
-                        "pnl_value": u_pnl,
-                        "pnl_pct": u_pct,
-                        "rows": u_main,
-                        "borrowed": u_borrowed,
-                        "actionable": False,
-                    })
-                card = cards.portfolio_multi_broker_card(
-                    brokers_data=brokers_data,
-                    snapshot_label=_fmt_hhmm(ts),
-                    stale=_is_stale(ts),
-                    live=False,
-                )
-                await service._send_reply(reply_token, card)
-                return {"status": "CLI_PORT", "count": len(rows)}
-            target_b = str(parsed.broker or "").lower()
-            if target_b in ("kss", "lib"):
-                b_rows = [r for r in rows if str(r.get("broker") or "").lower() == target_b]
-                is_actionable = True
-            elif target_b == "unresolved":
-                b_rows = [r for r in rows if str(r.get("broker") or "").lower() not in ("kss", "lib")]
-                is_actionable = False
-            else:
-                b_rows = [r for r in rows if str(r.get("broker") or "").lower() == target_b]
-                is_actionable = False
-            total, pnl = _portfolio_totals(b_rows)
-            base = total - pnl
-            main_rows, borrowed = _split_borrowed(b_rows)
-            if _broker_platform(parsed.broker) not in ("KRUNGSRI", "TRADEMAN"):
-                borrowed = []          # broker isolation: LIB has no (B) section
-            card = cards.port_card(broker=label, account="DB snapshot",
-                                   amount=_portfolio_amount(b_rows), pnl_value=pnl,
-                                   pnl_pct=(pnl / base * 100.0 if base else 0.0), rows=main_rows,
-                                   borrowed=borrowed,
-                                   snapshot_label=_fmt_hhmm(ts), stale=_is_stale(ts), live=False,
-                                   actionable=is_actionable)
-            await service._send_reply(reply_token, card)
-            return {"status": "CLI_PORT", "count": len(b_rows)}
-        if kind == "orders":
-            rows, open_count, total, ts = await _read_db_orders(db)
-            if not rows:
-                await service._send_reply(reply_token, _text(f"ℹ️ ยังไม่มีออเดอร์ในระบบ — ใช้ /orders {parsed.broker} sync"))
-                return {"status": "CLI_NO_DATA"}
-            card = cards.orders_card(broker=label, total=total, open_count=open_count, rows=rows[:10],
-                                     snapshot_label=_fmt_hhmm(ts), live=False, show_nego=True)
-            await service._send_reply(reply_token, card)
-            return {"status": "CLI_ORDERS", "count": total}
-        # cash has no local snapshot table
-        await service._send_reply(reply_token, _text(f"ℹ️ ยังไม่มี snapshot เงินสด — ใช้ /cash {parsed.broker} sync"))
-        return {"status": "CLI_NO_DATA"}
-
-    # sync = live scrape; session must already be alive (Invariant 7 — never auto-login)
+    # Live scrape; session must already be alive (Invariant 7 — never auto-login)
     key = (kind, parsed.broker or "-")
     lock = _lock_for(*key)
     if lock.locked():
@@ -1868,7 +1723,47 @@ async def _pre_trade_check(order: TradeOrder, db: Any) -> Dict[str, Any]:
                     "message": f"ราคาตลาดสดของ {symbol} ว่างเปล่า — กรุณาระบุราคาเอง"}
 
     # 0.2 Resolve effective volume (explicit shares or board-lot calculated from budget)
-    if order.amount_mode == "value":
+    if amount_mode == "all":
+        if side == "short":
+            lots = sbl_repo.list_lots(symbol=symbol, broker=broker)
+            active_lots = [lot for lot in lots if lot.status in ("ACTIVE", "PARTIAL") and lot.remaining_qty > 0]
+            borrowed_vol = sum(lot.remaining_qty for lot in active_lots)
+            if borrowed_vol <= 0:
+                return {
+                    "ok": False,
+                    "code": "E_NO_BORROWED_SHARES",
+                    "message": f"❌ ไม่พบหุ้นยืม SBL ของ {symbol} ที่สามารถ Short ได้ (มี 0 หุ้น) — กรุณายืมหุ้นก่อนด้วย /borrow {symbol} <จำนวน>",
+                    "quick_reply": [f"/borrow {symbol} 1000", "/sbl"],
+                }
+            volume = borrowed_vol
+        elif side == "cover":
+            positions = await _scrape_positions(broker)
+            short_pos = next((p for p in positions if p.symbol.upper() == symbol and getattr(p, "position_type", "") == "SHORT"), None)
+            if not short_pos or short_pos.volume <= 0:
+                return {
+                    "ok": False,
+                    "code": "E_NO_SHORT_POSITION",
+                    "message": f"❌ ไม่พบสถานะ Short ของ {symbol} ในพอร์ต {broker.upper()} ที่จะ Cover ได้",
+                    "quick_reply": [f"/port {broker}"],
+                }
+            volume = short_pos.volume
+        else:
+            return {
+                "ok": False,
+                "code": "E_BAD_VOLUME",
+                "message": f"❌ คำสั่ง /{side} ไม่รองรับจำนวนแบบ 'all'",
+            }
+        if price is None:
+            quote_price = await _broker_quote(broker, symbol)
+            if quote_price is None or quote_price <= 0:
+                return {
+                    "ok": False,
+                    "code": "E_NO_QUOTE",
+                    "message": f"❌ ไม่สามารถดึงราคาตลาดของ {symbol} ได้ กรุณาระบุราคา เช่น /{side} {symbol} all 35.00",
+                    "quick_reply": [f"/{side} {symbol} all"],
+                }
+            price = quote_price
+    elif amount_mode == "value":
         target_val = float(order.target_value or 0.0)
         shares = int(((target_val / price) + 1e-9) // 100) * 100
         if shares < 100:
@@ -2070,7 +1965,25 @@ async def _handle_nego_postback(
             await _send_or_push(service, reply_token, push_target,
                                 _text("ℹ️ ไม่มีออเดอร์ค้าง (ยังไม่ match) ให้ต่อราคา — ลอง /orders all sync"))
             return {"status": "NEGO_MENU_EMPTY"}
-        await service._send_reply(reply_token, cards.nego_menu_card(orders=orders))
+
+        kss_orders = [o for o in orders if str(o.get("broker", "")).lower() == "kss"]
+        lib_orders = [o for o in orders if str(o.get("broker", "")).lower() == "lib"]
+
+        menu_cards: List[Dict[str, Any]] = []
+        if kss_orders:
+            menu_cards.append(cards.nego_menu_card(orders=kss_orders, title=f"⚡ ต่อราคา KSS ({len(kss_orders)} คำสั่ง)"))
+        else:
+            menu_cards.append(cards.nego_empty_card(broker="kss"))
+
+        if lib_orders:
+            menu_cards.append(cards.nego_menu_card(orders=lib_orders, title=f"⚡ ต่อราคา Liberator ({len(lib_orders)} คำสั่ง)"))
+        else:
+            menu_cards.append(cards.nego_empty_card(broker="lib"))
+
+        if reply_token and hasattr(service, "_send_reply"):
+            await service._send_reply(reply_token, menu_cards)
+        else:
+            await _send_or_push(service, reply_token, push_target, menu_cards)
         return {"status": "NEGO_MENU_DISPLAYED", "count": len(orders)}
 
     if action == "nego_mode":
@@ -2109,6 +2022,11 @@ async def _handle_nego_postback(
             await _send_or_push(service, reply_token, push_target,
                                 _text(f"❌ อ่านข้อมูลออเดอร์ #{order_no} ไม่ครบ — ไม่ต่อราคา (fail-closed)"))
             return {"status": "NEGO_ORDER_UNREADABLE"}
+
+        if side == "SHORT" and mode == "match":
+            await _send_or_push(service, reply_token, push_target,
+                                _text(f"❌ ออเดอร์ SHORT {symbol} #{order_no} ต่อราคาแบบ Match ไม่ได้ (ตามกฎ Uptick) — รองรับเฉพาะแบบล่อราคา (Lure)"))
+            return {"status": "NEGO_SHORT_MATCH_NOT_ALLOWED"}
 
         quote = await _broker_quote(broker, symbol)
         plan = plan_price(side, mode, quote.get("bid_1"), quote.get("offer_1"),
@@ -2404,38 +2322,36 @@ async def _handle_sbl(
         await service._send_reply(reply_token, card)
         return {"status": "CLI_SBL_POOL", "symbol": parsed.symbol, "available_qty": avail_qty}
 
-    # /sbl or /sbl sync
-    if parsed.has("sync"):
-        force_b = parsed.has("force_browser")
-        await service._send_reply(reply_token, _text("🔄 กำลังดึงข้อมูลหุ้นยืม SBL จาก SBL Real Time…"))
-        try:
-            scraped = await krungsri_sbl_driver.scrape_sbl_lots(force_refresh=True, force_browser=force_b)
-            for item in scraped or []:
-                sym = item.get("symbol")
-                if not sym:
-                    continue
-                tx_id = str(item.get("broker_tx_id") or "")
-                res = await db.execute(select(SBLBorrowLot).where(SBLBorrowLot.symbol == sym, SBLBorrowLot.status == "ACTIVE"))
-                existing = res.scalars().first()
-                if existing:
-                    existing.remaining_qty = int(item.get("remaining_qty") or existing.remaining_qty)
-                else:
-                    clean_tx = tx_id.replace('/', '_') if tx_id else str(int(time.time()))
-                    new_lot = SBLBorrowLot(
-                        lot_id=f"SBL-{sym}-{clean_tx}",
-                        broker_tx_id=tx_id or None,
-                        symbol=sym,
-                        borrow_qty=int(item.get("borrow_qty") or 0),
-                        remaining_qty=int(item.get("remaining_qty") or 0),
-                        borrow_price=float(item.get("borrow_price") or 0.0) or None,
-                        borrow_fee_rate=float(item.get("borrow_fee_rate") or 3.5),
-                        borrow_date=datetime.now().date(),
-                        status="ACTIVE",
-                    )
-                    db.add(new_lot)
-            await db.commit()
-        except Exception as e:
-            logger.error(f"Failed to sync SBL lots from CDP: {e}")
+    # /sbl (always sync live lots from SBL Real Time)
+    force_b = parsed.has("force_browser")
+    try:
+        scraped = await krungsri_sbl_driver.scrape_sbl_lots(force_refresh=True, force_browser=force_b)
+        for item in scraped or []:
+            sym = item.get("symbol")
+            if not sym:
+                continue
+            tx_id = str(item.get("broker_tx_id") or "")
+            res = await db.execute(select(SBLBorrowLot).where(SBLBorrowLot.symbol == sym, SBLBorrowLot.status == "ACTIVE"))
+            existing = res.scalars().first()
+            if existing:
+                existing.remaining_qty = int(item.get("remaining_qty") or existing.remaining_qty)
+            else:
+                clean_tx = tx_id.replace('/', '_') if tx_id else str(int(time.time()))
+                new_lot = SBLBorrowLot(
+                    lot_id=f"SBL-{sym}-{clean_tx}",
+                    broker_tx_id=tx_id or None,
+                    symbol=sym,
+                    borrow_qty=int(item.get("borrow_qty") or item.get("remaining_qty") or 0),
+                    remaining_qty=int(item.get("remaining_qty") or 0),
+                    fee_rate=float(item.get("fee_rate") or 3.50),
+                    borrow_date=str(item.get("borrow_date") or ""),
+                    status="ACTIVE"
+                )
+                db.add(new_lot)
+        await db.commit()
+        krungsri_sbl_driver.record_success()
+    except Exception as e:
+        logger.error(f"Failed to sync SBL lots from CDP: {e}")
 
     # Read from DB
     res = await db.execute(
