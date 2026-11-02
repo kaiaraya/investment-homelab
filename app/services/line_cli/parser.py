@@ -697,13 +697,31 @@ def _parse_borrow(rest: List[str]) -> ParseResult:
         rest = rest[1:]
 
     rest = _normalize_trade_tokens(rest)
-    if len(rest) < 2:
+    if not rest:
         return CliError(
             code=E_MISSING_ARG,
             message="❓ คำสั่ง /borrow ต้องการระบุ: ชื่อหุ้น และ จำนวนหุ้น/เงิน ที่ต้องการยืม",
             hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
             quick_reply=["/sbl"],
         )
+    if len(rest) == 1:
+        sym_tok = rest[0].upper()
+        if not _SYMBOL_RE.match(sym_tok):
+            return CliError(
+                code=E_BAD_SYMBOL,
+                message=f'❓ ชื่อหุ้น "{rest[0]}" ไม่ถูกต้อง',
+                hint="ตัวอย่าง: /borrow PTT 1000 หรือ /borrow PTT 10k",
+                quick_reply=["/sbl"],
+            )
+        return SblBorrowOrder(
+            cmd="borrow",
+            symbol=sym_tok,
+            volume=0,
+            broker="kss",
+            amount_mode="value",
+            target_value=10000.0,
+        )
+
     sym_tok, amount_tok = rest[0].upper(), rest[1].strip()
     if not _SYMBOL_RE.match(sym_tok):
         return CliError(
