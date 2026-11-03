@@ -5,6 +5,7 @@ Single control surface to ensure CDP broker daemons (:9333/:9334) are running
 without duplicate logins, credential prompts, or SSO session decay.
 """
 import asyncio
+import contextvars
 import fcntl
 import logging
 import os
@@ -15,7 +16,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from app.services.broker_cdp.session_probe import cdp_session_status, get_cdp_daemon_pid
 from scripts.broker_cdp.client import BROKER_CDP_PORTS
@@ -39,6 +40,8 @@ VALID_STATES = {
     "DAEMON_DOWN",
     "UNKNOWN",
 }
+
+_ACTIVE_LOCKS: contextvars.ContextVar[Optional[Set[str]]] = contextvars.ContextVar("_ACTIVE_LOCKS", default=None)
 
 
 def normalize_broker_slug(broker: str) -> str:
@@ -76,7 +79,7 @@ def get_daemon_pid(broker: str) -> Optional[int]:
     pid_file = REPO_ROOT / "data" / f"daemon-{norm}.pid"
     if pid_file.exists():
         try:
-            with open(pid_path_str := str(pid_file), "r", encoding="utf-8") as f:
+            with open(str(pid_file), "r", encoding="utf-8") as f:
                 candidate = int(f.read().strip())
             with open(f"/proc/{candidate}/cmdline", "rb") as fh:
                 cmdline = fh.read().decode(errors="replace")
@@ -135,15 +138,20 @@ def get_pid_holding_port(port: int) -> Optional[int]:
 
 
 def get_log_tail(broker: str, max_lines: int = 5) -> str:
-    """Read the last N lines from the broker daemon log file."""
+    """Read the last N lines from the broker daemon log file (bounded read)."""
     try:
         norm = normalize_broker_slug(broker)
         log_file = REPO_ROOT / "data" / "logs" / f"daemon-{norm}.log"
         if not log_file.exists():
             return ""
-        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-            return "".join(lines[-max_lines:])
+        with open(log_file, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            buffer_size = min(size, 8192)
+            f.seek(max(0, size - buffer_size))
+            tail_bytes = f.read()
+        lines = tail_bytes.decode(errors="replace").splitlines(keepends=True)
+        return "".join(lines[-max_lines:])
     except Exception:
         return ""
 
@@ -155,12 +163,13 @@ class _DaemonFileLock:
         self.broker = broker
         self.timeout = timeout
         self.file_obj = None
+        self.is_reentrant = False
+        self.norm = normalize_broker_slug(broker)
 
     def _acquire(self):
-        norm = normalize_broker_slug(self.broker)
         lock_dir = REPO_ROOT / "data" / "locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_path = lock_dir / f"daemon-{norm}.lock"
+        lock_path = lock_dir / f"daemon-{self.norm}.lock"
         self.file_obj = open(lock_path, "a+")
         start = time.monotonic()
         while True:
@@ -169,7 +178,7 @@ class _DaemonFileLock:
                 return
             except (BlockingIOError, OSError):
                 if time.monotonic() - start > self.timeout:
-                    raise TimeoutError(f"Could not acquire daemon lock for {norm} within {self.timeout}s")
+                    raise TimeoutError(f"Could not acquire daemon lock for {self.norm} within {self.timeout}s")
                 time.sleep(0.1)
 
     def _release(self):
@@ -185,10 +194,24 @@ class _DaemonFileLock:
             self.file_obj = None
 
     async def __aenter__(self):
+        active = _ACTIVE_LOCKS.get()
+        if active is None:
+            active = set()
+            _ACTIVE_LOCKS.set(active)
+        if self.norm in active:
+            self.is_reentrant = True
+            return self
+
         await asyncio.to_thread(self._acquire)
+        active.add(self.norm)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.is_reentrant:
+            return
+        active = _ACTIVE_LOCKS.get()
+        if active and self.norm in active:
+            active.discard(self.norm)
         await asyncio.to_thread(self._release)
 
 
@@ -226,8 +249,11 @@ async def daemon_state(broker: str) -> Dict[str, Any]:
 
     raw_state = probe_info.get("state", "UNKNOWN")
     page_url = probe_info.get("url")
-    daemon_pid = get_daemon_pid(norm)
-    chrome_pid = probe_info.get("pid") or get_cdp_daemon_pid(port)
+
+    daemon_pid = await asyncio.to_thread(get_daemon_pid, norm)
+    chrome_pid = probe_info.get("pid")
+    if not chrome_pid:
+        chrome_pid = await asyncio.to_thread(get_cdp_daemon_pid, port)
     pid = daemon_pid or chrome_pid
 
     # Distinguish OTP_PAGE from generic LOGIN_PAGE
@@ -274,7 +300,7 @@ async def ensure_daemon(broker: str, wait_s: float = 90.0) -> Dict[str, Any]:
                 "port": port,
                 "pid": current["pid"],
                 "page_url": current["page_url"],
-                "log_tail": get_log_tail(norm),
+                "log_tail": await asyncio.to_thread(get_log_tail, norm),
             }
 
         if current["state"] != "DAEMON_DOWN":
@@ -286,10 +312,22 @@ async def ensure_daemon(broker: str, wait_s: float = 90.0) -> Dict[str, Any]:
                 "port": port,
                 "pid": current["pid"],
                 "page_url": current["page_url"],
-                "log_tail": get_log_tail(norm),
+                "log_tail": await asyncio.to_thread(get_log_tail, norm),
             }
 
-        # Port is closed (DAEMON_DOWN) -> spawn daemon process
+        # If current state is DAEMON_DOWN, check if port is actually open (e.g. probe attach failed / timeout)
+        # Fail-closed per contract C7: NEVER spawn if TCP port is active!
+        if await asyncio.to_thread(is_port_open, port):
+            return {
+                "status": "DAEMON_DOWN",
+                "state": "DAEMON_DOWN",
+                "port": port,
+                "pid": current["pid"],
+                "page_url": current["page_url"],
+                "log_tail": await asyncio.to_thread(get_log_tail, norm),
+            }
+
+        # Port is closed (DAEMON_DOWN and port not open) -> spawn daemon process
         log_dir = REPO_ROOT / "data" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"daemon-{norm}.log"
@@ -335,7 +373,7 @@ async def ensure_daemon(broker: str, wait_s: float = 90.0) -> Dict[str, Any]:
                     "port": port,
                     "pid": proc.pid,
                     "page_url": st["page_url"],
-                    "log_tail": get_log_tail(norm),
+                    "log_tail": await asyncio.to_thread(get_log_tail, norm),
                 }
 
             # Return early if interaction is required
@@ -346,7 +384,7 @@ async def ensure_daemon(broker: str, wait_s: float = 90.0) -> Dict[str, Any]:
                     "port": port,
                     "pid": proc.pid,
                     "page_url": st["page_url"],
-                    "log_tail": get_log_tail(norm),
+                    "log_tail": await asyncio.to_thread(get_log_tail, norm),
                 }
 
             # Check if subprocess died
@@ -357,7 +395,7 @@ async def ensure_daemon(broker: str, wait_s: float = 90.0) -> Dict[str, Any]:
                     "port": port,
                     "pid": proc.pid,
                     "page_url": None,
-                    "log_tail": get_log_tail(norm),
+                    "log_tail": await asyncio.to_thread(get_log_tail, norm),
                 }
 
         # Timeout reached
@@ -368,7 +406,7 @@ async def ensure_daemon(broker: str, wait_s: float = 90.0) -> Dict[str, Any]:
             "port": port,
             "pid": proc.pid,
             "page_url": final_st.get("page_url"),
-            "log_tail": get_log_tail(norm),
+            "log_tail": await asyncio.to_thread(get_log_tail, norm),
         }
 
 
@@ -383,81 +421,86 @@ async def restart_daemon(broker: str, wait_s: int = 90) -> Dict[str, Any]:
     norm = normalize_broker_slug(broker)
     port = get_broker_port(norm)
 
-    daemon_pid = get_daemon_pid(norm)
-    chrome_pid = get_cdp_daemon_pid(port) or get_pid_holding_port(port)
+    async with _DaemonFileLock(norm):
+        daemon_pid = await asyncio.to_thread(get_daemon_pid, norm)
+        chrome_pid = await asyncio.to_thread(get_cdp_daemon_pid, port)
+        if not chrome_pid:
+            chrome_pid = await asyncio.to_thread(get_pid_holding_port, port)
 
-    # 1. Kill daemon python process first
-    if daemon_pid:
-        try:
-            pgid = os.getpgid(daemon_pid)
-            if pgid == daemon_pid:
-                os.killpg(pgid, signal.SIGTERM)
-            else:
-                os.kill(daemon_pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        except OSError:
-            try:
-                os.kill(daemon_pid, signal.SIGTERM)
-            except OSError:
-                pass
-
-        # Wait up to 10s for daemon to exit
-        for _ in range(20):
-            await asyncio.sleep(0.5)
-            try:
-                os.kill(daemon_pid, 0)
-            except OSError:
-                daemon_pid = None
-                break
-
+        # 1. Kill daemon python process first
         if daemon_pid:
             try:
                 pgid = os.getpgid(daemon_pid)
                 if pgid == daemon_pid:
-                    os.killpg(pgid, signal.SIGKILL)
+                    os.killpg(pgid, signal.SIGTERM)
                 else:
-                    os.kill(daemon_pid, signal.SIGKILL)
-            except OSError:
+                    os.kill(daemon_pid, signal.SIGTERM)
+            except ProcessLookupError:
                 pass
-
-    # 2. Kill Chrome if still listening
-    if not chrome_pid:
-        chrome_pid = get_cdp_daemon_pid(port) or get_pid_holding_port(port)
-
-    if chrome_pid:
-        try:
-            os.kill(chrome_pid, signal.SIGTERM)
-        except OSError:
-            pass
-
-        for _ in range(6):
-            await asyncio.sleep(0.5)
-            try:
-                os.kill(chrome_pid, 0)
             except OSError:
-                chrome_pid = None
-                break
+                try:
+                    os.kill(daemon_pid, signal.SIGTERM)
+                except OSError:
+                    pass
+
+            # Wait up to 10s for daemon to exit
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                try:
+                    os.kill(daemon_pid, 0)
+                except OSError:
+                    daemon_pid = None
+                    break
+
+            if daemon_pid:
+                try:
+                    pgid = os.getpgid(daemon_pid)
+                    if pgid == daemon_pid:
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        os.kill(daemon_pid, signal.SIGKILL)
+                except OSError:
+                    pass
+
+        # 2. Kill Chrome if still listening
+        if not chrome_pid:
+            chrome_pid = await asyncio.to_thread(get_cdp_daemon_pid, port)
+            if not chrome_pid:
+                chrome_pid = await asyncio.to_thread(get_pid_holding_port, port)
 
         if chrome_pid:
             try:
-                os.kill(chrome_pid, signal.SIGKILL)
+                os.kill(chrome_pid, signal.SIGTERM)
             except OSError:
                 pass
 
-    # 3. Wait until port is closed
-    for _ in range(10):
-        if not is_port_open(port):
-            break
-        await asyncio.sleep(0.5)
+            for _ in range(6):
+                await asyncio.sleep(0.5)
+                try:
+                    os.kill(chrome_pid, 0)
+                except OSError:
+                    chrome_pid = None
+                    break
 
-    # 4. Remove stale pidfile
-    pid_file = REPO_ROOT / "data" / f"daemon-{norm}.pid"
-    if pid_file.exists():
-        try:
-            pid_file.unlink()
-        except OSError:
-            pass
+            if chrome_pid:
+                try:
+                    os.kill(chrome_pid, signal.SIGKILL)
+                except OSError:
+                    pass
 
-    # 5. Re-launch via ensure_daemon
-    return await ensure_daemon(norm, wait_s=wait_s)
+        # 3. Wait until port is closed
+        for _ in range(10):
+            if not await asyncio.to_thread(is_port_open, port):
+                break
+            await asyncio.sleep(0.5)
+
+        # 4. Remove stale pidfile
+        pid_file = REPO_ROOT / "data" / f"daemon-{norm}.pid"
+        if pid_file.exists():
+            try:
+                pid_file.unlink()
+            except OSError:
+                pass
+
+        # 5. Re-launch via ensure_daemon
+        return await ensure_daemon(norm, wait_s=wait_s)

@@ -250,6 +250,30 @@ async def test_ensure_daemon_port_open_not_authenticated_fail_closed(tmp_path, m
 
 
 @pytest.mark.asyncio
+async def test_ensure_daemon_port_open_probe_down_no_spawn(tmp_path, monkeypatch):
+    """C7: TCP port open but CDP probe reports DAEMON_DOWN must never spawn a 2nd daemon."""
+    monkeypatch.setattr("app.services.broker_cdp.daemon_launcher.REPO_ROOT", tmp_path)
+    state_mock = {
+        "state": "DAEMON_DOWN",
+        "port": 9333,
+        "page_url": None,
+        "pid": None,
+    }
+    with (
+        patch("app.services.broker_cdp.daemon_launcher.daemon_state", new=AsyncMock(return_value=state_mock)),
+        patch("app.services.broker_cdp.daemon_launcher.is_port_open", return_value=True),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock()) as mock_exec,
+    ):
+        res = await ensure_daemon("kss", wait_s=10)
+
+    mock_exec.assert_not_called()
+    assert res["status"] == "DAEMON_DOWN"
+    assert res["state"] == "DAEMON_DOWN"
+    assert res["port"] == 9333
+    assert not (tmp_path / "data" / "daemon-kss.pid").exists()
+
+
+@pytest.mark.asyncio
 async def test_ensure_daemon_spawn_success(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.broker_cdp.daemon_launcher.REPO_ROOT", tmp_path)
 
@@ -265,6 +289,7 @@ async def test_ensure_daemon_spawn_success(tmp_path, monkeypatch):
 
     with (
         patch("app.services.broker_cdp.daemon_launcher.daemon_state", state_mock),
+        patch("app.services.broker_cdp.daemon_launcher.is_port_open", return_value=False),
         patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=fake_proc)) as mock_exec,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
@@ -303,6 +328,7 @@ async def test_ensure_daemon_spawn_early_otp_exit(tmp_path, monkeypatch):
 
     with (
         patch("app.services.broker_cdp.daemon_launcher.daemon_state", state_mock),
+        patch("app.services.broker_cdp.daemon_launcher.is_port_open", return_value=False),
         patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=fake_proc)),
         patch("asyncio.sleep", new=AsyncMock()),
     ):
@@ -402,3 +428,6 @@ async def test_daemon_file_lock(tmp_path, monkeypatch):
     async with _DaemonFileLock("kss", timeout=1.0):
         lock_file = tmp_path / "data" / "locks" / "daemon-kss.lock"
         assert lock_file.exists()
+        # Verify reentrant acquisition succeeds without deadlock or timeout
+        async with _DaemonFileLock("kss", timeout=0.1):
+            assert lock_file.exists()
