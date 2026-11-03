@@ -213,7 +213,8 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     # B.2/B.3/B.7 — CDP gateway: tab manager + portfolio auto-sync + manual-order sync
     "app/services/broker_cdp/manager.py": ["tests/test_broker_cdp_routing.py"],
     "app/services/broker_cdp/session_probe.py": ["tests/test_cdp_session_probe.py"],
-    "app/services/broker_cdp/__init__.py": ["tests/test_broker_cdp_routing.py"],
+    "app/services/broker_cdp/daemon_launcher.py": ["tests/test_daemon_launcher.py"],
+    "app/services/broker_cdp/__init__.py": ["tests/test_broker_cdp_routing.py", "tests/test_daemon_launcher.py"],
     "app/services/broker_cdp/sync_service.py": [
         "tests/test_broker_cdp_sync.py",
         "tests/test_broker_cdp_order_sync.py",
@@ -222,6 +223,7 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
     "app/services/broker_cdp/order_executor.py": ["tests/test_broker_cdp_order_executor.py"],
     "scripts/broker_cdp/sync_probe.py": ["tests/test_broker_cdp_sync.py"],
     "scripts/broker_cdp/order_sync_probe.py": ["tests/test_broker_cdp_order_sync.py"],
+    "tests/test_daemon_launcher.py": ["tests/test_daemon_launcher.py"],
     "tests/test_kss_probe.py": ["tests/test_kss_probe.py"],
     "tests/test_liberator_probe.py": ["tests/test_liberator_probe.py"],
     # Shared test harness — conftest.py holds fixtures (no tests of its own). Changed fixtures
