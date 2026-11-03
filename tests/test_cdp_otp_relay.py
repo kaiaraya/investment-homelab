@@ -121,3 +121,91 @@ def test_repair_line_uid_leaves_valid_value_alone(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "LINE_ADMIN_USER_ID", VALID_UID, raising=False)
     otp_relay._repair_line_uid()
     assert settings.LINE_ADMIN_USER_ID == VALID_UID
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# _fill_otp_input & submit button drift guard tests (t_0e05fe62)
+# ────────────────────────────────────────────────────────────────────────────
+
+class FakeElement:
+    def __init__(self, visible: bool = True):
+        self.visible = visible
+        self.filled = None
+        self.clicked = False
+
+    async def is_visible(self) -> bool:
+        return self.visible
+
+    async def fill(self, val: str) -> None:
+        self.filled = val
+
+    async def click(self) -> None:
+        self.clicked = True
+
+
+class FakeKeyboard:
+    def __init__(self):
+        self.pressed = []
+
+    async def press(self, key: str) -> None:
+        self.pressed.append(key)
+
+
+class FakePage:
+    def __init__(self, elements=None):
+        self.elements = elements or {}
+        self.keyboard = FakeKeyboard()
+
+    async def query_selector(self, sel: str):
+        return self.elements.get(sel)
+
+
+@pytest.mark.asyncio
+async def test_fill_otp_input_clicks_btn_confirm():
+    from scripts.broker_cdp.brokers import _fill_otp_input
+
+    otp_input = FakeElement()
+    btn_confirm = FakeElement()
+    page = FakePage({
+        "#otp": otp_input,
+        "input#btnConfirm": btn_confirm,
+    })
+
+    res = await _fill_otp_input(page, "#otp", "123456")
+    assert res is True
+    assert otp_input.filled == "123456"
+    assert btn_confirm.clicked is True
+    assert page.keyboard.pressed == []
+
+
+@pytest.mark.asyncio
+async def test_fill_otp_input_fallback_enter_when_no_button():
+    from scripts.broker_cdp.brokers import _fill_otp_input
+
+    otp_input = FakeElement()
+    page = FakePage({"#otp": otp_input})
+
+    res = await _fill_otp_input(page, "#otp", "654321")
+    assert res is True
+    assert otp_input.filled == "654321"
+    assert page.keyboard.pressed == ["Enter"]
+
+
+@pytest.mark.asyncio
+async def test_fill_otp_input_returns_false_if_input_missing():
+    from scripts.broker_cdp.brokers import _fill_otp_input
+
+    page = FakePage({})
+    res = await _fill_otp_input(page, "#missing", "123456")
+    assert res is False
+    assert page.keyboard.pressed == []
+
+
+def test_otp_submit_selectors_drift_guard():
+    from scripts.broker_cdp.brokers import OTP_SUBMIT_SELECTORS as BROKER_SELECTORS
+    from app.browser.auth_driver import OTP_SUBMIT_SELECTORS as AUTH_SELECTORS
+
+    assert BROKER_SELECTORS == AUTH_SELECTORS
+    assert "input#btnConfirm" in BROKER_SELECTORS
+    assert "input#btnSubmit" in BROKER_SELECTORS
+    assert "button:has-text('ยืนยัน')" in BROKER_SELECTORS

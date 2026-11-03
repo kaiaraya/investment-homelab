@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from playwright.async_api import BrowserContext, Page
 
 from app.core.config import settings
+from app.browser.auth_driver import OTP_SUBMIT_SELECTORS, click_otp_submit
 from scripts.broker_cdp.otp_relay import (
     check_line_otp_once,
     latest_otp_row_id,
@@ -152,17 +153,7 @@ async def _fill_otp_input(page: Page, otp_sel: str, otp_val: str) -> bool:
             return False
         await el.fill(otp_val)
         await asyncio.sleep(0.3)
-        for submit_sel in [
-            "button[type='submit']",
-            "button:has-text('ยืนยัน')",
-            "button:has-text('Confirm')",
-            "button:has-text('Submit')",
-        ]:
-            btn = await page.query_selector(submit_sel)
-            if btn and await btn.is_visible():
-                await btn.click()
-                logger.info("Clicked OTP submit button.")
-                break
+        await click_otp_submit(page)
         return True
     except Exception as e:
         logger.warning(f"[CDP OTP] fill/submit failed: {e}")

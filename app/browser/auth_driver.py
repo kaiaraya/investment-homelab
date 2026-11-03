@@ -35,6 +35,40 @@ logger = logging.getLogger(__name__)
 # SINGLE SOURCE OF TRUTH — reused by app/brokers/liberator/driver.py.
 OTP_SESSION_LOG_PATTERN = r"Received[^:]*OTP[^:]*:\s*([0-9]{6})"
 
+# SINGLE SOURCE OF TRUTH — reused by scripts/broker_cdp/brokers.py
+OTP_SUBMIT_SELECTORS = [
+    "input[type='submit'][value*='ยืนยัน']",
+    "form[action*='OTP_SMS_verify'] input[type='submit']",
+    "button:has-text('ยืนยัน')",
+    "button:has-text('Confirm')",
+    "button:has-text('ตกลง')",
+    "input[type='submit'][value*='Confirm']",
+    "input[type='button'][value*='ยืนยัน']",
+    "button[type='submit']",
+    "input#btnConfirm",
+    "input#btnSubmit",
+    "input[type='submit']",
+]
+
+
+async def click_otp_submit(page: Any) -> bool:
+    """Finds and clicks OTP submit/confirm button with Enter fallback.
+
+    Returns True if a selector matched and was clicked, False if Enter fallback was used.
+    """
+    for sel in OTP_SUBMIT_SELECTORS:
+        btn = await page.query_selector(sel)
+        if btn and await btn.is_visible():
+            logger.info(f"Clicking OTP submit button with selector: {sel}")
+            await btn.click()
+            return True
+
+    # Fallback: press Enter on the active input
+    logger.warning("OTP submit button not identified by selector, pressing Enter...")
+    if hasattr(page, "keyboard") and page.keyboard:
+        await page.keyboard.press("Enter")
+    return False
+
 
 def _safe_otp_source(raw: Optional[str]) -> Optional[OTPSource]:
     """
@@ -784,30 +818,7 @@ class KrungsriAuthDriver:
 
     async def _click_otp_submit(self, page: Page) -> None:
         """Finds and clicks OTP submit/confirm button."""
-
-        submit_selectors = [
-            "input[type='submit'][value*='ยืนยัน']",
-            "form[action*='OTP_SMS_verify'] input[type='submit']",
-            "button:has-text('ยืนยัน')",
-            "button:has-text('Confirm')",
-            "button:has-text('ตกลง')",
-            "input[type='submit'][value*='Confirm']",
-            "input[type='button'][value*='ยืนยัน']",
-            "button[type='submit']",
-            "input#btnConfirm",
-            "input#btnSubmit",
-            "input[type='submit']"
-        ]
-        for sel in submit_selectors:
-            btn = await page.query_selector(sel)
-            if btn and await btn.is_visible():
-                logger.info(f"Clicking OTP submit button with selector: {sel}")
-                await btn.click()
-                return
-
-        # Fallback: press Enter on the active input
-        logger.warning("OTP submit button not identified by selector, pressing Enter...")
-        await page.keyboard.press("Enter")
+        await click_otp_submit(page)
 
     async def _verify_post_login(self, page: Page) -> Page:
         """
