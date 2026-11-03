@@ -280,6 +280,129 @@ def _borrowed_row(b: Dict[str, Any], broker: Optional[str] = None, actionable: b
     }
 
 
+def _position_buttons(ptype: str, b_code: str, symbol: str, volume: int) -> List[Dict[str, Any]]:
+    """Action buttons for one per-stock card, by position type.
+
+    SHORT → Cover · BORROWED → Short + Return · LIB LONG/UNKNOWN → Sell ·
+    KSS LONG/UNKNOWN → none (KSS is the short/borrow SBL account — user decision
+    2026-11-03: no Sell offered there). All are ต่อราคา (limit) at full volume:
+    the button passes no price, so ``_pre_trade_check`` resolves a passive limit
+    via ``plan_price(side, mode="lure")`` — never a market order.
+    """
+    if ptype == "SHORT":
+        return [_msg_button("🔵 Cover (ต่อราคา)", f"/cover {b_code} {symbol} {volume}", color="#1e40af")]
+    if ptype == "BORROWED":
+        return [
+            _msg_button("🟣 Short (ต่อราคา)", f"/short {b_code} {symbol} {volume}", color="#581c87"),
+            _msg_button("🔄 คืนหุ้น", f"/return {symbol} all", color="#334155"),
+        ]
+    if b_code == "lib":
+        return [_msg_button("🔴 ขาย (ต่อราคา)", f"/sell {b_code} {symbol} {volume}", color="#991b1b")]
+    return []
+
+
+def _stock_bubble(row: Dict[str, Any], is_test: bool = False) -> Dict[str, Any]:
+    """One holding card — a single bubble per position with its own buttons.
+
+    Title carries ``[KSS]``/``[LIB]`` + side tag ``(S)``/``(B)``. BORROWED lots show
+    only จำนวน — the page exposes no cost/last/P-L basis, so never fabricate a
+    ``0.00`` (Anti-Mock, same as ``_borrowed_row``).
+    """
+    ptype = str(row.get("position_type") or "LONG").upper()
+    tag = " (S)" if ptype == "SHORT" else (" (B)" if ptype == "BORROWED" else "")
+    sym = str(row.get("symbol", "")).upper()
+    vol = int(row.get("volume", 0) or 0)
+    b_code = str(row.get("broker") or ("kss" if ptype in ("SHORT", "BORROWED") else "lib")).lower()
+    badge = _BROKER_LABEL.get(b_code, b_code.upper())
+
+    body: List[Dict[str, Any]] = [_kv("จำนวน", f"{vol:,} หุ้น")]
+    if ptype == "BORROWED":
+        body.append(_kv("ประเภท", "หุ้นยืม SBL", MUTED))
+    else:
+        body.append(_kv("ทุน", _money(row.get("cost"))))
+        body.append(_kv("ล่าสุด", _money(row.get("last"))))
+        pnl_pct = row.get("pnl_pct")
+        if pnl_pct is None:
+            body.append(_kv("%P/L", "—", MUTED))
+        else:
+            pc = float(pnl_pct)
+            body.append(_kv("%P/L", f"{pc:+.2f}%", UP if pc >= 0 else DOWN))
+
+    footer = _position_buttons(ptype, b_code, sym, vol)
+    return _bubble(title=f"📊 [{badge}] {sym}{tag}",
+                   badge="TEST" if is_test else None, badge_bg=TEST_COLOR,
+                   body=body, footer=footer)
+
+
+def portfolio_summary_card(*, brokers_data: Optional[List[Dict[str, Any]]] = None,
+                           is_test: bool = False) -> Optional[Dict[str, Any]]:
+    """Lead bubble for ``/port all sync`` — per-broker Amount + P/L totals, one
+    broker per line (KSS block then LIB), so the totals survive the per-stock split."""
+    body: List[Dict[str, Any]] = []
+    for bdata in brokers_data or []:
+        b_name = str(bdata.get("broker", "kss")).lower()
+        if not (bool(bdata.get("actionable", True)) and b_name in ("kss", "lib")):
+            continue
+        badge = _BROKER_LABEL.get(b_name, b_name.upper())
+        pnl = bdata.get("pnl_value")
+        pnl_pct = bdata.get("pnl_pct")
+        if pnl is None:
+            pnl_txt = "—"
+        else:
+            pnl_txt = f"{float(pnl):+,.2f}"
+        if pnl_pct is not None:
+            pnl_txt += f" ({float(pnl_pct):+.2f}%)"
+        body.append(_kv(f"[{badge}] Amount", _money(bdata.get("amount"))))
+        body.append(_kv(f"[{badge}] P/L", pnl_txt, UP if (pnl or 0.0) >= 0 else DOWN))
+    if not body:
+        return None
+    return _bubble(title="📊 พอร์ตรวม", badge="TEST" if is_test else None,
+                   badge_bg=TEST_COLOR, body=body)
+
+
+#: LINE carousel cap — 12 bubbles per Flex carousel message.
+STOCK_CARDS_PER_CAROUSEL = 12
+
+
+def portfolio_stock_cards(
+    *,
+    brokers_data: Optional[List[Dict[str, Any]]] = None,
+    is_test: bool = False,
+    per_carousel: int = STOCK_CARDS_PER_CAROUSEL,
+) -> List[Dict[str, Any]]:
+    """Per-stock cards for ``/port all sync`` — every position its own bubble.
+
+    Iterates ``brokers_data`` in order (KSS block first, then LIB). Each main
+    holding (LONG/SHORT/UNKNOWN) and each borrowed SBL lot becomes one bubble.
+    Returns a LIST of Flex messages (>``per_carousel`` bubbles split across
+    carousels); empty list = nothing to show (caller pushes the unavailable card).
+    """
+    stocks: List[Dict[str, Any]] = []
+    for bdata in brokers_data or []:
+        b_name = str(bdata.get("broker", "kss")).lower()
+        if not (bool(bdata.get("actionable", True)) and b_name in ("kss", "lib")):
+            continue
+        for r in (bdata.get("rows") or []):
+            item = dict(r)
+            item.setdefault("broker", item.get("broker") or b_name)
+            stocks.append(item)
+        for b in (bdata.get("borrowed") or []):
+            stocks.append({
+                "symbol": str(b.get("symbol", "")).upper(),
+                "volume": int(b.get("volume", 0) or 0),
+                "position_type": "BORROWED",
+                "broker": str(b.get("broker") or b_name).lower(),
+            })
+
+    bubbles = [_stock_bubble(r, is_test=is_test) for r in stocks]
+    messages: List[Dict[str, Any]] = []
+    for i in range(0, len(bubbles), per_carousel):
+        page = bubbles[i:i + per_carousel]
+        alt = f"📊 พอร์ต {len(stocks)} การ์ด (หน้า {i // per_carousel + 1})"
+        messages.append(_flex(alt, page[0]) if len(page) == 1 else carousel(page, alt))
+    return messages
+
+
 def port_card(
     *,
     broker: str,
