@@ -1225,14 +1225,21 @@ async def _handle_read(
                     except Exception as e:
                         logger.warning("CDP portfolio scrape failed for %s during port all sync: %s", b, e)
                 if brokers_data:
-                    card = cards.portfolio_multi_broker_card(
-                        brokers_data=brokers_data,
-                        snapshot_label=_now_bkk().strftime("%H:%M"),
-                        live=True,
-                    )
-                    await service.push_message(card, to_user_id=push_target)
+                    messages = cards.portfolio_stock_cards(brokers_data=brokers_data)
+                    if not messages:
+                        await service.push_message(
+                            cards.unavailable_card(broker=label, login_cmd="/login all"),
+                            to_user_id=push_target)
+                    else:
+                        summary = cards.portfolio_summary_card(brokers_data=brokers_data)
+                        if summary:
+                            await service.push_message(summary, to_user_id=push_target)
+                        for msg in messages:
+                            await service.push_message(msg, to_user_id=push_target)
                 else:
-                    await service.push_message(cards.unavailable_card(broker=label, login_cmd="/login all"), to_user_id=push_target)
+                    await service.push_message(
+                        cards.unavailable_card(broker=label, login_cmd="/login all"),
+                        to_user_id=push_target)
             else:
                 for b in brokers:
                     if kind in ("port", "cash"):

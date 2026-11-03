@@ -786,6 +786,39 @@ async def test_sync_duplicate_is_busy(service, db_session):
     assert "กำลังทำงานอยู่" in service.last_text()
 
 
+@pytest.mark.asyncio
+async def test_port_all_sync_pushes_summary_then_per_stock_cards(service, db_session, monkeypatch):
+    import json
+    from app.services.broker_cdp import sync_service
+
+    async def fake_scrape(broker):
+        if broker == "kss":
+            return {"broker": "KRUNGSRI", "account_no": "MARGIN",
+                    "holdings": [
+                        {"symbol": "PTT", "position_type": "LONG", "volume": 1000,
+                         "avg_cost": 30.0, "current_price": 31.0},
+                        {"symbol": "BCPG", "position_type": "BORROWED", "volume": 200},
+                    ]}
+        return {"broker": "LIBERATOR", "account_no": "CASH",
+                "holdings": [
+                    {"symbol": "CPALL", "position_type": "LONG", "volume": 300,
+                     "avg_cost": 55.0, "current_price": 54.0},
+                ]}
+
+    monkeypatch.setattr(sync_service, "scrape_portfolio_from_cdp",
+                        AsyncMock(side_effect=fake_scrape))
+    res = await _run(service, "/port all sync", db=db_session)
+    assert res["status"] == "CLI_SYNC"
+    assert service.pushes and service.pushes[0][1] == "U_OP"
+
+    flat = json.dumps([m for m, _u in service.pushes], ensure_ascii=False)
+    assert "พอร์ตรวม" in flat                 # summary การ์ดหน้าคงยอดรวม
+    assert "/sell lib CPALL 300" in flat      # LIB LONG → Sell
+    assert "/short kss BCPG 200" in flat      # KSS borrowed → Short
+    assert "/return BCPG all" in flat         # KSS borrowed → Return
+    assert "/sell kss PTT" not in flat        # KSS LONG → ไม่มีปุ่ม Sell
+
+
 # --------------------------------------------------------------------------- #
 # /nego — guardrails G1–G6
 # --------------------------------------------------------------------------- #
