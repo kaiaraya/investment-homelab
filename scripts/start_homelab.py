@@ -72,7 +72,8 @@ from app.core.config import settings
 from app.services.kdeconnect_service import kdeconnect_service
 from app.services.line_service import line_service
 from app.services.otp_relay_readiness import otp_relay_readiness
-from app.browser.auth_driver import auth_driver
+from app.services.broker_cdp.daemon_launcher import ensure_daemon, restart_daemon
+from app.services.broker_cdp.session_probe import cdp_session_status
 
 # LINE group OTP relay (2026-10-08) — primary OTP channel
 LINE_GROUP_NAME = "a14s homelab"
@@ -326,137 +327,66 @@ async def push_krungsri_login_alert(phase: str, detail: str) -> None:
 # ==============================================================================
 # STAGE 2: Krungsri TradeMan Session Gate
 # ==============================================================================
+# STAGE 2: Krungsri (KSS) CDP Session Gate
+# ==============================================================================
 async def stage2_verify_krungsri_session(force_fresh: bool = False) -> bool:
     print("\n" + "=" * 75)
-    print(f"{C_BOLD}{C_CYAN}🔑 [STAGE 2/4] Verifying Krungsri TradeMan Authentication...{C_RESET}")
+    print(f"{C_BOLD}{C_CYAN}🔑 [STAGE 2/4] Verifying Krungsri (KSS) CDP Daemon & Session...{C_RESET}")
     print("=" * 75)
 
-    state_path = getattr(settings, "SESSION_STATE_PATH", "data/session_state.json")
-    has_state_file = os.path.exists(state_path)
-
-    # Fast-path check: Existing session state validation
-    if has_state_file and not force_fresh:
-        print(f" • Checking saved session state in {state_path}...")
-        try:
-            # Launch minimal browser to verify DOM #dropDownAccountPort
-            await auth_driver.launch_browser(resume_state=True)
-            if await auth_driver.verify_saved_session():
-                print(f" {C_GREEN}{C_BOLD}✅ Krungsri TradeMan Active Session Verified! (Zero-OTP Pass <2s){C_RESET}")
-                print(f"   • Status: {auth_driver.status}")
-                print(f"   • URL:    {auth_driver.current_url or 'https://trademan.in.th/Portfolio'}")
-                await auth_driver.close()
-                return True
-            else:
-                print(f" {C_YELLOW}⚠️ Saved session expired. Proceeding with fresh automated login...{C_RESET}")
-                await auth_driver.close()
-        except Exception as e:
-            print(f" {C_YELLOW}⚠️ Session check notice: {e}. Initiating fresh login...{C_RESET}")
-            try:
-                await auth_driver.close()
-            except Exception:
-                pass
-
-    # Fresh Automated Login required
-    username = settings.KRUNGSRI_USERNAME
-    password = settings.KRUNGSRI_PASSWORD
-
-    if not username or not password:
-        print(f" {C_RED}❌ Error: KRUNGSRI_USERNAME or KRUNGSRI_PASSWORD is not configured in .env!{C_RESET}")
-        await push_krungsri_login_alert(
-            "missing credentials",
-            "KRUNGSRI_USERNAME / KRUNGSRI_PASSWORD is not configured in .env",
-        )
-        return False
-
-    print(f" • Initiating Headed Login for account {C_BOLD}{username[:3]}***{C_RESET} on DISPLAY=:0...")
-    settings.PLAYWRIGHT_HEADLESS = False
-    if "DISPLAY" not in os.environ:
-        os.environ["DISPLAY"] = ":0"
-
-    login_task = asyncio.create_task(
-        auth_driver.login(
-            username=username,
-            password=password,
-            timeout_otp=settings.OTP_TIMEOUT_SECONDS,
-            force_fresh=True
-        )
-    )
-
-    announced_ref = False
-    while not login_task.done():
-        await asyncio.sleep(0.5)
-        if auth_driver.status == "AWAITING_OTP" and not announced_ref:
-            ref_code = auth_driver.current_ref or "Pending"
-            announced_ref = True
-            print("\n" + "-" * 70)
-            print(f"{C_BOLD}{C_YELLOW}📲 2FA SMS OTP REQUIRED BY KRUNGSRI!{C_RESET}")
-            print(f" • Reference Code: {C_BOLD}{C_CYAN}[Ref: {ref_code}]{C_RESET}")
-            print(f" • 📱 Auto-listening via KDE Connect on Android Mi 10T...")
-            print(f" • 💻 (You may also type OTP in the opened Chrome window or here in terminal)")
-            print("-" * 70)
-
+    print(" • Checking / ensuring KSS CDP daemon on port 9333...")
     try:
-        login_res = await login_task
-        if login_res.success:
-            print(f"\n {C_GREEN}{C_BOLD}🎉 KRUNGSRI TRADEMAN LOGIN SUCCESSFUL!{C_RESET}")
-            print(f"   • Active Tab URL: {auth_driver.current_url}")
-            print(f"   • Session state saved to {state_path}")
-            await auth_driver.close()
+        if force_fresh:
+            print("   • --force-fresh specified: restarting KSS CDP daemon...")
+            res = await restart_daemon("kss", wait_s=90)
+        else:
+            res = await ensure_daemon("kss", wait_s=90.0)
+        st = await cdp_session_status("kss")
+        print(f"   • Daemon Result: status={res.get('status')} state={st.get('state')} port={st.get('port')} pid={st.get('pid')}")
+        print(f"   • URL: {st.get('url') or 'N/A'}")
+        if st.get("state") == "AUTHENTICATED":
+            print(f" {C_GREEN}{C_BOLD}✅ Krungsri (KSS) CDP Active Session Verified!{C_RESET}")
             return True
         else:
-            print(f"\n {C_RED}❌ Login failed: {login_res.message}{C_RESET}")
-            await push_krungsri_login_alert("login rejected", login_res.message or "unknown login error")
-            await auth_driver.close()
+            print(f" {C_YELLOW}⚠️ Krungsri (KSS) CDP session not authenticated (state={st.get('state')}).{C_RESET}")
+            await push_krungsri_login_alert(
+                "CDP session not authenticated",
+                f"CDP port {st.get('port')} state is {st.get('state')} (reason: {st.get('reason')})",
+            )
             return False
     except Exception as e:
-        print(f"\n {C_RED}❌ Login exception: {e}{C_RESET}")
-        await push_krungsri_login_alert("login exception", str(e))
-        try:
-            await auth_driver.close()
-        except Exception:
-            pass
+        print(f"\n {C_RED}❌ Krungsri CDP verification exception: {e}{C_RESET}")
+        await push_krungsri_login_alert("CDP exception", str(e))
         return False
 
 
 # ==============================================================================
-# STAGE 3: Liberator WebTrade Session Gate
+# STAGE 3: Liberator CDP Session Gate
 # ==============================================================================
 async def stage3_verify_liberator_session(force_fresh: bool = False) -> bool:
     print("\n" + "=" * 75)
-    print(f"{C_BOLD}{C_CYAN}🛡️ [STAGE 3/4] Verifying Liberator WebTrade Authentication...{C_RESET}")
+    print(f"{C_BOLD}{C_CYAN}🛡️ [STAGE 3/4] Verifying Liberator CDP Daemon & Session...{C_RESET}")
     print("=" * 75)
 
-    from app.brokers.liberator.driver import liberator_driver
-
-    state_path = liberator_driver.session_path
-    has_state_file = os.path.exists(state_path)
-
-    # Fast-path check: Existing session validation
-    if has_state_file and not force_fresh:
-        print(f" • Checking saved Liberator session state in {state_path}...")
-        try:
-            if await liberator_driver.verify_saved_session():
-                print(f" {C_GREEN}{C_BOLD}✅ Liberator WebTrade Active Session Verified! (Zero-OTP Pass <2s){C_RESET}")
-                print(f"   • Status: {liberator_driver.status}")
-                print(f"   • URL:    {liberator_driver.current_url or 'https://webtrade.liberator.co.th/Portfolio'}")
-                await liberator_driver.close()
-                return True
-            else:
-                print(f" {C_YELLOW}⚠️ Saved Liberator session is invalid/expired. It will be discarded for a fresh session.{C_RESET}")
-                await liberator_driver.close()
-        except Exception as e:
-            print(f" {C_YELLOW}⚠️ Liberator check notice: {e}. Initiating fresh login...{C_RESET}")
-            try:
-                await liberator_driver.close()
-            except Exception:
-                pass
-
-    # No headed login at startup: use the 'Connect All Brokers' button on /console instead.
-    print(f" {C_YELLOW}⚠️  LIBERATOR OFFLINE: No valid (unexpired) Liberator session was found.")
-    print(f"      • Session file : {state_path} ({'present' if has_state_file else 'missing'})")
-    print(f"      • Skipping headed login at startup (anti-2FA-SMS policy).")
-    print(f"      • 👉 Use 'Connect All Brokers' on /console to authenticate when needed.{C_RESET}")
-    return False
+    print(" • Checking / ensuring Liberator CDP daemon on port 9334...")
+    try:
+        if force_fresh:
+            print("   • --force-fresh specified: restarting Liberator CDP daemon...")
+            res = await restart_daemon("liberator", wait_s=90)
+        else:
+            res = await ensure_daemon("liberator", wait_s=90.0)
+        st = await cdp_session_status("liberator")
+        print(f"   • Daemon Result: status={res.get('status')} state={st.get('state')} port={st.get('port')} pid={st.get('pid')}")
+        print(f"   • URL: {st.get('url') or 'N/A'}")
+        if st.get("state") == "AUTHENTICATED":
+            print(f" {C_GREEN}{C_BOLD}✅ Liberator CDP Active Session Verified!{C_RESET}")
+            return True
+        else:
+            print(f" {C_YELLOW}⚠️ Notice: Liberator CDP session not authenticated (state={st.get('state')}). Continuing...{C_RESET}")
+            return False
+    except Exception as e:
+        print(f" {C_YELLOW}⚠️ Liberator CDP check notice: {e}. Continuing...{C_RESET}")
+        return False
 
 
 # ==============================================================================
@@ -533,8 +463,7 @@ async def stage1_check_otp_relay(server_port: int = 8000, dev: bool = False) -> 
       2. FastAPI gateway listening :8000 — จุดรับ webhook จาก cloudflared tunnel
          ถ้ายังปิดอยู่ จะ "เปิดให้เลย" ที่นี่ เพราะคำตอบ OTP เข้าทาง gateway เท่านั้น
 
-    ตรวจผ่าน `otp_relay_readiness.check()` — ตัวเดียวกับที่ auth_driver /
-    liberator_driver / daily_readiness ใช้ (single source of truth, ไม่มี gate ลวง)
+    ตรวจผ่าน `otp_relay_readiness.check()` — (single source of truth, ไม่มี gate ลวง)
     """
     print("\n" + "=" * 75)
     print(f"{C_BOLD}{C_CYAN}📱 [STAGE 1/4] Checking OTP Relay (LINE: กลุ่ม '{LINE_GROUP_NAME}' หรือแชท 1:1)...{C_RESET}")
@@ -651,6 +580,20 @@ def stage4_launch_server_and_console(server_port: int = 8000, dev: bool = False,
             f"Not ready: {', '.join(degraded)} | Cockpit Live — use /console to reconnect",
             urgency="normal"
         )
+
+    # Print Broker CDP Status Summary
+    print("\n" + "-" * 75)
+    print(f"{C_BOLD}📊 BROKER CDP DAEMON SUMMARY:{C_RESET}")
+    for broker_name in ("kss", "liberator"):
+        try:
+            st = asyncio.run(cdp_session_status(broker_name))
+            color = C_GREEN if st.get('state') == 'AUTHENTICATED' else (C_YELLOW if st.get('state') in ('LOGIN_PAGE', 'OTP_PAGE') else C_RED)
+            print(f" • {broker_name.upper():<9}: state={color}{st.get('state')}{C_RESET} | port={st.get('port')} | pid={st.get('pid')} | url={st.get('url')}")
+            if st.get('state') in ('LOGIN_PAGE', 'OTP_PAGE'):
+                print(f"   {C_YELLOW}👉 พิมพ์ OTP ในหน้าต่าง Chrome หรือใช้การ์ด LINE เพื่อยืนยันตัวตน{C_RESET}")
+        except Exception as e:
+            print(f" • {broker_name.upper():<9}: {C_RED}probe error ({e}){C_RESET}")
+    print("-" * 75)
 
     # Print Readiness Summary Banner and CLI Runner Cheat Sheet
     print("\n" + "=" * 75)
@@ -769,30 +712,30 @@ def main():
     plan = resolve_startup_plan(relay_ok, args.skip_login, args.skip_liberator)
     STARTUP_STATUS["kde"] = plan["kde_ready"]
 
-    # 2. Stage 2: Krungsri Login Check (hard gate when it actually RUNS)
+    # 2. Stage 2: Krungsri (KSS) CDP Session Check (hard gate when it actually RUNS)
     if plan["run_krungsri"]:
         login_ok = asyncio.run(stage2_verify_krungsri_session(force_fresh=args.force_fresh))
         STARTUP_STATUS["krungsri"] = login_ok
         if not login_ok:
-            print(f"{C_RED}Aborting startup because Krungsri TradeMan session could not be established.{C_RESET}")
+            print(f"{C_RED}Aborting startup because Krungsri (KSS) CDP session could not be established.{C_RESET}")
             sys.exit(1)
     else:
         if plan["degrade_krungsri"]:
             STARTUP_STATUS["krungsri"] = False
-            print(f"\n{C_YELLOW}📵  OTP relay OFFLINE — skipping Krungsri TradeMan login (degraded).{C_RESET}")
+            print(f"\n{C_YELLOW}📵  OTP relay OFFLINE — skipping Krungsri (KSS) CDP session check (degraded).{C_RESET}")
         else:
             print(f"\n{C_YELLOW}⚠️  Skipping Stage 2 (Krungsri Login) as requested by --skip-login.{C_RESET}")
 
-    # 3. Stage 3: Liberator WebTrade Session Check (independent, optional, no headed login)
+    # 3. Stage 3: Liberator CDP Session Check (independent, optional, no headed login)
     if plan["run_liberator"]:
         liberator_ok = asyncio.run(stage3_verify_liberator_session(force_fresh=args.force_fresh))
         STARTUP_STATUS["liberator"] = liberator_ok
         if not liberator_ok:
-            print(f"{C_YELLOW}⚠️ Notice: Liberator session could not be verified. Continuing...{C_RESET}")
+            print(f"{C_YELLOW}⚠️ Notice: Liberator CDP session could not be verified. Continuing...{C_RESET}")
     else:
         if plan["degrade_liberator"]:
             STARTUP_STATUS["liberator"] = False
-            print(f"\n{C_YELLOW}📵  OTP relay OFFLINE — skipping Liberator session check (degraded).{C_RESET}")
+            print(f"\n{C_YELLOW}📵  OTP relay OFFLINE — skipping Liberator CDP session check (degraded).{C_RESET}")
         else:
             print(f"\n{C_YELLOW}⚠️  Skipping Stage 3 (Liberator) as requested by --skip-liberator.{C_RESET}")
 
