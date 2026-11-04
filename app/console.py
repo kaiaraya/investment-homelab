@@ -696,7 +696,7 @@ CONSOLE_HTML = r"""<!DOCTYPE html>
                     🔄 Reload
                 </button>
                 <button class="btn-master-connect" id="btnMasterConnect" onclick="triggerConnectAll()">
-                    ⚡ Connect All Brokers (Prepare MCP)
+                    ⚡ Connect All Brokers (CDP)
                 </button>
             </div>
         </div>
@@ -1349,13 +1349,27 @@ CONSOLE_HTML = r"""<!DOCTYPE html>
     async function triggerConnectAll() {
         const btn = document.getElementById('btnMasterConnect');
         await withButtonLock(btn, "Connecting All Sessions...", async () => {
-            showToast("⚡ กำลังเชื่อมต่อทุกโบรกเกอร์ (KDE Connect, Click2Win, TradeMan, Open API)...");
-            appendLog("Triggered 1-Click Connect All Brokers for MCP operations...");
+            showToast("⚡ กำลังเชื่อมต่อทุกโบรกเกอร์ (KSS :9333, LIB :9334)...");
+            appendLog("Triggered 1-Click Connect All Brokers (CDP) [KSS :9333, LIB :9334]...");
             try {
                 const res = await fetch(`${API_BASE}/session/connect-all`, { method: 'POST' });
                 const data = await res.json();
                 appendLog(`Connect All Completed: ${JSON.stringify(data.actions)}`, "success");
-                showToast("เชื่อมต่อทุกโบรกเกอร์เรียบร้อยแล้ว!");
+
+                let otpNotice = null;
+                for (const b of ['krungsri', 'liberator']) {
+                    const act = data.actions?.[b];
+                    if (act && (act.state === 'OTP_PAGE' || act.state === 'LOGIN_PAGE')) {
+                        otpNotice = `${b.toUpperCase()} (:${act.port || ''}): ${act.message || 'เปิดหน้า login แล้ว รอ OTP ที่การ์ด LINE'}`;
+                        break;
+                    }
+                }
+                if (otpNotice) {
+                    showToast(otpNotice);
+                    appendLog(otpNotice, "warn");
+                } else {
+                    showToast("เชื่อมต่อทุกโบรกเกอร์ (CDP) เรียบร้อยแล้ว!");
+                }
                 checkUnifiedHealth();
             } catch (e) {
                 appendLog(`Connect All failed: ${e.message}`, "error");

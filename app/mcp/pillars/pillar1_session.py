@@ -268,12 +268,10 @@ async def session_logout_all() -> Dict[str, Any]:
 
 async def session_connect_all() -> Dict[str, Any]:
     """
-    Connects/prepares all platforms in one click for MCP Server operations.
+    Connects/prepares all platforms in one click (CDP-first).
     1. Refreshes KDE Connect device discovery
-    2. Prepares Settrade Click2Win Sandbox session
-    3. Checks/Restores Krungsri TradeMan session
-    4. Checks/Restores Liberator Securities WebTrade session
-    5. Validates Settrade Open API direct token readiness
+    2. Attaches or ensures Krungsri CDP session daemon (:9333)
+    3. Attaches or ensures Liberator CDP session daemon (:9334)
     """
     results: Dict[str, Any] = {}
 
@@ -285,33 +283,66 @@ async def session_connect_all() -> Dict[str, Any]:
     except Exception as e:
         results["kdeconnect"] = {"status": "error", "error": str(e)}
 
-    # 2. Click2Win Sandbox
-    try:
-        c2w = await session_login_broker("CLICK2WIN")
-        results["click2win"] = c2w
-    except Exception as e:
-        results["click2win"] = {"success": False, "error": str(e)}
+    # 2. Broker CDP Daemons (Krungsri :9333, Liberator :9334)
+    from app.services.broker_cdp import daemon_launcher
 
-    # 3. Krungsri TradeMan
-    try:
-        kss = await session_login_broker("TRADEMAN")
-        results["krungsri"] = kss
-    except Exception as e:
-        results["krungsri"] = {"success": False, "error": str(e)}
+    broker_targets = [
+        ("krungsri", "kss"),
+        ("liberator", "liberator"),
+    ]
 
-    # 4. Liberator Securities
-    try:
-        lib = await session_login_broker("LIBERATOR")
-        results["liberator"] = lib
-    except Exception as e:
-        results["liberator"] = {"success": False, "error": str(e)}
+    for broker_key, broker_slug in broker_targets:
+        try:
+            st = await daemon_launcher.daemon_state(broker_slug)
+            curr_state = st.get("state")
+            if curr_state == "AUTHENTICATED":
+                results[broker_key] = {
+                    "success": True,
+                    "status": "already_up",
+                    "state": "AUTHENTICATED",
+                    "port": st.get("port"),
+                    "pid": st.get("pid"),
+                    "message": f"{broker_key.capitalize()} CDP daemon active and authenticated",
+                }
+            elif curr_state in ("OTP_PAGE", "LOGIN_PAGE"):
+                results[broker_key] = {
+                    "success": False,
+                    "status": curr_state,
+                    "state": curr_state,
+                    "port": st.get("port"),
+                    "pid": st.get("pid"),
+                    "message": "เปิดหน้า login แล้ว รอ OTP ที่การ์ด LINE",
+                }
+            else:
+                ens = await daemon_launcher.ensure_daemon(broker_slug)
+                ens_state = ens.get("state")
+                is_auth = (ens_state == "AUTHENTICATED")
+                if ens_state in ("OTP_PAGE", "LOGIN_PAGE"):
+                    msg = "เปิดหน้า login แล้ว รอ OTP ที่การ์ด LINE"
+                elif is_auth:
+                    msg = f"{broker_key.capitalize()} CDP daemon connected and authenticated"
+                else:
+                    msg = f"{broker_key.capitalize()} CDP daemon state: {ens_state}"
 
-    # 5. Settrade Open API
-    try:
-        api = await session_login_broker("SETTRADE_OPENAPI")
-        results["settrade_openapi"] = api
-    except Exception as e:
-        results["settrade_openapi"] = {"success": False, "error": str(e)}
+                results[broker_key] = {
+                    "success": is_auth,
+                    "status": ens.get("status") or ens_state,
+                    "state": ens_state,
+                    "port": ens.get("port"),
+                    "pid": ens.get("pid"),
+                    "message": msg,
+                }
+        except Exception as e:
+            logger.error(f"Pillar 1: Error connecting {broker_key} CDP daemon: {e}")
+            results[broker_key] = {
+                "success": False,
+                "status": "error",
+                "state": "UNKNOWN",
+                "port": 9333 if broker_slug == "kss" else 9334,
+                "pid": None,
+                "error": str(e),
+                "message": f"Failed to connect {broker_key}: {e}",
+            }
 
     # Aggregated Health
     health = await session_get_health()

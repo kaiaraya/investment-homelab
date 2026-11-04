@@ -101,8 +101,14 @@ MODULE_TEST_MAP: Dict[str, List[str]] = {
         "tests/test_sbl_intelligence.py",
         "tests/test_line_cli_handlers_sbl.py",
     ],
-    # Pillar 1 session (CLI-RCA-005: /login lib NameError — missing `import os`)
-    "app/mcp/pillars/pillar1_session.py": ["tests/test_pillar1_session.py"],
+    "app/api/v1/endpoints/session.py": [
+        "tests/test_console_cockpit_api.py",
+        "tests/test_session_connect_all_cdp.py",
+    ],
+    "app/mcp/pillars/pillar1_session.py": [
+        "tests/test_pillar1_session.py",
+        "tests/test_session_connect_all_cdp.py",
+    ],
     # Pillar 2 portfolio (CLI-RCA-003 Anti-Mock balances; RCA-002/RCA-006 holdings)
     "app/mcp/pillars/pillar2_portfolio.py": ["tests/test_remote_mcp.py", "tests/test_pillar2_order_ledger.py"],
     "app/services/kdeconnect_service.py": ["tests/test_kdeconnect_service.py"],
