@@ -9,7 +9,6 @@ Handles:
 
 import asyncio
 import logging
-import os
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 

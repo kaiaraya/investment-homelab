@@ -218,8 +218,8 @@ def _patch_relay(monkeypatch, ready=True, reason="ok", channel="line_group"):
 
 @pytest.mark.asyncio
 async def test_login_never_fires_sms_when_relay_not_ready(service, db_session, monkeypatch):
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9333})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=False, reason="relay down")
 
     res = await _run(service, "/login kss", db=db_session)
@@ -231,22 +231,21 @@ async def test_login_never_fires_sms_when_relay_not_ready(service, db_session, m
 @pytest.mark.asyncio
 async def test_login_kss_acks_then_pushes_success(service, db_session, monkeypatch):
     monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9333})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login kss", db=db_session)
     assert res["status"] == "CLI_LOGIN" and res["results"][0]["status"] == "ok"
     assert "กำลังเข้าระบบ" in service.last_text()      # ack first (reply)
     assert any("สำเร็จ" in _text_of(m) for m, _ in service.pushes)
-    login.assert_awaited_once()
-    assert login.await_args.kwargs["platform"] == "TRADEMAN"
+    login.assert_awaited_once_with("kss", force=False)
 
 
 @pytest.mark.asyncio
 async def test_login_skips_when_already_alive_without_force(service, db_session, monkeypatch):
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9333})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login kss", db=db_session)   # fixture: session alive
@@ -258,14 +257,14 @@ async def test_login_skips_when_already_alive_without_force(service, db_session,
 @pytest.mark.asyncio
 async def test_login_all_is_sequential_kss_then_lib(service, db_session, monkeypatch):
     monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9333})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login all", db=db_session)
     assert [r["broker"] for r in res["results"]] == ["kss", "lib"]
-    platforms = [c.kwargs["platform"] for c in login.await_args_list]
-    assert platforms == ["TRADEMAN", "LIBERATOR"]
+    brokers = [c.args[0] for c in login.await_args_list]
+    assert brokers == ["kss", "lib"]
 
 
 @pytest.mark.asyncio
@@ -275,7 +274,7 @@ async def test_login_pushes_error_when_broker_raises(service, db_session, monkey
     def boom(*a, **k):
         raise NameError("name 'os' is not defined")
 
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", boom)
+    monkeypatch.setattr(handlers, "_login_via_daemon", boom)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login lib", db=db_session)
@@ -323,8 +322,8 @@ ATTACHED_KSS = {
 async def test_login_attaches_cdp_without_otp(service, db_session, monkeypatch):
     """Probe AUTHENTICATED → attach; `session_login_broker` must NEVER be called."""
     monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(return_value=dict(ATTACHED_KSS)))
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED"})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     # Relay down proves the attach path is truly zero-OTP: no SMS gate is consulted.
     _patch_relay(monkeypatch, ready=False, reason="relay down")
 
@@ -347,8 +346,8 @@ async def test_login_all_attaches_both_without_otp(service, db_session, monkeypa
         {**ATTACHED_KSS, "broker": "lib", "purpose": "portfolio", "port": 9334},
     ])
     monkeypatch.setattr(handlers, "_attach_session_cdp", attach)
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED"})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=False, reason="relay down")
 
     res = await _run(service, "/login all", db=db_session)
@@ -363,15 +362,14 @@ async def test_login_force_never_attaches_and_still_asks_otp(service, db_session
     """`force` stays the only path that opens a browser + OTP."""
     attach = AsyncMock(return_value=dict(ATTACHED_KSS))
     monkeypatch.setattr(handlers, "_attach_session_cdp", attach)
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9333})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login kss force", db=db_session)
 
     attach.assert_not_awaited()
-    login.assert_awaited_once()
-    assert login.await_args.kwargs["force_fresh"] is True
+    login.assert_awaited_once_with("kss", force=True)
     assert res["results"][0]["status"] == "ok"
     assert "OTP 6 หลัก" in service.last_text()
 
@@ -380,15 +378,14 @@ async def test_login_force_never_attaches_and_still_asks_otp(service, db_session
 async def test_login_falls_back_to_otp_when_attach_fails(service, db_session, monkeypatch):
     monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(return_value=None))
     monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9334})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login lib", db=db_session)
 
     assert res["results"][0]["status"] == "ok"
-    login.assert_awaited_once()
-    assert login.await_args.kwargs["platform"] == "LIBERATOR"
+    login.assert_awaited_once_with("lib", force=False)
 
 
 @pytest.mark.asyncio
@@ -396,15 +393,14 @@ async def test_login_partial_attach_then_otp_for_the_rest(service, db_session, m
     """`/login all` with only kss attached: lib still falls back to the OTP flow."""
     monkeypatch.setattr(handlers, "_attach_session_cdp", AsyncMock(side_effect=[dict(ATTACHED_KSS), None]))
     monkeypatch.setattr(handlers, "_broker_session_alive", AsyncMock(return_value=False))
-    login = AsyncMock(return_value={"success": True})
-    monkeypatch.setattr("app.mcp.pillars.pillar1_session.session_login_broker", login)
+    login = AsyncMock(return_value={"status": "spawned", "state": "AUTHENTICATED", "port": 9334})
+    monkeypatch.setattr(handlers, "_login_via_daemon", login)
     _patch_relay(monkeypatch, ready=True)
 
     res = await _run(service, "/login all", db=db_session)
 
     assert [(r["broker"], r["status"]) for r in res["results"]] == [("kss", "attached"), ("lib", "ok")]
-    login.assert_awaited_once()
-    assert login.await_args.kwargs["platform"] == "LIBERATOR"
+    login.assert_awaited_once_with("lib", force=False)
 
 
 @pytest.mark.asyncio

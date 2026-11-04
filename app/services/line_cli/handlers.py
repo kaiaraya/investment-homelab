@@ -250,6 +250,18 @@ async def _detach_session_cdp(broker: str) -> bool:
         return False
 
 
+async def _login_via_daemon(broker: str, force: bool = False) -> Dict[str, Any]:
+    """Launch or restart the broker's CDP session daemon via daemon_launcher.
+
+    Calls daemon_launcher.restart_daemon if force=True, otherwise ensure_daemon.
+    Does NOT call session_login_broker (Pillar 1).
+    """
+    from app.services.broker_cdp import daemon_launcher
+    if force:
+        return await daemon_launcher.restart_daemon(broker)
+    return await daemon_launcher.ensure_daemon(broker)
+
+
 async def _broker_sync_orders_cdp(broker: str) -> Optional[Dict[str, Any]]:
     """B.7 — diff the order ledger against `orders`, record manual orders (best-effort)."""
     try:
@@ -740,7 +752,6 @@ async def _handle_login(
 ) -> Dict[str, Any]:
     from app.services.kill_switch_service import kill_switch_service
     from app.services.otp_relay_readiness import otp_relay_readiness
-    from app.mcp.pillars.pillar1_session import session_login_broker
 
     if kill_switch_service.is_active():
         await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
@@ -807,22 +818,29 @@ async def _handle_login(
                         to_user_id=push_target)
                     results.append({"broker": b, "status": "already_alive"})
                     continue
-                res = await session_login_broker(platform=_broker_platform(b), force_fresh=force)
-                if res.get("success"):
+                res = await _login_via_daemon(b, force=force)
+                state = res.get("state")
+                status = res.get("status")
+                if state == "AUTHENTICATED":
                     await service.push_message(
                         _text(f"✅ {BROKER_LABEL[b]} เข้าระบบสำเร็จ · {_now_bkk().strftime('%H:%M:%S')}",
                               quick=[f"/port {b}", f"/orders {b}"]),
                         to_user_id=push_target)
-                    results.append({"broker": b, "status": "ok"})
+                    results.append({"broker": b, "status": "ok", "state": state})
+                elif state in ("OTP_PAGE", "LOGIN_PAGE") or status in ("spawned", "already_up"):
+                    await service.push_message(
+                        _text(f"⏳ {BROKER_LABEL[b]} daemon พร้อมแล้ว — กำลังรอ OTP (พิมพ์ OTP 6 หลักในกลุ่มนี้)"),
+                        to_user_id=push_target)
+                    results.append({"broker": b, "status": "awaiting_otp", "state": state})
                 else:
-                    err = res.get("message") or res.get("error") or "ไม่ทราบสาเหตุ"
+                    err = res.get("message") or f"{BROKER_LABEL[b]} session daemon state: {state or status or 'UNKNOWN'}"
                     from app.services.broker_cdp.daemon_launcher import get_log_tail
-                    tail = get_log_tail(b, max_lines=5)
+                    tail = res.get("log_tail") or await asyncio.to_thread(get_log_tail, b, max_lines=5)
                     fail_msg = f"❌ {BROKER_LABEL[b]} เข้าระบบไม่สำเร็จ: {err}"
                     if tail:
                         fail_msg += f"\n--- log tail ---\n{tail}"
                     await service.push_message(_text(fail_msg), to_user_id=push_target)
-                    results.append({"broker": b, "status": "failed", "detail": err})
+                    results.append({"broker": b, "status": "failed", "detail": err, "state": state})
         except Exception as e:
             logger.exception(f"LINE CLI /login {parsed.broker} failed")
             await service.push_message(
