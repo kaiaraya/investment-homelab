@@ -134,7 +134,7 @@ async def get_unified_health():
 
 @router.post("/connect-all")
 async def trigger_connect_all():
-    """Triggers 1-click connection/preparation for all brokers and hardware bridges."""
+    """Triggers 1-click connection/preparation for all brokers (CDP-first) and hardware bridges."""
     from app.mcp.pillars.pillar1_session import session_connect_all
     return await session_connect_all()
 

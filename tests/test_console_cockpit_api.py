@@ -68,24 +68,31 @@ async def test_unified_health_and_connect_all_endpoints():
         assert "kdeconnect" in data
         assert "status" in data["kdeconnect"]
 
-        # 2. Connect all brokers (mocked to prevent live browser launches)
-        mock_connect_res = {
-            "success": True,
-            "actions": {
-                "kdeconnect": {"status": "refreshed", "reachable": True},
-                "click2win": {"success": True, "status": "AUTHENTICATED"},
-                "krungsri": {"success": True, "status": "AUTHENTICATED"}
-            },
-            "health": data
-        }
-        with patch("app.mcp.pillars.pillar1_session.session_connect_all", new_callable=AsyncMock) as m_conn:
-            m_conn.return_value = mock_connect_res
+        # 2. Connect all brokers (CDP-first)
+        with patch("app.services.broker_cdp.daemon_launcher.daemon_state", new_callable=AsyncMock) as m_state, \
+             patch("app.services.kdeconnect_service.kdeconnect_service.refresh_devices", new_callable=AsyncMock), \
+             patch("app.services.kdeconnect_service.kdeconnect_service.is_device_reachable", new_callable=AsyncMock, return_value=True), \
+             patch("app.mcp.pillars.pillar1_session.session_get_health", new_callable=AsyncMock, return_value=data):
+            
+            async def fake_daemon_state(broker):
+                port = 9333 if broker in ("kss", "krungsri") else 9334
+                return {"state": "AUTHENTICATED", "port": port, "page_url": "http://test", "pid": 1000 + port}
+            
+            m_state.side_effect = fake_daemon_state
+            
             res_connect = await client.post("/api/v1/session/connect-all")
             assert res_connect.status_code == 200
             conn_data = res_connect.json()
             assert conn_data.get("success") is True
             assert "actions" in conn_data
             assert "kdeconnect" in conn_data["actions"]
+            assert "krungsri" in conn_data["actions"]
+            assert "liberator" in conn_data["actions"]
+            assert "click2win" not in conn_data["actions"]
+            assert conn_data["actions"]["krungsri"]["port"] == 9333
+            assert conn_data["actions"]["krungsri"]["state"] == "AUTHENTICATED"
+            assert conn_data["actions"]["liberator"]["port"] == 9334
+            assert conn_data["actions"]["liberator"]["state"] == "AUTHENTICATED"
 
 
 @pytest.mark.asyncio
