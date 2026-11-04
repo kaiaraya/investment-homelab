@@ -751,7 +751,7 @@ async def _handle_login(
     parsed: CliCommand, service: Any, reply_token: Optional[str], push_target: Optional[str]
 ) -> Dict[str, Any]:
     from app.services.kill_switch_service import kill_switch_service
-    from app.services.otp_relay_readiness import otp_relay_readiness
+    from app.services.otp_relay_readiness import assert_push_deliverable, otp_relay_readiness
 
     if kill_switch_service.is_active():
         await service._send_reply(reply_token, _text("⛔ KILL-SWITCH ACTIVE — คำสั่งถูกระงับ · พิมพ์ RESET เพื่อปลด"))
@@ -803,10 +803,16 @@ async def _handle_login(
 
             # ── Phase 2 — legacy path: needs a real login, so the SMS gate applies ──
             # Invariant 9 — never fire SMS unless the relay gate is live.
-            relay = await otp_relay_readiness.check()
-            if not relay.ready:
-                await service._send_reply(reply_token, _text(f"🚫 OTP relay ยังไม่พร้อม: {relay.reason} — ยังไม่ส่ง SMS"))
-                return {"status": "CLI_RELAY_NOT_READY", "ready": False, "results": results}
+            if push_target:
+                push_ok, push_detail = await assert_push_deliverable(push_target)
+                if not push_ok:
+                    await service._send_reply(reply_token, _text(f"🚫 OTP relay ยังไม่พร้อม: {push_detail} — ยังไม่ส่ง SMS"))
+                    return {"status": "CLI_RELAY_NOT_READY", "ready": False, "results": results}
+            else:
+                relay = await otp_relay_readiness.check()
+                if not relay.ready:
+                    await service._send_reply(reply_token, _text(f"🚫 OTP relay ยังไม่พร้อม: {relay.reason} — ยังไม่ส่ง SMS"))
+                    return {"status": "CLI_RELAY_NOT_READY", "ready": False, "results": results}
 
             order_txt = " → ".join(BROKER_LABEL[b] for b in pending)
             await service._send_reply(reply_token, _text(

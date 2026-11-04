@@ -214,6 +214,14 @@ def _patch_relay(monkeypatch, ready=True, reason="ok", channel="line_group"):
         relay_mod.otp_relay_readiness, "check",
         AsyncMock(return_value=OtpRelayReadiness(ready=ready, channel=channel, reason=reason)),
     )
+    monkeypatch.setattr(
+        relay_mod, "assert_push_deliverable",
+        AsyncMock(return_value=(ready, reason if not ready else "reachable")),
+    )
+    monkeypatch.setattr(
+        relay_mod.otp_relay_readiness, "assert_push_deliverable",
+        AsyncMock(return_value=(ready, reason if not ready else "reachable")),
+    )
 
 
 @pytest.mark.asyncio

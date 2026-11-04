@@ -306,6 +306,39 @@ class OtpRelayReadinessService:
         """Convenience boolean wrapper."""
         return (await self.check(**kwargs)).ready
 
+    async def assert_push_deliverable(
+        self,
+        target_id: Optional[str],
+        **kwargs: Any,
+    ) -> tuple[bool, str]:
+        """Check whether a specific push target is deliverable."""
+        return await assert_push_deliverable(target_id, **kwargs)
+
+
+async def assert_push_deliverable(
+    target_id: Optional[str],
+    token: Optional[str] = None,
+    timeout: float = 6.0,
+) -> tuple[bool, str]:
+    """Check whether a specific LINE push target (group, room, user) is deliverable.
+
+    Reuses _probe_target. Returns (ok, detail).
+    """
+    if not target_id:
+        return False, "target not set"
+    from app.core.config import settings
+
+    tok = token or getattr(settings, "LINE_CHANNEL_ACCESS_TOKEN", None) or ""
+    enabled = bool(getattr(settings, "LINE_OTP_RELAY_ENABLED", True))
+    simulation = bool(getattr(settings, "LINE_SIMULATION_MODE", False))
+    if not enabled:
+        return False, "LINE OTP relay disabled (LINE_OTP_RELAY_ENABLED=False)"
+    if simulation:
+        return False, "LINE_SIMULATION_MODE=True — push/receive is mocked"
+    if not tok or tok == "mock_line_channel_token":
+        return False, "LINE_CHANNEL_ACCESS_TOKEN missing or mock"
+    return await _probe_target(target_id, tok, timeout=timeout)
+
 
 # Global singleton (same convention as kdeconnect_service / auth_driver)
 otp_relay_readiness = OtpRelayReadinessService()
