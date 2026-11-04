@@ -126,11 +126,20 @@ async def test_pillar1_session_sentinel():
         assert c2w_res["success"] is True
 
     # 3. Krungsri login
-    with patch("app.browser.auth_driver.auth_driver.login", new_callable=AsyncMock) as m_kss:
-        m_kss.return_value = MagicMock(success=False, message="Awaiting 2FA OTP", otp_ref="REF123")
+    with patch("app.services.broker_cdp.daemon_launcher.ensure_daemon", new_callable=AsyncMock) as m_kss:
+        m_kss.return_value = {
+            "status": "waiting",
+            "broker": "kss",
+            "port": 9333,
+            "pid": 1234,
+            "page_url": "https://wme2.settrade.com/realtime/streaming7/StreamingPage.jsp",
+            "state": "OTP_PAGE",
+        }
         kss_res = await session_login_broker("KRUNGSRI")
         assert kss_res["platform"] == "TRADEMAN"
-        assert kss_res["otp_ref"] == "REF123"
+        assert kss_res["success"] is False
+        assert kss_res["status"] == "OTP_PAGE"
+        assert "OTP_PAGE" in kss_res["message"]
 
     # 4. OTP submission (invalid and valid)
     bad_otp = await session_submit_otp("123")

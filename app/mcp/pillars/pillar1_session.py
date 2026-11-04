@@ -184,34 +184,54 @@ async def session_login_broker(platform: str = "CLICK2WIN", force_fresh: bool = 
     """
     plat = platform.upper().strip()
     if plat in ["KRUNGSRI", "TRADEMAN"]:
-        logger.info(f"Pillar 1: Initiating Krungsri login (force_fresh={force_fresh})...")
-        res = await auth_driver.login(force_fresh=force_fresh)
+        from app.services.broker_cdp import daemon_launcher
+        logger.info(f"Pillar 1: Initiating Krungsri session daemon (force_fresh={force_fresh})...")
+        if force_fresh:
+            spawn_res = await daemon_launcher.restart_daemon("kss")
+        else:
+            spawn_res = await daemon_launcher.ensure_daemon("kss")
+
+        st = spawn_res.get("state")
+        success = (st == "AUTHENTICATED")
+        status_str = "AUTHENTICATED" if success else (st or "UNKNOWN")
+        if success:
+            msg = "Krungsri session daemon authenticated"
+        elif st in ("OTP_PAGE", "LOGIN_PAGE"):
+            msg = f"Awaiting login/2FA on Krungsri ({st})"
+        else:
+            msg = f"Krungsri session daemon state: {st}"
+
         return {
             "platform": "TRADEMAN",
-            "success": res.success,
-            "status": auth_driver.status,
-            "message": res.message,
-            "otp_ref": res.otp_ref
+            "success": success,
+            "status": status_str,
+            "message": msg,
+            "otp_ref": None,
         }
     elif plat in ["LIBERATOR"]:
-        logger.info(f"Pillar 1: Initiating Liberator login (force_fresh={force_fresh})...")
-        from app.brokers.liberator.driver import liberator_driver
-        if not force_fresh and os.path.exists(liberator_driver.session_path):
-            ok = await liberator_driver.verify_saved_session()
-            if ok:
-                return {
-                    "platform": "LIBERATOR",
-                    "success": True,
-                    "status": "AUTHENTICATED",
-                    "message": "Liberator active session verified"
-                }
-        res = await liberator_driver.login(force_fresh=force_fresh)
+        from app.services.broker_cdp import daemon_launcher
+        logger.info(f"Pillar 1: Initiating Liberator session daemon (force_fresh={force_fresh})...")
+        if force_fresh:
+            spawn_res = await daemon_launcher.restart_daemon("lib")
+        else:
+            spawn_res = await daemon_launcher.ensure_daemon("lib")
+
+        st = spawn_res.get("state")
+        success = (st == "AUTHENTICATED")
+        status_str = "AUTHENTICATED" if success else (st or "UNKNOWN")
+        if success:
+            msg = "Liberator session daemon authenticated"
+        elif st in ("OTP_PAGE", "LOGIN_PAGE"):
+            msg = f"Awaiting login/2FA on Liberator ({st})"
+        else:
+            msg = f"Liberator session daemon state: {st}"
+
         return {
             "platform": "LIBERATOR",
-            "success": res.success,
-            "status": res.status.value if hasattr(res.status, "value") else str(res.status),
-            "message": res.message,
-            "otp_ref": res.otp_ref
+            "success": success,
+            "status": status_str,
+            "message": msg,
+            "otp_ref": None,
         }
     elif plat in ["SETTRADE_OPENAPI", "SETTRADE"]:
         logger.info("Pillar 1: Initiating Settrade Open API token check...")

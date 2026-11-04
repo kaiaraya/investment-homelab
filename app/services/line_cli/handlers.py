@@ -750,14 +750,18 @@ async def _handle_login(
     brokers: List[str] = ["kss", "lib"] if broker_arg == "all" else [broker_arg]
     force = parsed.has("force")
 
-    key = ("login", parsed.broker or "-")
-    lock = _lock_for(*key)
-    if lock.locked():
+    key = ("login", "all" if broker_arg == "all" else broker_arg)
+    # 4.6: Prevent /login kss and /login all running concurrently
+    login_locks = [_lock_for("login", "gate"), _lock_for(*key)]
+    if any(l.locked() for l in login_locks):
         await service._send_reply(reply_token, _text(
             f"⏳ /login {parsed.broker} กำลังทำงานอยู่ (เริ่ม {_STARTED.get(key, '-')}) — รอผลสักครู่"))
         return {"status": "CLI_BUSY"}
 
-    async with lock:
+    from contextlib import AsyncExitStack
+    async with AsyncExitStack() as stack:
+        for l in login_locks:
+            await stack.enter_async_context(l)
         _STARTED[key] = _now_bkk().strftime("%H:%M:%S")
         results: List[Dict[str, Any]] = []
         try:
@@ -797,7 +801,7 @@ async def _handle_login(
             await service._send_reply(reply_token, _text(
                 f"🔐 กำลังเข้าระบบ {order_txt}… เมื่อได้ SMS ให้พิมพ์ OTP 6 หลักในกลุ่มนี้ (หมดเวลาใน 3 นาที)"))
             for b in pending:
-                if await _broker_session_alive(b) and not force:
+                if await _broker_session_alive(b, fail_closed=True) and not force:
                     await service.push_message(
                         _text(f"🟢 {BROKER_LABEL[b]} เชื่อมต่ออยู่แล้ว — ใช้ /login {b} force เพื่อเข้าใหม่"),
                         to_user_id=push_target)
@@ -812,8 +816,12 @@ async def _handle_login(
                     results.append({"broker": b, "status": "ok"})
                 else:
                     err = res.get("message") or res.get("error") or "ไม่ทราบสาเหตุ"
-                    await service.push_message(
-                        _text(f"❌ {BROKER_LABEL[b]} เข้าระบบไม่สำเร็จ: {err}"), to_user_id=push_target)
+                    from app.services.broker_cdp.daemon_launcher import get_log_tail
+                    tail = get_log_tail(b, max_lines=5)
+                    fail_msg = f"❌ {BROKER_LABEL[b]} เข้าระบบไม่สำเร็จ: {err}"
+                    if tail:
+                        fail_msg += f"\n--- log tail ---\n{tail}"
+                    await service.push_message(_text(fail_msg), to_user_id=push_target)
                     results.append({"broker": b, "status": "failed", "detail": err})
         except Exception as e:
             logger.exception(f"LINE CLI /login {parsed.broker} failed")
